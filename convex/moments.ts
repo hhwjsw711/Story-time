@@ -2,10 +2,10 @@ import { ConvexError, v } from "convex/values";
 import type { Infer } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
+import { encodeBlocks, encodePlace, invalid, localKeys } from "./lib/blocks";
 import { recordChange } from "./lib/changes";
-import { decryptText, encryptText, placeKeyFor } from "./lib/crypto";
-import { MAX_BLOCKS_PER_MOMENT, MAX_TEXT_LENGTH } from "./lib/limits";
-import type { Doc } from "./_generated/dataModel";
+import { decryptText } from "./lib/crypto";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 
 // The decrypted shape clients send and receive.
@@ -32,22 +32,6 @@ export const vMomentView = v.object({
   place: v.optional(v.string()),
   blocks: v.array(vPlainBlock),
 });
-
-function invalid(field: string, message: string): never {
-  throw new ConvexError({ code: "INVALID", field, message });
-}
-
-function checkText(field: string, text: string, max = MAX_TEXT_LENGTH) {
-  const t = text.trim();
-  if (t.length === 0) invalid(field, "Can't be empty");
-  if (t.length > max) invalid(field, `Must be ${max} characters or fewer`);
-  return t;
-}
-
-function localKeys(startsAt: number, tzOffsetMinutes: number) {
-  const iso = new Date(startsAt + tzOffsetMinutes * 60_000).toISOString();
-  return { dayKey: iso.slice(0, 10), monthKey: iso.slice(0, 7) };
-}
 
 export async function viewMoment(
   event: Doc<"events">,
@@ -107,89 +91,19 @@ export const create = mutation({
       });
     }
     if (!Number.isFinite(args.startsAt)) invalid("startsAt", "Pick a date");
-    if (args.blocks.length === 0) invalid("blocks", "Add something to share");
-    if (args.blocks.length > MAX_BLOCKS_PER_MOMENT) {
-      invalid("blocks", `At most ${MAX_BLOCKS_PER_MOMENT} items per moment`);
-    }
 
-    const placeText =
-      args.place === undefined || args.place.trim() === ""
-        ? undefined
-        : checkText("place", args.place, 200);
-    const tz = Math.max(-840, Math.min(840, args.tzOffsetMinutes ?? 0));
-
-    const blocks: Doc<"moments">["blocks"] = [];
-    const mediaIds = [];
-    for (const [i, b] of args.blocks.entries()) {
-      const field = `blocks.${i}`;
-      if (b.type === "photo") {
-        const media = await ctx.db.get("media", b.mediaId);
-        if (
-          media === null ||
-          media.eventId !== args.eventId ||
-          media.uploaderId !== userId ||
-          media.status !== "ready" ||
-          media.momentId !== undefined
-        ) {
-          invalid(field, "That photo isn't available");
-        }
-        mediaIds.push(media._id);
-        blocks.push(b);
-      } else if (b.type === "link") {
-        let url: URL;
-        try {
-          url = new URL(b.url.trim());
-        } catch {
-          invalid(field, "Enter a valid link");
-        }
-        if (url.protocol !== "http:" && url.protocol !== "https:") {
-          invalid(field, "Links must start with http:// or https://");
-        }
-        if (url.href.length > 2048) invalid(field, "That link is too long");
-        blocks.push({
-          type: "link",
-          url: await encryptText(args.eventId, event.keyVersion, url.href),
-          title:
-            b.title === undefined || b.title.trim() === ""
-              ? undefined
-              : await encryptText(
-                  args.eventId,
-                  event.keyVersion,
-                  checkText(field, b.title, 200),
-                ),
-        });
-      } else if (b.type === "note") {
-        blocks.push({
-          type: "note",
-          text: await encryptText(
-            args.eventId,
-            event.keyVersion,
-            checkText(field, b.text),
-          ),
-        });
-      } else {
-        if (b.mood !== undefined && b.mood.length > 24) {
-          invalid(field, "Mood is too long");
-        }
-        blocks.push({
-          type: "feeling",
-          text: await encryptText(
-            args.eventId,
-            event.keyVersion,
-            checkText(field, b.text),
-          ),
-          mood: b.mood,
-        });
-      }
-    }
+    const { blocks, mediaIds } = await encodeBlocks(ctx, {
+      event,
+      userId,
+      blocks: args.blocks,
+    });
+    const { place, placeKey } = await encodePlace(event, args.place);
 
     const momentId = await ctx.db.insert("moments", {
       eventId: args.eventId,
       authorId: userId,
       startsAt: args.startsAt,
-      place: placeText
-        ? await encryptText(args.eventId, event.keyVersion, placeText)
-        : undefined,
+      place,
       blocks,
     });
     for (const mediaId of mediaIds) {
@@ -200,10 +114,8 @@ export const create = mutation({
       eventId: args.eventId,
       momentId,
       startsAt: args.startsAt,
-      ...localKeys(args.startsAt, tz),
-      placeKey: placeText
-        ? await placeKeyFor(args.eventId, event.keyVersion, placeText)
-        : undefined,
+      ...localKeys(args.startsAt, args.tzOffsetMinutes ?? 0),
+      placeKey,
       position: event.momentCount,
     });
     await ctx.db.patch("events", args.eventId, {
@@ -241,5 +153,162 @@ export const list = query({
   handler: async (ctx, args) => {
     const { event } = await requireEventAccess(ctx, args.eventId, "viewer");
     return listForEvent(ctx, event);
+  },
+});
+
+// Edit a moment. Only fields that are passed change; "" clears the place.
+// Returns photos dropped from the moment so the caller can delete them from
+// R2 (they are detached here; Convex can't reach R2).
+export const update = mutation({
+  args: {
+    momentId: v.id("moments"),
+    startsAt: v.optional(v.number()),
+    tzOffsetMinutes: v.optional(v.number()),
+    place: v.optional(v.string()),
+    blocks: v.optional(v.array(vPlainBlock)),
+  },
+  returns: v.object({ removedMediaIds: v.array(v.id("media")) }),
+  handler: async (ctx, args) => {
+    const moment = await ctx.db.get("moments", args.momentId);
+    if (moment === null) throw new Error("Moment not found");
+    const { userId, event, role } = await requireEventAccess(
+      ctx,
+      moment.eventId,
+      "contributor",
+    );
+    if (role !== "owner" && moment.authorId !== userId) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "You can only edit your own moments",
+      });
+    }
+    assertNotArchived(event);
+
+    const patch: Partial<Pick<Doc<"moments">, "startsAt" | "place" | "blocks">> = {};
+    const fields: string[] = [];
+    let placeKey: string | undefined | null = null; // null = unchanged
+    let removedMediaIds: Id<"media">[] = [];
+
+    if (args.startsAt !== undefined) {
+      if (!Number.isFinite(args.startsAt)) invalid("startsAt", "Pick a date");
+      if (args.startsAt !== moment.startsAt) {
+        patch.startsAt = args.startsAt;
+        fields.push("startsAt");
+      }
+    }
+
+    if (args.place !== undefined) {
+      const encoded = await encodePlace(event, args.place);
+      patch.place = encoded.place;
+      placeKey = encoded.placeKey;
+      fields.push("place");
+    }
+
+    if (args.blocks !== undefined) {
+      const encoded = await encodeBlocks(ctx, {
+        event,
+        userId,
+        blocks: args.blocks,
+        momentId: moment._id,
+      });
+      patch.blocks = encoded.blocks;
+      fields.push("blocks");
+      const before = moment.blocks.flatMap((b) => (b.type === "photo" ? [b.mediaId] : []));
+      const kept = new Set(encoded.mediaIds);
+      removedMediaIds = before.filter((id) => !kept.has(id));
+      for (const id of removedMediaIds) {
+        await ctx.db.patch("media", id, { momentId: undefined });
+      }
+      for (const id of encoded.mediaIds) {
+        if (!before.includes(id)) {
+          await ctx.db.patch("media", id, { momentId: moment._id });
+        }
+      }
+    }
+
+    if (fields.length === 0) return { removedMediaIds: [] };
+    await ctx.db.patch("moments", moment._id, patch);
+
+    // Keep the itinerary row in step with the moment.
+    const row = await ctx.db
+      .query("itinerary")
+      .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
+      .unique();
+    if (row !== null) {
+      const rowPatch: Partial<
+        Pick<Doc<"itinerary">, "startsAt" | "dayKey" | "monthKey" | "placeKey">
+      > = {};
+      if (patch.startsAt !== undefined || args.tzOffsetMinutes !== undefined) {
+        const startsAt = patch.startsAt ?? moment.startsAt;
+        Object.assign(rowPatch, {
+          startsAt,
+          ...localKeys(startsAt, args.tzOffsetMinutes ?? 0),
+        });
+      }
+      if (placeKey !== null) rowPatch.placeKey = placeKey;
+      if (Object.keys(rowPatch).length > 0) {
+        await ctx.db.patch("itinerary", row._id, rowPatch);
+      }
+    }
+
+    await recordChange(ctx, {
+      eventId: event._id,
+      entity: "moment",
+      entityId: moment._id,
+      actorId: userId,
+      action: "update",
+      fields,
+      after: patch.startsAt !== undefined ? { startsAt: patch.startsAt } : undefined,
+    });
+    return { removedMediaIds };
+  },
+});
+
+// Delete a moment. Its photos are detached and returned so the caller can
+// delete them from R2.
+export const remove = mutation({
+  args: { momentId: v.id("moments") },
+  returns: v.object({ removedMediaIds: v.array(v.id("media")) }),
+  handler: async (ctx, args) => {
+    const moment = await ctx.db.get("moments", args.momentId);
+    if (moment === null) throw new Error("Moment not found");
+    const { userId, event, role } = await requireEventAccess(
+      ctx,
+      moment.eventId,
+      "contributor",
+    );
+    if (role !== "owner" && moment.authorId !== userId) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "You can only delete your own moments",
+      });
+    }
+    assertNotArchived(event);
+
+    const removedMediaIds = moment.blocks.flatMap((b) =>
+      b.type === "photo" ? [b.mediaId] : [],
+    );
+    for (const id of removedMediaIds) {
+      await ctx.db.patch("media", id, { momentId: undefined });
+    }
+    const row = await ctx.db
+      .query("itinerary")
+      .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
+      .unique();
+    if (row !== null) await ctx.db.delete("itinerary", row._id);
+    await ctx.db.delete("moments", moment._id);
+    await ctx.db.patch("events", event._id, {
+      momentCount: Math.max(0, event.momentCount - 1),
+    });
+
+    await recordChange(ctx, {
+      eventId: event._id,
+      entity: "moment",
+      entityId: moment._id,
+      actorId: userId,
+      action: "delete",
+      fields: [],
+    });
+    return { removedMediaIds };
   },
 });
