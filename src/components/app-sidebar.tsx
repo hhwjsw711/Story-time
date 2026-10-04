@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { HomeIcon } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import {
   Sidebar,
@@ -17,6 +18,9 @@ import {
 
 const NAV = [{ to: "/home", label: "Experiences", icon: HomeIcon }] as const;
 
+const isActive = (pathname: string) =>
+  pathname === "/home" || pathname.startsWith("/e/");
+
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -27,7 +31,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild tooltip="Story-time">
               <Link to="/home">
-                <Logo className="size-7! shrink-0 group-data-[collapsible=icon]:size-4!" />
+                <Logo className="size-7! shrink-0 group-data-[collapsible=icon]:size-8!" />
                 <span className="text-base font-bold tracking-tight group-data-[collapsible=icon]:hidden">
                   Story-time
                 </span>
@@ -46,7 +50,7 @@ export function AppSidebar() {
                 <SidebarMenuButton
                   asChild
                   tooltip={label}
-                  isActive={pathname === to || pathname.startsWith("/e/")}
+                  isActive={isActive(pathname)}
                 >
                   <Link to={to}>
                     <Icon />
@@ -59,6 +63,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
+        <ThemeToggle />
         <SidebarMenu>
           <SidebarMenuItem>
             <UserMenu />
