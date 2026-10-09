@@ -1,6 +1,6 @@
-import { ChevronDownIcon, ChevronUpIcon, PlayIcon, Share2Icon, ShipIcon, TrainFrontIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, PlayIcon, Share2Icon, ShipIcon, XIcon } from "lucide-react";
 import { useId } from "react";
-import { INK, PAPER, RUST, SunsetPhoto, TitlePage, useInView, useReducedMotion } from "@/components/landing/paper";
+import { PAPER, RUST, SunsetPhoto, TitlePage, useInView, useReducedMotion } from "@/components/landing/paper";
 import { cn } from "@/lib/utils";
 
 // Pictures of the real screens, drawn rather than captured, so they work in
@@ -63,67 +63,70 @@ export function TitleFrame() {
   );
 }
 
-// The leg from Porto to Lisbon by train, on a muted map of the coast. The
-// route draws itself and the train rides it once the frame is in view.
-const ROUTE = "M34 18 C37 28 39.5 38 40.5 46 C41.5 56 35 69 28.5 80";
+// A leg as story mode shows it now: a dark street map (the Tagus, Lisbon
+// above, Almada below) with the crossing to Cacilhas. The route draws itself
+// in amber and the ferry rides it once the frame is in view.
+const ROUTE = "M31 41.5 C32 49 39 57 45 64.5";
 const ROUTE_S = 3;
-const LAND = "#ece3cf";
-const WATER = "#cdd6d3";
-const ROAD = "#dccfb5";
-const LABEL = { fontFamily: "Manrope, ui-sans-serif, system-ui, sans-serif", fontSize: 2.6, fill: INK };
+const LAND = "#1b1b1b";
+const WATER = "#10161b";
+const STREET = "#2a2a2a";
+const AVENUE = "#383838";
+const SANS = "Manrope, ui-sans-serif, system-ui, sans-serif";
+const SERIF = "ui-serif, Georgia, serif";
+// Small grey district names, the way the basemap letters them.
+const DISTRICTS = [
+  { name: "ESTRELA", x: 12, y: 22 },
+  { name: "BAIXA", x: 40, y: 27 },
+  { name: "ALFAMA", x: 62, y: 21 },
+  { name: "ALMADA", x: 28, y: 84 },
+  { name: "PRAGAL", x: 62, y: 90 },
+];
 
 export function MapFrame() {
   const reduced = useReducedMotion();
   const [ref, inView] = useInView<HTMLDivElement>();
-  // Before it's seen, the train waits in Porto; without motion it's in Lisbon.
+  // Before it's seen, the ferry waits at the quay; without motion it has
+  // arrived.
   const phase = reduced ? "done" : inView ? "play" : "wait";
 
   return (
-    <div ref={ref} aria-hidden className={cn(STAGE, "flex aspect-[4/5] flex-col gap-3 p-4")}>
-      <div className="text-center">
-        <p className="text-[0.625rem] tracking-[0.25em] text-amber-200/80 uppercase">
-          <TrainFrontIcon className="mr-1 inline size-3 align-[-2px]" />
-          By train
-        </p>
-        <p className="mt-1 font-serif text-lg font-semibold">
-          Porto <span className="text-white/40">→</span> Lisbon
-        </p>
-      </div>
+    <div ref={ref} aria-hidden className={cn(STAGE, "relative aspect-[4/5]")}>
       {/* Keyed so each phase gets a fresh SVG timeline: SMIL animations run
           from when their outermost <svg> is inserted. */}
-      <svg key={phase} viewBox="0 0 80 100" preserveAspectRatio="xMidYMid slice" className="min-h-0 w-full flex-1 rounded-md">
+      <svg key={phase} viewBox="0 0 80 100" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 size-full">
         <rect width="80" height="100" fill={WATER} />
-        <path
-          d="M38 0 C37 8 35 14 34 18 C33 26 31 34 30 41 C29 49 27 55 24 60 L20 62.5 L22.5 65 C21 70 19 74 16 78 L20.5 80 C22.5 79 24.5 79 26.5 80.5 C28.5 82 30.5 83 32 82.5 C33.5 85 32 88 30 90 C28 93 28.5 97 28 100 L80 100 L80 0 Z"
-          fill={LAND}
-        />
-        <path d="M26.5 80.5 C29 77 35 75.5 39 78 C38 81.5 34 83.5 30.5 83 Z" fill={WATER} />
-        <g fill="none" stroke={WATER} strokeLinecap="round">
-          <path d="M34 18 C40 17 46 19 52 17 S64 16 80 19" strokeWidth="0.7" />
-          <path d="M39 78 C44 74 50 72 56 70 S70 66 80 65" strokeWidth="0.7" />
-          <path d="M30 44 C34 45 38 44 42 45 S52 47 60 46" strokeWidth="0.5" />
+        <path d="M0 0 H80 V37 C72 39 64 37 56 40 C48 43 40 41 32 42 C22 43 12 42 0 45 Z" fill={LAND} />
+        <path d="M0 68 C10 65 20 66 30 64.5 C36 63.5 40 65.5 45 65 C56 63 68 64 80 60 V100 H0 Z" fill={LAND} />
+        <g fill="none" stroke={STREET} strokeWidth="0.3">
+          <path d="M0 8 L80 4 M0 15 L80 12 M0 29 L80 24 M0 36 L56 33" />
+          <path d="M6 0 L9 44 M18 0 L20 43 M30 0 L31 42 M50 0 L49 41 M62 0 L61 38 M72 0 L71 38" />
+          <path d="M0 76 L80 70 M0 92 L80 86 M12 100 L14 66 M38 100 L40 65 M54 100 L55 64 M70 100 L70 62" />
         </g>
-        <g fill="none" stroke={ROAD} strokeWidth="0.45" strokeLinecap="round">
-          <path d="M36 19 C41 30 42.5 40 43 47 C43.5 58 38 70 31 79" />
-          <path d="M43 47 L80 40" />
-          <path d="M31 79 L80 75" />
-          <path d="M35 18 L80 8" />
+        <g fill="none" stroke={AVENUE} strokeWidth="0.6">
+          <path d="M0 21 C20 19 50 20 80 16" />
+          <path d="M24 0 C26 14 25 30 27 42" />
+          <path d="M0 84 C20 80 50 81 80 76" />
+          <path d="M46 100 C45 88 46 76 45 65" />
+          {/* The bridge, upriver. */}
+          <path d="M7 44 L11 67" strokeWidth="0.8" />
         </g>
-        <path d="M66 0 C64 20 70 40 64 60 C62 75 70 90 68 100" fill="none" stroke="#b8a98f" strokeWidth="0.3" strokeDasharray="1 1" />
-        <text x="5" y="44" fontStyle="italic" {...LABEL} fill="#7f8f8a">
-          Atlantic
+        <text x="60" y="53" fontFamily={SANS} fontSize="2.4" fontStyle="italic" fill="#3b4a55">
+          Rio Tejo
         </text>
-        <text x="5" y="47.5" fontStyle="italic" {...LABEL} fill="#7f8f8a">
-          Ocean
-        </text>
+        {DISTRICTS.map((d) => (
+          <text key={d.name} x={d.x} y={d.y} textAnchor="middle" fontFamily={SANS} fontSize="1.9" letterSpacing="0.35" fill="#6b6b6b">
+            {d.name}
+          </text>
+        ))}
 
-        {/* The leg still to travel, then the part travelled. */}
-        <path d={ROUTE} fill="none" stroke={RUST} strokeOpacity="0.35" strokeWidth="0.6" strokeDasharray="1.4 1" />
+        {/* The way still to go, then the way travelled. */}
+        <path d={ROUTE} fill="none" stroke="#e7e5e4" strokeOpacity="0.3" strokeWidth="0.5" strokeDasharray="0.5 1" />
         <path
           d={ROUTE}
           pathLength={1}
           fill="none"
-          stroke={RUST}
+          stroke="#fde68a"
           strokeWidth="1"
           strokeLinecap="round"
           strokeDasharray="1"
@@ -134,18 +137,14 @@ export function MapFrame() {
           )}
         </path>
 
-        {[
-          { name: "Porto", x: 34, y: 18 },
-          { name: "Coimbra", x: 40.6, y: 46, minor: true },
-          { name: "Lisbon", x: 28.5, y: 80 },
-        ].map((p) => (
-          <g key={p.name}>
-            <circle cx={p.x} cy={p.y} r={p.minor ? 0.8 : 1.2} fill={p.minor ? "#8a7a68" : INK} />
-            <text x={p.x + 2.4} y={p.y + 0.9} {...LABEL} fontSize={p.minor ? 2.3 : 2.8} fontWeight={p.minor ? 500 : 700} fill={p.minor ? "#8a7a68" : INK}>
-              {p.name}
-            </text>
-          </g>
-        ))}
+        <circle cx="31" cy="41.5" r="0.8" fill="#d6d3d1" stroke="#1c1917" strokeWidth="0.3" />
+        <text x="29.5" y="38.5" textAnchor="end" fontFamily={SERIF} fontSize="2.6" fill="#d6d3d1" stroke="#141210" strokeWidth="0.6" paintOrder="stroke">
+          Cais do Sodré
+        </text>
+        <circle cx="45" cy="64.5" r="1.2" fill="#fde68a" stroke={RUST} strokeWidth="0.35" />
+        <text x="45" y="72" textAnchor="middle" fontFamily={SERIF} fontSize="3.2" fontWeight="600" fill="#fde68a" stroke="#141210" strokeWidth="0.6" paintOrder="stroke">
+          Cacilhas
+        </text>
 
         <g>
           {phase === "play" ? (
@@ -153,10 +152,21 @@ export function MapFrame() {
           ) : (
             <animateMotion dur="0.01s" fill="freeze" path={ROUTE} keyTimes="0;1" keyPoints={phase === "done" ? "1;1" : "0;0"} />
           )}
-          <circle r="3" fill={PAPER} stroke={RUST} strokeWidth="0.4" />
-          <TrainFrontIcon x={-1.8} y={-1.8} width={3.6} height={3.6} color={RUST} strokeWidth={2.2} />
+          <circle r="3.2" fill={PAPER} stroke={RUST} strokeWidth="0.55" />
+          <ShipIcon x={-1.8} y={-1.8} width={3.6} height={3.6} color={RUST} strokeWidth={2.2} />
         </g>
       </svg>
+      {/* The edges fade into the stage, darkest at the top behind the caption. */}
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_45%,#141210_100%),linear-gradient(to_bottom,#141210_0%,rgb(20_18_16/0.7)_18%,transparent_40%,transparent_85%,#141210_100%)]" />
+      <div className="absolute inset-x-0 top-0 space-y-1 px-4 pt-4 text-center [text-shadow:0_1px_6px_#141210]">
+        <p className="text-[0.625rem] tracking-[0.25em] text-amber-200/90 uppercase">
+          <ShipIcon className="mr-1 inline size-3 align-[-2px]" />
+          By boat
+        </p>
+        <p className="font-serif text-lg font-semibold">
+          Cais do Sodré <span className="text-white/50">→</span> Cacilhas
+        </p>
+      </div>
     </div>
   );
 }

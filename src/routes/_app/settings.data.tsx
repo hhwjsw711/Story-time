@@ -13,7 +13,7 @@ function DataSettings() {
   return (
     <SettingsPage
       title="Data & region"
-      description="Choose where your experiences are stored, and see what we keep."
+      description="Pick a preferred region, and see what we keep. For now everything is stored in one place."
     >
       <div className="space-y-10">
         <SettingsBlock title="Region">
