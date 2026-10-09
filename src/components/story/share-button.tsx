@@ -7,6 +7,14 @@ import type { EventView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 
+// Safari only lets a click write the clipboard before its first await, so
+// the write starts at once and takes the text when it's ready.
+function copyLater(text: Promise<string>): Promise<void> {
+  if (typeof ClipboardItem === "undefined") return text.then((t) => navigator.clipboard.writeText(t));
+  const blob = text.then((t) => new Blob([t], { type: "text/plain" }));
+  return navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+}
+
 // Owners share by invite, as on the Shared tab: a one-time viewer link.
 // Everyone else copies the story's own address.
 export function ShareButton({ event, label }: { event: EventView; label?: string }) {
@@ -17,15 +25,22 @@ export function ShareButton({ event, label }: { event: EventView; label?: string
 
   async function share() {
     setBusy(true);
+    const invite = isOwner && !archived;
+    const link = invite
+      ? createInvite({ eventId: event._id, role: "viewer" }).then((r) => r.link)
+      : Promise.resolve(`${window.location.origin}/e/${event._id}/story`);
+    const copied = copyLater(link).then(
+      () => true,
+      () => false,
+    );
     try {
-      if (isOwner && !archived) {
-        const { link } = await createInvite({ eventId: event._id, role: "viewer" });
-        await navigator.clipboard.writeText(link);
-        toast.success("Invite link copied", { description: "It works once and expires in 7 days." });
-      } else {
-        await navigator.clipboard.writeText(`${window.location.origin}/e/${event._id}/story`);
-        toast.success("Link copied");
-      }
+      const url = await link;
+      const description = invite
+        ? "It works once and expires in 7 days."
+        : "Only people who already have access to this experience can open it.";
+      if (await copied) toast.success(invite ? "Invite link copied" : "Link copied", { description });
+      // The browser refused the clipboard: a fresh click on Copy is allowed.
+      else toast(url, { description, action: { label: "Copy", onClick: () => void navigator.clipboard.writeText(url) } });
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {

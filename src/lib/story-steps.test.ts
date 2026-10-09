@@ -42,8 +42,19 @@ test("a travel scene runs before any stop that has a transport", () => {
   // The first leg starts from the experience itself.
   expect(steps[1]).toMatchObject({ from: "Portugal", to: "Lisbon", transport: "plane", stopIndex: 0 });
   expect(steps[3]).toMatchObject({ from: "Lisbon", to: "Sintra", transport: "train", stopIndex: 1 });
-  // A stop without a place is named by its number.
-  expect(steps[5]).toMatchObject({ kind: "stop", stopIndex: 2 });
+  // A stop without a place is named by its number in the story.
+  expect(steps[5]).toMatchObject({ kind: "stop", stopIndex: 2, place: "Stop 3" });
+});
+
+test("place-less stops get names of their own; a real place repeated keeps its name", () => {
+  const a = moment({ _id: "a" as Id<"moments">, startsAt: 1 });
+  const b = moment({ _id: "b" as Id<"moments">, startsAt: 2, transport: "walk" });
+  const c = moment({ _id: "c" as Id<"moments">, startsAt: 3, place: "Porto", stops: [{ place: "Porto", transport: "bus", blocks: [] }] });
+  const steps = buildStorySteps("Trip", [a, b, c]);
+  const places = steps.flatMap((s) => (s.kind === "stop" ? [s.place] : []));
+  expect(places).toEqual(["Stop 1", "Stop 2", "Porto", "Porto"]);
+  // So the leg between the two place-less stops goes somewhere.
+  expect(steps.find((s) => s.kind === "travel")).toMatchObject({ from: "Stop 1", to: "Stop 2" });
 });
 
 test("the leg before a later moment starts from the previous moment's last place", () => {
@@ -51,6 +62,16 @@ test("the leg before a later moment starts from the previous moment's last place
   const b = moment({ _id: "b" as Id<"moments">, startsAt: 2, place: "Coimbra", transport: "car" });
   const steps = buildStorySteps("Trip", [a, b]);
   expect(steps[3]).toMatchObject({ kind: "travel", from: "Gaia", to: "Coimbra", transport: "car" });
+});
+
+test("legs carry where both ends are, when they're known", () => {
+  const lisbon = { lat: 38.72, lng: -9.14 };
+  const porto = { lat: 41.15, lng: -8.61 };
+  const trip = moment({ place: "Lisbon", geo: lisbon, transport: "plane", stops: [{ place: "Porto", geo: porto, transport: "train", blocks: [] }] });
+  const steps = buildStorySteps("Portugal", [trip]);
+  // The experience itself has no spot on the map.
+  expect(steps[1]).toMatchObject({ kind: "travel", fromGeo: undefined, toGeo: lisbon });
+  expect(steps[3]).toMatchObject({ kind: "travel", fromGeo: lisbon, toGeo: porto });
 });
 
 test("stop scenes carry the author and labels of their moment", () => {

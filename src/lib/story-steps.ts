@@ -2,6 +2,7 @@ import type { MomentView } from "@/components/event/types";
 
 export type Transport = NonNullable<MomentView["transport"]>;
 export type Stop = MomentView["stops"][number];
+export type LatLng = NonNullable<Stop["geo"]>;
 
 export type StoryStep =
   | { kind: "title" }
@@ -9,6 +10,9 @@ export type StoryStep =
       kind: "travel";
       from: string;
       to: string;
+      // Where each end is, when both places were picked on a map.
+      fromGeo?: LatLng;
+      toGeo?: LatLng;
       transport: Transport;
       momentId: string;
       stopIndex: number;
@@ -23,15 +27,19 @@ export type StoryStep =
       authorId: string;
       authorName?: string;
       labels: string[];
+      // Its name on the map, unique to this stop unless it's a real place.
+      place: string;
     }
   | { kind: "end" };
 
 // The first stop lives on the moment itself; later ones in `stops`.
 export function stopsOf(m: MomentView): Stop[] {
-  return [{ startsAt: m.startsAt, place: m.place, transport: m.transport, blocks: m.blocks }, ...m.stops];
+  return [{ startsAt: m.startsAt, place: m.place, geo: m.geo, transport: m.transport, blocks: m.blocks }, ...m.stops];
 }
 
-export const placeLabel = (stop: Stop, index: number) => stop.place ?? `Stop ${index + 1}`;
+// A stop without a place is numbered through the whole story, so two of
+// them never land on the same spot of the map.
+export const placeLabel = (stop: Stop, n: number) => stop.place || `Stop ${n + 1}`;
 
 // Turns an experience and its moments into the ordered scenes of the story.
 // Moments play in time order. Before any stop that records how they got
@@ -41,16 +49,19 @@ export function buildStorySteps(title: string, moments: MomentView[]): StoryStep
   const steps: StoryStep[] = [{ kind: "title" }];
   const ordered = [...moments].sort((a, b) => a.startsAt - b.startsAt);
   let previousPlace = title;
-  let first = true;
+  let previousGeo: LatLng | undefined;
+  let n = 0;
   for (const moment of ordered) {
     const stops = stopsOf(moment);
     stops.forEach((stop, stopIndex) => {
-      const to = placeLabel(stop, stopIndex);
+      const to = placeLabel(stop, n);
       if (stop.transport !== undefined) {
         steps.push({
           kind: "travel",
           from: previousPlace,
           to,
+          fromGeo: previousGeo,
+          toGeo: stop.geo,
           transport: stop.transport,
           momentId: moment._id,
           stopIndex,
@@ -61,13 +72,15 @@ export function buildStorySteps(title: string, moments: MomentView[]): StoryStep
         momentId: moment._id,
         stopIndex,
         stop,
-        first,
+        first: n === 0,
         authorId: moment.authorId,
         authorName: moment.authorName,
         labels: moment.labels,
+        place: to,
       });
-      first = false;
+      n++;
       previousPlace = to;
+      previousGeo = stop.geo;
     });
   }
   steps.push({ kind: "end" });

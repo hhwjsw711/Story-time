@@ -1,13 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   PauseIcon,
   PencilIcon,
   PlayIcon,
   XIcon,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { EventView, MomentView } from "@/components/event/types";
 import { EndCard } from "@/components/story/end-card";
 import { MapScene } from "@/components/story/map-scene";
@@ -17,19 +17,22 @@ import { StopFallback } from "@/components/story/story-fallback";
 import { TitleCard, typingMs } from "@/components/story/title-card";
 import { Button } from "@/components/ui/button";
 import { legDuration } from "@/lib/story-map";
-import { buildStorySteps, clampStep, placeLabel, type StoryStep } from "@/lib/story-steps";
+import { buildStorySteps, clampStep, type LatLng, type StoryStep } from "@/lib/story-steps";
+import { usePrefetchMedia } from "@/lib/use-media-url";
 import { cn } from "@/lib/utils";
 
-// three.js is only loaded when a stop scene renders in 3D.
+// three.js and MapLibre only load when a scene needs them.
 const CameraScene = lazy(() =>
   import("@/components/story/camera-scene").then((m) => ({ default: m.CameraScene })),
 );
+const RealMapScene = lazy(() =>
+  import("@/components/story/real-map-scene").then((m) => ({ default: m.RealMapScene })),
+);
 
-const SWIPE_PX = 50;
-// Wheel travel that counts as a scroll to the next scene.
-const WHEEL_PX = 50;
-// Wheel events closer together than this belong to one scroll gesture.
-const WHEEL_GESTURE_MS = 250;
+const NEXT_KEYS = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"];
+const PREV_KEYS = ["ArrowLeft", "ArrowUp", "PageUp"];
+// The scroll position is checked against these visible fractions of a scene.
+const THRESHOLDS = Array.from({ length: 21 }, (_, i) => i / 20);
 
 // How long autoplay lingers on each scene; the title waits for its typing.
 function sceneMs(step: StoryStep, titleTypingMs: number): number | null {
@@ -45,11 +48,14 @@ function sceneMs(step: StoryStep, titleTypingMs: number): number | null {
   }
 }
 
+// Asks for a context and gives it straight back: browsers allow only a few.
 function detectWebGL(): boolean {
   if (typeof document === "undefined") return false;
   try {
     const c = document.createElement("canvas");
-    return c.getContext("webgl2") !== null || c.getContext("webgl") !== null;
+    const gl = c.getContext("webgl2") ?? c.getContext("webgl");
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    return gl !== null;
   } catch {
     return false;
   }
@@ -58,9 +64,10 @@ function detectWebGL(): boolean {
 const prefersReducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// The story as a full-window player: one scene at a time, progress on top,
-// click, scroll, keys or swipes to move between them. Autoplay is on unless
-// the viewer prefers reduced motion.
+// The story as a page that scrolls: every scene a screen tall, snapping
+// lightly into place, progress on top. Scroll, click, keys or the arrows move
+// through it. Autoplay (on unless the viewer prefers reduced motion) scrolls
+// on by itself until the viewer scrolls or presses a key.
 export function StoryPlayer({
   event,
   moments,
@@ -71,44 +78,94 @@ export function StoryPlayer({
   event: EventView;
   moments: MomentView[];
   meId: string | undefined;
+  // Where the link pointed; read once, then the scroll leads.
   step: number;
-  onStep: (step: number, mode: "push" | "replace") => void;
+  // Keeps ?step= on the scene in view, replacing history rather than adding.
+  onStep: (step: number) => void;
 }) {
   const navigate = useNavigate();
   const steps = useMemo(() => buildStorySteps(event.title, moments), [event.title, moments]);
-  const current = clampStep(step, steps);
+  // The scene most in view.
+  const [current, setCurrent] = useState(() => clampStep(step, steps));
   const scene = steps[current] ?? steps[0]!;
   const [reduced] = useState(prefersReducedMotion);
-  const [playing, setPlaying] = useState(!reduced);
+  // Nothing plays on the end card, however the story got there.
+  const [playing, setPlaying] = useState(() => !reduced && scene.kind !== "end");
+  useEffect(() => {
+    if (scene.kind === "end") setPlaying(false);
+  }, [scene.kind]);
   const [webgl] = useState(detectWebGL);
   const use3d = webgl && !reduced;
-  const touch = useRef<{ x: number; y: number } | null>(null);
-  const wheel = useRef({ sum: 0, last: 0, done: false });
+  const scroller = useRef<HTMLDivElement>(null);
+  const sections = useRef<Array<HTMLElement | null>>([]);
+  const fill = useRef<HTMLSpanElement>(null);
   const titleTypingMs = useMemo(() => (reduced ? 0 : typingMs(event, moments)), [reduced, event, moments]);
 
+  // The scene last aimed at, ahead of the scroll, so quick presses each count.
+  const at = useRef(current);
   const go = useCallback(
-    (delta: number, mode: "push" | "replace" = "push") => {
-      const next = clampStep(current + delta, steps);
-      if (next !== current) onStep(next, mode);
-      if (next === steps.length - 1) setPlaying(false);
+    (delta: number) => {
+      const next = clampStep(at.current + delta, steps);
+      if (next === at.current) return;
+      at.current = next;
+      // Neighbours glide; longer jumps cut, so the scenes between don't load.
+      sections.current[next]?.scrollIntoView({ behavior: reduced || Math.abs(delta) > 1 ? "auto" : "smooth" });
     },
-    [current, steps, onStep],
+    [steps, reduced],
   );
+  const restart = (play: boolean) => {
+    setPlaying(play);
+    go(-at.current);
+  };
   const exit = useCallback(
     () => void navigate({ to: "/e/$id", params: { id: event._id } }),
     [navigate, event._id],
   );
 
+  // A deep link opens on its scene.
+  useLayoutEffect(() => {
+    sections.current[at.current]?.scrollIntoView();
+  }, []);
+
+  // The scene most in view is the current one, and the URL follows it.
+  useEffect(() => {
+    const root = scroller.current;
+    if (!root) return;
+    const seen = new Map<Element, number>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) seen.set(e.target, e.intersectionRect.height);
+        let best = -1;
+        let most = 0;
+        sections.current.forEach((el, i) => {
+          const h = (el && seen.get(el)) ?? 0;
+          if (h > most) [best, most] = [i, h];
+        });
+        if (best === -1) return;
+        at.current = best;
+        setCurrent(best);
+      },
+      { root, threshold: THRESHOLDS },
+    );
+    for (const el of sections.current) if (el) io.observe(el);
+    return () => io.disconnect();
+  }, [steps.length]);
+  useEffect(() => {
+    onStep(current);
+  }, [current, onStep]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
+      if (e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey) return;
+      const el = e.target instanceof HTMLElement ? e.target : null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) {
+      // Enter and Space press the focused button or link, not the page.
+      if ((e.key === " " || e.key === "Enter") && el?.closest("button, a, [role=button], select, summary")) return;
+      const delta = NEXT_KEYS.includes(e.key) ? 1 : PREV_KEYS.includes(e.key) ? -1 : 0;
+      if (delta) {
         e.preventDefault();
-        go(1);
-      } else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) {
-        e.preventDefault();
-        go(-1);
+        setPlaying(false);
+        go(delta);
       } else if (e.key === "Escape") {
         exit();
       }
@@ -117,53 +174,37 @@ export function StoryPlayer({
     return () => window.removeEventListener("keydown", onKey);
   }, [go, exit]);
 
+  // Autoplay moves on when the scene's time is up, its progress segment
+  // filling meanwhile. Pausing freezes the fill; playing again starts both
+  // over together.
   useEffect(() => {
     if (!playing) return;
     const ms = sceneMs(scene, titleTypingMs);
     if (ms === null) return;
-    const t = setTimeout(() => go(1, "replace"), reduced ? Math.min(ms, 3000) : ms);
-    return () => clearTimeout(t);
+    const dwell = reduced ? Math.min(ms, 3000) : ms;
+    const t = setTimeout(() => go(1), dwell);
+    const el = fill.current;
+    el?.getAnimations().forEach((a) => a.cancel());
+    const a = reduced ? undefined : el?.animate([{ transform: "scaleX(0)" }, { transform: "scaleX(1)" }], dwell);
+    return () => {
+      clearTimeout(t);
+      a?.pause();
+    };
   }, [playing, scene, go, reduced, titleTypingMs]);
+  // Once the viewer scrolls, they're the one turning the pages.
+  const takeOver = () => setPlaying(false);
 
-  // Clicking the stage moves the story: left third back, the rest forward.
+  // The next stop's pictures load while this scene shows.
+  const upcoming = steps.slice(current + 1).find((s) => s.kind === "stop");
+  usePrefetchMedia(upcoming?.kind === "stop" ? upcoming.stop.blocks.flatMap((b) => ("mediaId" in b ? [b.mediaId] : [])) : []);
+
+  // Clicking a scene moves the story: left third back, the rest forward.
   // Buttons and links inside it keep their own behaviour.
   const onStageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as Element;
-    if (target.closest("button, a, input, textarea, select, video, [data-no-advance]")) return;
+    if (target.closest("button, a, input, textarea, select, summary, details, video, [data-no-advance]")) return;
     const { left, width } = e.currentTarget.getBoundingClientRect();
     go(e.clientX - left < width / 3 ? -1 : 1);
-  };
-  // Swiping left or up moves on; right or down goes back.
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    touch.current = t ? { x: t.clientX, y: t.clientY } : null;
-  };
-  const onTouchEnd = (e: React.TouchEvent) => {
-    const start = touch.current;
-    touch.current = null;
-    const end = e.changedTouches[0];
-    if (!start || !end) return;
-    const dx = start.x - end.clientX;
-    const dy = start.y - end.clientY;
-    const d = Math.abs(dx) > Math.abs(dy) ? dx : dy;
-    if (d > SWIPE_PX) go(1);
-    else if (d < -SWIPE_PX) go(-1);
-  };
-  // One scene per scroll gesture, however long a trackpad's momentum runs.
-  // A scrollable box under the pointer (a stop's long notes) keeps the wheel.
-  const onWheel = (e: React.WheelEvent) => {
-    if ((e.target as Element).closest("[data-scroll]")) return;
-    const w = wheel.current;
-    if (e.timeStamp - w.last > WHEEL_GESTURE_MS) {
-      w.sum = 0;
-      w.done = false;
-    }
-    w.last = e.timeStamp;
-    if (w.done) return;
-    w.sum += e.deltaY;
-    if (Math.abs(w.sum) < WHEEL_PX) return;
-    w.done = true;
-    go(w.sum > 0 ? 1 : -1);
   };
 
   const isOwner = event.role === "owner";
@@ -171,37 +212,124 @@ export function StoryPlayer({
   const canEdit =
     scene.kind === "stop" && !archived && event.role !== "viewer" && (isOwner || scene.authorId === meId);
   const legs = useMemo(() => steps.filter((s) => s.kind === "travel"), [steps]);
-  const places = useMemo(() => {
-    const labels = [event.title];
-    for (const s of steps) if (s.kind === "stop") labels.push(placeLabel(s.stop, s.stopIndex));
-    return labels;
-  }, [steps, event.title]);
+  // Places in story order. The experience's own name is one only when the
+  // first leg sets off from it.
+  const places = useMemo(
+    () => steps.flatMap((s) => (s.kind === "travel" ? [s.from] : s.kind === "stop" ? [s.place] : [])),
+    [steps],
+  );
+  // The places picked on a map, a repeated name keeping its first spot.
+  const located = useMemo(() => {
+    const spots = new Map<string, LatLng>();
+    for (const s of steps) if (s.kind === "stop" && s.stop.geo && !spots.has(s.place)) spots.set(s.place, s.stop.geo);
+    return [...spots].map(([name, geo]) => ({ name, geo }));
+  }, [steps]);
+
+  // Only the scenes around the one in view are built, with WebGL (never more
+  // than three contexts), so scrolling back shows the same map or camera
+  // rather than swapping to the light version; the rest are empty screens
+  // until scrolled near.
+  const sceneAt = (s: StoryStep, i: number) => {
+    const active = i === current;
+    const near = Math.abs(i - current) <= 1;
+    switch (s.kind) {
+      case "title":
+        return <TitleCard event={event} moments={moments} animate={!reduced} />;
+      case "end":
+        // Built on arrival, so its prints are dealt out in view.
+        return active && <EndCard event={event} moments={moments} onReplay={() => restart(!reduced)} />;
+      case "travel":
+        if (!near) return null;
+        if (webgl && s.fromGeo && s.toGeo) {
+          return (
+            <Suspense fallback={null}>
+              <RealMapScene
+                leg={s}
+                from={s.fromGeo}
+                to={s.toGeo}
+                legs={legs}
+                current={legs.indexOf(s)}
+                places={located}
+                animate={!reduced}
+                active={active}
+              />
+            </Suspense>
+          );
+        }
+        return (
+          <MapScene
+            key={active ? "on" : "off"}
+            places={places}
+            legs={legs}
+            current={legs.indexOf(s)}
+            animate={!reduced && active}
+            idle={i > current}
+          />
+        );
+      case "stop":
+        return (
+          <>
+            <div className="relative min-h-0 flex-1" data-no-advance={use3d && near ? "" : undefined}>
+              {near &&
+                (use3d ? (
+                  <Suspense fallback={<StopFallback stop={s.stop} />}>
+                    <CameraScene stop={s.stop} opening={s.first} active={active} onBack={() => go(-1)} onNext={() => go(1)} />
+                  </Suspense>
+                ) : (
+                  <StopFallback stop={s.stop} />
+                ))}
+            </div>
+            <StopCaption scene={s} meId={meId} />
+          </>
+        );
+    }
+  };
 
   return (
-    <div
-      className="relative flex h-svh w-full select-none flex-col overflow-hidden bg-[#141210] text-stone-100"
-      style={{ colorScheme: "dark" }}
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onWheel={onWheel}
-    >
+    <div className="relative h-svh w-full overflow-hidden bg-[#141210] text-stone-100 select-none" style={{ colorScheme: "dark" }}>
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,228,180,0.08),transparent_60%)]" />
 
-      <header className="relative z-20 flex items-center gap-3 px-4 pt-3">
-        <ol aria-label="Progress" className="flex flex-1 gap-1">
+      <div
+        ref={scroller}
+        role="presentation"
+        className="relative h-full cursor-pointer snap-y snap-mandatory overflow-y-auto overscroll-none [scrollbar-width:thin]"
+        onClick={onStageClick}
+        onWheel={takeOver}
+        onTouchMove={takeOver}
+      >
+        {steps.map((s, i) => (
+          <section
+            key={i}
+            ref={(el) => {
+              sections.current[i] = el;
+            }}
+            aria-label={`Scene ${i + 1} of ${steps.length}`}
+            className={cn(
+              "relative flex snap-start flex-col pt-12 pb-12",
+              // A long description or a pile of prints may run past one screen.
+              s.kind === "title" || s.kind === "end" ? "min-h-svh" : "h-svh",
+            )}
+          >
+            {sceneAt(s, i)}
+          </section>
+        ))}
+      </div>
+
+      {/* Over the scenes, letting the scroll through between its buttons. */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center gap-3 px-4 pt-3 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+        <ol aria-label="Progress" className={cn("flex min-w-0 flex-1", steps.length > 30 ? "gap-px" : "gap-1")}>
           {steps.map((s, i) => (
             <li key={i} className="h-1 flex-1 overflow-hidden rounded-full bg-white/15">
               <button
                 type="button"
                 aria-label={`Go to scene ${i + 1}`}
                 aria-current={i === current ? "step" : undefined}
-                onClick={() => onStep(i, "push")}
-                className={cn(
-                  "block h-full w-full transition-colors",
-                  i < current ? "bg-white/70" : i === current ? "bg-amber-200" : "bg-transparent",
-                )}
+                onClick={() => go(i - at.current)}
+                className={cn("block h-full w-full transition-colors", i < current ? "bg-white/70" : "bg-transparent")}
                 title={s.kind}
-              />
+              >
+                {i === current && <span ref={fill} className="block h-full origin-left bg-amber-200" />}
+              </button>
             </li>
           ))}
         </ol>
@@ -213,7 +341,7 @@ export function StoryPlayer({
           size="icon"
           aria-label={playing ? "Pause" : "Autoplay"}
           aria-pressed={playing}
-          onClick={() => setPlaying((p) => !p)}
+          onClick={() => (scene.kind === "end" ? restart(true) : setPlaying((p) => !p))}
           className="text-white hover:bg-white/10 hover:text-white"
         >
           {playing ? <PauseIcon /> : <PlayIcon />}
@@ -242,56 +370,10 @@ export function StoryPlayer({
         </Button>
       </header>
 
-      <div
-        role="presentation"
-        className="relative z-10 flex min-h-0 flex-1 cursor-pointer flex-col"
-        onClick={onStageClick}
+      <nav
+        aria-label="Scenes"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-center justify-between px-3 pb-3 [&_button]:pointer-events-auto"
       >
-        {scene.kind === "title" && (
-          <TitleCard event={event} moments={moments} animate={!reduced} />
-        )}
-        {scene.kind === "travel" && (
-          <MapScene
-            key={current}
-            places={places}
-            legs={legs}
-            current={legs.indexOf(scene)}
-            animate={!reduced}
-          />
-        )}
-        {scene.kind === "stop" && (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="relative min-h-0 flex-1" data-no-advance={use3d ? "" : undefined}>
-              {use3d ? (
-                <Suspense fallback={<StopFallback key={current} stop={scene.stop} />}>
-                  <CameraScene
-                    key={scene.momentId}
-                    stop={scene.stop}
-                    opening={scene.first}
-                    onBack={() => go(-1)}
-                    onNext={() => go(1)}
-                  />
-                </Suspense>
-              ) : (
-                <StopFallback key={current} stop={scene.stop} />
-              )}
-            </div>
-            <StopCaption scene={scene} meId={meId} />
-          </div>
-        )}
-        {scene.kind === "end" && (
-          <EndCard
-            event={event}
-            moments={moments}
-            onReplay={() => {
-              setPlaying(!reduced);
-              onStep(0, "push");
-            }}
-          />
-        )}
-      </div>
-
-      <nav aria-label="Scenes" className="relative z-20 flex items-center justify-between px-3 pb-3">
         <Button
           variant="ghost"
           size="icon"
@@ -300,9 +382,15 @@ export function StoryPlayer({
           onClick={() => go(-1)}
           className="text-white hover:bg-white/10 hover:text-white disabled:opacity-30"
         >
-          <ChevronLeftIcon />
+          <ChevronUpIcon />
         </Button>
-        <p className="text-xs text-white/50">Scroll, click, swipe or use the arrow keys</p>
+        {current === 0 && (
+          <p className="flex items-center gap-1 text-xs text-white/50">
+            <span className="pointer-coarse:hidden">Scroll</span>
+            <span className="hidden pointer-coarse:inline">Swipe up</span>
+            <ChevronDownIcon aria-hidden className="size-3.5" />
+          </p>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -311,7 +399,7 @@ export function StoryPlayer({
           onClick={() => go(1)}
           className="text-white hover:bg-white/10 hover:text-white disabled:opacity-30"
         >
-          <ChevronRightIcon />
+          <ChevronDownIcon />
         </Button>
       </nav>
     </div>

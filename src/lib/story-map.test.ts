@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { MAP_HEIGHT, MAP_WIDTH, layoutPlaces, legDuration, legPath } from "./story-map";
+import { MAP_HEIGHT, MAP_WIDTH, layoutPlaces, legDuration, legPath, sheetSize } from "./story-map";
 
 test("layout is deterministic and keeps every place on the sheet", () => {
   const labels = ["Lisbon", "Sintra", "Porto", "Lisbon", "Gaia"];
@@ -23,8 +23,25 @@ test("places are spread left to right in story order and don't overlap", () => {
   }
 });
 
+test("held upright, places run top to bottom on a tall sheet", () => {
+  const { w, h } = sheetSize("portrait");
+  expect(h).toBeGreaterThan(w);
+  const points = [...layoutPlaces(["A", "B", "C", "D", "E", "F"], "portrait").values()];
+  points.forEach((p, i) => {
+    expect(p.x).toBeGreaterThanOrEqual(0);
+    expect(p.x).toBeLessThanOrEqual(w);
+    expect(p.y).toBeGreaterThanOrEqual(0);
+    expect(p.y).toBeLessThanOrEqual(h);
+    const prev = points[i - 1];
+    if (!prev) return;
+    expect(p.y).toBeGreaterThan(prev.y);
+    expect(Math.hypot(p.x - prev.x, p.y - prev.y)).toBeGreaterThan(10);
+  });
+});
+
 test("a lone place sits in the middle", () => {
   expect(layoutPlaces(["Home"]).get("Home")?.x).toBe(50);
+  expect(layoutPlaces(["Home"], "portrait").get("Home")?.y).toBe(50);
 });
 
 test("leg paths start and end at the given points", () => {

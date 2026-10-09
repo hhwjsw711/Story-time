@@ -1,6 +1,6 @@
-import { Environment, Lightformer, RoundedBox, useTexture, useVideoTexture } from "@react-three/drei";
+import { Environment, Lightformer, RoundedBox } from "@react-three/drei";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { Stop } from "@/lib/story-steps";
 import { useMediaUrl } from "@/lib/use-media-url";
@@ -12,15 +12,18 @@ const PICTURE_MS = 2200;
 
 // A silver camera seen from above, its viewfinder hood popping open on the
 // stop's pictures, one after another. Click the camera for the next picture;
-// click empty space to move the story on (left third goes back).
+// click empty space to move the story on (left third goes back). The hood
+// waits for `active`, so a scene mounted ahead of view opens on arrival.
 export function CameraScene({
   stop,
   opening,
+  active,
   onBack,
   onNext,
 }: {
   stop: Stop;
   opening: boolean;
+  active: boolean;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -49,12 +52,12 @@ export function CameraScene({
         <Lightformer intensity={1} position={[7, 0, 2]} scale={[8, 14, 1]} />
         <Lightformer form="ring" intensity={2} position={[2.5, 3, 5]} scale={1.2} />
       </Environment>
-      <Scene media={media} opening={opening} />
+      <Scene media={media} opening={opening} active={active} />
     </Canvas>
   );
 }
 
-function Scene({ media, opening }: { media: Media[]; opening: boolean }) {
+function Scene({ media, opening, active }: { media: Media[]; opening: boolean; active: boolean }) {
   const viewport = useThree((s) => s.viewport);
   // The camera's footprint on screen, its top plate nearer the viewer than
   // the origin, is about 3.9 wide by 2.6 tall.
@@ -76,14 +79,13 @@ function Scene({ media, opening }: { media: Media[]; opening: boolean }) {
       <TopCamera
         scale={scale}
         opening={opening}
+        active={active}
         glass={glass}
         swapAt={swapAt}
         onClick={media.length > 1 ? () => setShown((i) => (i + 1) % media.length) : undefined}
       />
       {media.map((m, i) => (
-        <Suspense key={m.mediaId} fallback={null}>
-          <MediaPicture media={m} index={i} shown={shown} glass={glass} swapAt={swapAt} />
-        </Suspense>
+        <MediaPicture key={m.mediaId} media={m} index={i} shown={shown} glass={glass} swapAt={swapAt} />
       ))}
     </>
   );
@@ -282,12 +284,14 @@ const SCREWS = [
 function TopCamera({
   scale,
   opening,
+  active,
   glass,
   swapAt,
   onClick,
 }: {
   scale: number;
   opening: boolean;
+  active: boolean;
   glass: React.RefObject<THREE.Mesh | null>;
   swapAt: React.RefObject<number>;
   onClick?: () => void;
@@ -297,13 +301,20 @@ function TopCamera({
   const flaps = useRef<Array<THREE.Group | null>>([]);
   const start = useRef<number | null>(null);
   const opened = useRef(!opening);
+  // Leaving the scene while hovering the camera mustn't leave a pointer behind.
+  useEffect(
+    () => () => {
+      document.body.style.cursor = "";
+    },
+    [],
+  );
 
   useFrame((state) => {
     const now = state.clock.elapsedTime;
-    if (start.current === null) start.current = now;
+    if (start.current === null && active) start.current = now;
     let open = 1;
     if (!opened.current) {
-      open = smooth((now - start.current - 0.3) / 1.2);
+      open = start.current === null ? 0 : smooth((now - start.current - 0.3) / 1.2);
       if (open >= 1) opened.current = true;
     }
     FLAPS.forEach((f, k) => {
@@ -485,46 +496,71 @@ function TopCamera({
   );
 }
 
-type PictureProps = {
+// Loads the picture with the viewer's token into a texture of its own, and
+// puts it on the ground glass while it's the one shown, cropped to fill the
+// square glass. Leaving takes it off the glass, frees the texture and stops a
+// video. A picture that won't load just never shows.
+function MediaPicture({
+  media,
+  index,
+  shown,
+  glass,
+  swapAt,
+}: {
+  media: Media;
   index: number;
   shown: number;
   glass: React.RefObject<THREE.Mesh | null>;
   swapAt: React.RefObject<number>;
-};
+}) {
+  const { url } = useMediaUrl(media.mediaId);
+  const [picture, setPicture] = useState<{ map: THREE.Texture; aspect: number } | null>(null);
 
-// Puts this picture on the ground glass while it's the one shown, cropped to
-// fill the square glass.
-function Picture({ index, shown, glass, swapAt, map, aspect }: PictureProps & { map: THREE.Texture; aspect: number }) {
+  useEffect(() => {
+    if (!url) return;
+    let live = true;
+    let map: THREE.Texture;
+    let stop = () => {};
+    if (media.type === "video") {
+      const video = Object.assign(document.createElement("video"), { src: url, muted: true, loop: true, playsInline: true });
+      const texture = new THREE.VideoTexture(video);
+      map = texture;
+      const ready = () => live && setPicture({ map: texture, aspect: video.videoWidth / video.videoHeight || 16 / 9 });
+      video.addEventListener("loadedmetadata", ready, { once: true });
+      video.play().catch(() => {});
+      stop = () => {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      };
+    } else {
+      map = new THREE.TextureLoader().load(url, (t) => {
+        if (live) setPicture({ map: t, aspect: t.image.width / t.image.height || 4 / 3 });
+      });
+    }
+    map.colorSpace = THREE.SRGBColorSpace;
+    return () => {
+      live = false;
+      setPicture(null);
+      stop();
+      const m = glass.current?.material;
+      if (m instanceof THREE.MeshBasicMaterial && m.map === map) {
+        m.map = null;
+        m.needsUpdate = true;
+      }
+      map.dispose();
+    };
+  }, [url, media.type, glass]);
+
   useEffect(() => {
     const m = glass.current?.material;
-    if (index !== shown || !(m instanceof THREE.MeshBasicMaterial)) return;
+    if (!picture || index !== shown || !(m instanceof THREE.MeshBasicMaterial)) return;
+    const { map, aspect } = picture;
     map.repeat.set(Math.min(1, 1 / aspect), Math.min(1, aspect));
     map.offset.set((1 - map.repeat.x) / 2, (1 - map.repeat.y) / 2);
     m.map = map;
     m.needsUpdate = true;
     swapAt.current = performance.now();
-  }, [index, shown, glass, swapAt, map, aspect]);
+  }, [picture, index, shown, glass, swapAt]);
   return null;
-}
-
-// Loads the picture with the viewer's token, then hands the texture on.
-function MediaPicture({ media, ...rest }: PictureProps & { media: Media }) {
-  const { url } = useMediaUrl(media.mediaId);
-  if (!url) return null;
-  return media.type === "video" ? <VideoPicture url={url} {...rest} /> : <PhotoPicture url={url} {...rest} />;
-}
-
-function PhotoPicture({ url, ...rest }: PictureProps & { url: string }) {
-  const texture = useTexture(url);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  const image = texture.image as { width?: number; height?: number } | undefined;
-  const aspect = image?.width && image?.height ? image.width / image.height : 4 / 3;
-  return <Picture {...rest} map={texture} aspect={aspect} />;
-}
-
-function VideoPicture({ url, ...rest }: PictureProps & { url: string }) {
-  const texture = useVideoTexture(url, { muted: true, loop: true, start: true, playsInline: true });
-  const video = texture.image as HTMLVideoElement;
-  const aspect = video.videoWidth && video.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
-  return <Picture {...rest} map={texture} aspect={aspect} />;
 }
