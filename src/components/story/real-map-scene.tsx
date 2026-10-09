@@ -191,7 +191,10 @@ function Camera({
     if (!map) return;
     const { clientWidth: w, clientHeight: h } = map.getContainer();
     const bounds = route.reduce((b, p) => b.extend(p), new LngLatBounds(route[0], route[0]));
-    const fit = { padding: { top: h * 0.3, bottom: h * 0.14, left: w * 0.14, right: w * 0.14 }, maxZoom: 13 };
+    // Labels hang up to ~110px either side of a point, so the sides keep at
+    // least that much room on narrow phones.
+    const side = Math.max(w * 0.14, 110);
+    const fit = { padding: { top: h * 0.3, bottom: h * 0.14, left: side, right: side }, maxZoom: 13 };
     if (!animate) {
       map.fitBounds(bounds, { ...fit, duration: 0 });
       return;
