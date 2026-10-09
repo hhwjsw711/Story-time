@@ -4,8 +4,10 @@
 
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  /* Display serif for the signed-out pages' headings. */
+  /* One serif everywhere: the site's display type, the app's titles and
+     story mode's captions. */
   --font-display: "Newsreader", ui-serif, Georgia, serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
 }
 
 /* shadcn/ui theme tokens (neutral) */
