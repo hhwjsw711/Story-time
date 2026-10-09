@@ -24,3 +24,13 @@ export function Logo({ className }: { className?: string }) {
     </svg>
   );
 }
+
+// The logo, centered and gently pulsing: the first paint, and the moment
+// before we know whether someone is signed in.
+export function LogoSplash() {
+  return (
+    <div role="status" aria-label="Loading" className="flex min-h-svh items-center justify-center">
+      <Logo className="size-10 animate-pulse" />
+    </div>
+  );
+}

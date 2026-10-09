@@ -1,9 +1,11 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,400..600&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* Display serif for the signed-out pages' headings. */
+  --font-display: "Newsreader", ui-serif, Georgia, serif;
 }
 
 /* shadcn/ui theme tokens (neutral) */

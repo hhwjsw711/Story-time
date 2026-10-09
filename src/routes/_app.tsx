@@ -1,25 +1,28 @@
 import { createFileRoute, Navigate, Outlet } from "@tanstack/react-router";
 import { useConvexAuth } from "convex/react";
+import { useEffect, useState } from "react";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { AppSidebar } from "@/components/app-sidebar";
+import { LogoSplash } from "@/components/logo";
+import { SignInScreen } from "@/components/sign-in-screen";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
 function AppLayout() {
   const { isLoading, isAuthenticated } = useConvexAuth();
+  const [wasSignedIn, setWasSignedIn] = useState(false);
+  useEffect(() => {
+    if (isAuthenticated) setWasSignedIn(true);
+  }, [isAuthenticated]);
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4 p-8">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
+  if (isLoading) return <LogoSplash />;
+  if (!isAuthenticated) {
+    // Signing out heads back to the landing page. Arriving signed out signs
+    // in right here instead, so the link they opened survives.
+    return wasSignedIn ? <Navigate to="/" /> : <SignInScreen />;
   }
-  if (!isAuthenticated) return <Navigate to="/" />;
 
   return (
     <SidebarProvider>
