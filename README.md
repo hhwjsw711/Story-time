@@ -27,7 +27,7 @@ Set these on the Convex deployment with `npx convex env set NAME value` (add `--
 | `AUTH_GITHUB_CLIENT_ID`, `AUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth app |
 | `AUTH_GOOGLE_CLIENT_ID`, `AUTH_GOOGLE_CLIENT_SECRET` | Google OAuth client |
 | `ENCRYPTION_MASTER_KEY` | Encrypts places, notes, links and feelings. Use the same value as the Worker's |
-| `APP_URL` | The site's origin, used for invite links and allowed OAuth redirects. Unset means `http://localhost:3000` |
+| `APP_URL` | The site's origin, used for invite links and allowed OAuth redirects. Several origins can be listed with commas (the first goes in invite links). Unset means `http://localhost:3000` |
 | `ALLOW_ANONYMOUS_SIGNIN` | `true` enables the dev-only anonymous button. Never set it in production |
 | `CF_ACCOUNT_ID`, `CF_EMAIL_TOKEN`, `EMAIL_FROM` | Optional. Without them invites are links only, no email |
 
