@@ -15,6 +15,7 @@ export default defineConfig([
     "convex/components/*/_generated/",
     "src/components/ui/",
     "worker-configuration.d.ts",
+    "public/maplibre-gl-worker.mjs",
   ]),
   js.configs.recommended,
   tseslint.configs.recommended,
