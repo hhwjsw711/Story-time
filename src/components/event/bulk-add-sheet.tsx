@@ -1,5 +1,5 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { ArrowUpToLineIcon, ClockIcon, ImagePlusIcon, VideoIcon, XIcon } from "lucide-react";
 import { type DragEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -7,12 +7,13 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { IMAGE_MIME_TYPES } from "../../../convex/lib/limits";
 import { PlaceInput, reversePlace } from "@/components/event/place-input";
+import { stopsOf } from "@/components/event/transport";
 import type { EventView } from "@/components/event/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { deletePhotos } from "@/lib/actions";
 import { errorMessage } from "@/lib/errors";
-import { type Geo, groupPhotos, MAX_PHOTOS_PER_STOP, type PhotoPoint, toStop } from "@/lib/photo-groups";
+import { type Geo, groupPhotos, localClock, MAX_PHOTOS_PER_STOP, type PhotoPoint, toStop } from "@/lib/photo-groups";
 import { type PhotoMeta, readPhotoMeta } from "@/lib/photo-meta";
 import { isVideoFile, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, MEDIA_ACCEPT, uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
@@ -39,7 +40,9 @@ const UPLOADS_AT_ONCE = 3;
 const LOOKUP_GAP_MS = 1100;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+// On the clock where the photo was taken.
+const time = (ms: number, offsetMinutes?: number) =>
+  localClock(ms, offsetMinutes).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
 function dayLabel(day: string) {
   const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
@@ -112,7 +115,13 @@ function BulkAdd({
   onClose: () => void;
 }) {
   const token = useAuthToken();
+  // Read at each call: tokens are short-lived and a batch can run for minutes.
+  const latestToken = useRef(token);
+  useEffect(() => {
+    latestToken.current = token;
+  }, [token]);
   const createMoment = useMutation(api.moments.create);
+  const existing = useQuery(api.moments.list, { eventId: event._id });
   const uid = useId();
   const [items, setItems] = useState<ReadonlyMap<string, Item>>(() => new Map());
   const [days, setDays] = useState<DraftDay[]>([]);
@@ -210,7 +219,7 @@ function BulkAdd({
           url: URL.createObjectURL(file),
           kind: video ? "video" : "photo",
           guessed: meta.takenAt === undefined,
-          point: { id, takenAt: meta.takenAt ?? file.lastModified, geo: meta.geo },
+          point: { id, takenAt: meta.takenAt ?? file.lastModified, offsetMinutes: meta.offsetMinutes, geo: meta.geo },
         };
       }),
     );
@@ -303,7 +312,7 @@ function BulkAdd({
         const it = files.get(ids[next++]!);
         if (!it) continue;
         try {
-          uploaded.set(it.point.id, await uploadMedia(it.file, event._id, token));
+          uploaded.set(it.point.id, await uploadMedia(it.file, event._id, latestToken.current ?? token));
         } catch (e) {
           const message = e instanceof Error ? e.message : "Upload failed";
           failures.push(`${it.file.name}: ${message}`);
@@ -351,7 +360,8 @@ function BulkAdd({
         await createMoment({
           eventId: event._id,
           startsAt: first.s.startsAt,
-          tzOffsetMinutes: -new Date(first.s.startsAt).getTimezoneOffset(),
+          // The camera's zone when it said, so the day is the trip's.
+          tzOffsetMinutes: first.s.photos[0]?.offsetMinutes ?? -new Date(first.s.startsAt).getTimezoneOffset(),
           ...where(first.s),
           blocks: first.blocks,
           stops: rest.map(({ s, blocks }) => ({ startsAt: s.startsAt, ...where(s), blocks })),
@@ -364,7 +374,7 @@ function BulkAdd({
     }
 
     const unused = [...uploaded.values()].filter((id) => !used.has(id));
-    if (unused.length > 0) await deletePhotos(unused, token);
+    if (unused.length > 0) await deletePhotos(unused, latestToken.current ?? token);
     setWork(null);
     onBusyChange(false);
     if (failures.length === 0 && created === moments.length) {
@@ -381,7 +391,8 @@ function BulkAdd({
   function onDrop(e: DragEvent) {
     e.preventDefault();
     setDragging(false);
-    if (!work && !report) void addFiles(e.dataTransfer.files);
+    // Not while reading: the next batch dedupes against this one's results.
+    if (!work && !report && !reading) void addFiles(e.dataTransfer.files);
   }
 
   const stops = allStops(days);
@@ -391,8 +402,10 @@ function BulkAdd({
   const planned = days.reduce((n, d) => n + d.moments.length, 0);
   const left = Math.max(0, event.momentLimit - event.momentCount);
   const over = planned > left;
-  // Live uploads per experience are capped (see media.reserveUpload).
-  const uploadCap = event.momentLimit * 5;
+  // Live uploads per experience are capped (see media.reserveUpload), and
+  // saved photos and videos already count.
+  const saved = (existing ?? []).flatMap(stopsOf).flatMap((s) => s.blocks).filter((b) => b.type === "photo" || b.type === "video").length;
+  const room = Math.max(0, event.momentLimit * 5 - saved);
 
   const filePicker = (className: string, children: ReactNode) => (
     <label className={cn("cursor-pointer has-focus-visible:ring-2 has-focus-visible:ring-ring", className)}>
@@ -494,9 +507,10 @@ function BulkAdd({
             Some times are guessed from the file's date because the file doesn't say when it was taken.
           </p>
         )}
-        {items.size > uploadCap && (
+        {items.size > room && (
           <p className="text-xs text-muted-foreground">
-            This experience holds up to {uploadCap} photos and videos in all, so some of these may not upload.
+            This experience has room for {room} more photos and videos, so {room === 0 ? "these" : "some of these"} may
+            not upload.
           </p>
         )}
         <Skipped problems={skipped} onDismiss={() => setSkipped([])} />
@@ -535,7 +549,7 @@ function BulkAdd({
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="text-sm font-medium">Stop {si + 1}</span>
                             <span className="text-xs text-muted-foreground">
-                              {time(s.startsAt)}
+                              {time(s.startsAt, s.photos[0]!.offsetMinutes)}
                               {items.get(s.photos[0]!.id)?.guessed && " · time guessed"}
                             </span>
                             {prev && (

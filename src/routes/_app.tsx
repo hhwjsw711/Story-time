@@ -21,7 +21,7 @@ function AppLayout() {
   if (!isAuthenticated) {
     // Signing out heads back to the landing page. Arriving signed out signs
     // in right here instead, so the link they opened survives.
-    return wasSignedIn ? <Navigate to="/" /> : <SignInScreen />;
+    return wasSignedIn ? <Navigate to="/" replace /> : <SignInScreen />;
   }
 
   return (

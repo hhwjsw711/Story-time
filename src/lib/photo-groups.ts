@@ -1,7 +1,8 @@
 export type Geo = { lat: number; lng: number };
 
-// A photo or video: when it was taken and, if known, where.
-export type PhotoPoint = { id: string; takenAt: number; geo?: Geo };
+// A photo or video: when it was taken and, if known, where and the camera's
+// UTC offset at the time.
+export type PhotoPoint = { id: string; takenAt: number; offsetMinutes?: number; geo?: Geo };
 
 // Photos taken together, in time order. The stop's time is its first
 // photo's; its place is the median of their locations.
@@ -26,11 +27,15 @@ export function distanceMeters(a: Geo, b: Geo): number {
   return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-// YYYY-MM-DD in the browser's time zone.
-export function dayKey(ms: number): string {
-  const d = new Date(ms);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// The clock where the photo was taken, as a Date to read in UTC: at the
+// camera's offset, else the browser's zone.
+export function localClock(ms: number, offsetMinutes?: number): Date {
+  return new Date(ms + (offsetMinutes ?? -new Date(ms).getTimezoneOffset()) * 60_000);
+}
+
+// YYYY-MM-DD on that clock.
+export function dayKey(ms: number, offsetMinutes?: number): string {
+  return localClock(ms, offsetMinutes).toISOString().slice(0, 10);
 }
 
 const byTime = (a: PhotoPoint, b: PhotoPoint) => a.takenAt - b.takenAt || a.id.localeCompare(b.id);
@@ -85,7 +90,7 @@ export function groupPhotos(
   const days = new Map<string, PhotoStop[]>();
   for (const photos of runs.flatMap((run) => chunk(run, maxPhotos))) {
     const stop = toStop(photos);
-    const key = dayKey(stop.startsAt);
+    const key = dayKey(stop.startsAt, stop.photos[0]?.offsetMinutes);
     days.set(key, [...(days.get(key) ?? []), stop]);
   }
 

@@ -352,7 +352,7 @@ export function StoryPlayer({
             <Link
               to="/e/$id"
               params={{ id: event._id }}
-              search={{ panel: "moment", momentId: scene.momentId }}
+              search={{ panel: "moment", momentId: scene.momentId, editId: scene.momentId }}
               aria-label="Edit this moment"
             >
               <PencilIcon />

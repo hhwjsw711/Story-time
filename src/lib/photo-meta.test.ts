@@ -3,8 +3,9 @@ import { photoMetaFromJpeg } from "./photo-meta";
 
 // A minimal JPEG: SOI, then an Exif APP1 whose little-endian TIFF has IFD0
 // pointing at a GPS IFD (Lisbon, 38°41'51.6"N 9°12'57.6"W) and an Exif IFD
-// (taken 2026-07-10 18:30:00, optionally at +01:00).
-function jpeg({ zone }: { zone?: string }): ArrayBuffer {
+// (taken 2026-07-10 18:30:00, optionally at +01:00). `lngRef` "" writes an
+// empty E/W ref.
+function jpeg({ zone, lngRef = "W" }: { zone?: string; lngRef?: string }): ArrayBuffer {
   const tiff = new DataView(new ArrayBuffer(200));
   const u16 = (at: number, v: number) => tiff.setUint16(at, v, true);
   const u32 = (at: number, v: number) => tiff.setUint32(at, v, true);
@@ -28,7 +29,7 @@ function jpeg({ zone }: { zone?: string }): ArrayBuffer {
   u16(38, 4);
   entry(38, 0, 1, 2, 2, "N".charCodeAt(0)); // short ASCII sits inline
   entry(38, 1, 2, 5, 3, 92);
-  entry(38, 2, 3, 2, 2, "W".charCodeAt(0));
+  entry(38, 2, 3, 2, 2, lngRef.charCodeAt(0) || 0);
   entry(38, 3, 4, 5, 3, 116);
   [38, 1, 41, 1, 516, 10, 9, 1, 12, 1, 576, 10].forEach((v, i) => u32(92 + i * 4, v));
 
@@ -50,11 +51,18 @@ test("reads where and when a JPEG was taken from its EXIF", () => {
   expect(meta.geo?.lat).toBeCloseTo(38.6977, 4);
   expect(meta.geo?.lng).toBeCloseTo(-9.216, 4); // west is negative
   expect(meta.takenAt).toBe(Date.UTC(2026, 6, 10, 17, 30));
+  expect(meta.offsetMinutes).toBe(60);
+  expect(photoMetaFromJpeg(jpeg({ zone: "-04:30" })).offsetMinutes).toBe(-270);
 
   // Without a recorded zone, the time is the browser's local time.
   expect(photoMetaFromJpeg(jpeg({})).takenAt).toBe(new Date(2026, 6, 10, 18, 30).getTime());
+  expect(photoMetaFromJpeg(jpeg({})).offsetMinutes).toBeUndefined();
 
   // Not a JPEG, or cut short: nothing rather than an error.
   expect(photoMetaFromJpeg(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer)).toEqual({});
   expect(photoMetaFromJpeg(jpeg({}).slice(0, 40))).toEqual({});
+});
+
+test("an empty E/W ref leaves the coordinate unsigned", () => {
+  expect(photoMetaFromJpeg(jpeg({ lngRef: "" })).geo?.lng).toBeCloseTo(9.216, 4);
 });

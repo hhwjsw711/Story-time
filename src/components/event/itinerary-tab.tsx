@@ -282,6 +282,7 @@ export function ItineraryTab({
   onSelectMoment,
   renderActions,
   canEditMoment,
+  onDeleted,
 }: {
   eventId: Id<"events">;
   // How many moments are coming, so the loading state can take their shape.
@@ -300,6 +301,8 @@ export function ItineraryTab({
   renderActions: (moment: MomentView) => ReactNode;
   // Only passed when the viewer may change moments; turns on bulk editing.
   canEditMoment?: (authorId: string) => boolean;
+  // After a bulk delete, with the ids deleted.
+  onDeleted?: (momentIds: string[]) => void;
 }) {
   // "All" still asks for days: the rows come back the same, just ungrouped.
   const groups = useQuery(api.itinerary.grouped, {
@@ -771,7 +774,7 @@ export function ItineraryTab({
       {body}
 
       {selectionOn && all > 0 && (
-        <BulkEditBar moments={checkedMoments} onClear={() => setChecked(new Set())} onDone={stopSelecting} />
+        <BulkEditBar moments={checkedMoments} onClear={() => setChecked(new Set())} onDone={stopSelecting} onDeleted={onDeleted} />
       )}
     </div>
   );

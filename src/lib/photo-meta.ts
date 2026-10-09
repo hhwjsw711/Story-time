@@ -1,4 +1,5 @@
-export type PhotoMeta = { geo?: { lat: number; lng: number }; takenAt?: number };
+// `offsetMinutes` is the camera's UTC offset when it recorded one.
+export type PhotoMeta = { geo?: { lat: number; lng: number }; takenAt?: number; offsetMinutes?: number };
 
 // EXIF lives in the first APP1 segment, near the start of the file.
 const HEAD_BYTES = 128 * 1024;
@@ -47,7 +48,7 @@ export function photoMetaFromJpeg(buffer: ArrayBuffer): PhotoMeta {
       if (!ref || !value) return NaN;
       const data = u32(value.at);
       const part = (i: number) => u32(data + i * 8) / u32(data + i * 8 + 4);
-      const sign = "SW".includes(ascii(ref)) ? -1 : 1;
+      const sign = ["S", "W"].includes(ascii(ref)) ? -1 : 1;
       return sign * (part(0) + part(1) / 60 + part(2) / 3600);
     };
     const lat = coordinate(1, 2);
@@ -56,7 +57,7 @@ export function photoMetaFromJpeg(buffer: ArrayBuffer): PhotoMeta {
     // 0,0 is what a camera without a fix writes.
     return onMap && !(lat === 0 && lng === 0) ? { lat, lng } : undefined;
   });
-  const takenAt = attempt(() => {
+  const time = attempt(() => {
     const pointer = ifd0?.get(0x8769);
     if (!pointer) return undefined;
     const exif = ifd(u32(pointer.at));
@@ -66,25 +67,24 @@ export function photoMetaFromJpeg(buffer: ArrayBuffer): PhotoMeta {
     return parseExifTime(ascii(original), offset && ascii(offset));
   });
 
-  const meta: PhotoMeta = {};
+  const meta: PhotoMeta = { ...time };
   if (geo) meta.geo = geo;
-  if (takenAt !== undefined) meta.takenAt = takenAt;
   return meta;
 }
 
 // "2026:07:10 18:30:00", with "+01:00" when the camera recorded its zone;
 // without one it's read as the browser's local time.
-function parseExifTime(text: string, offset: string | undefined): number | undefined {
+function parseExifTime(text: string, offset: string | undefined): Pick<PhotoMeta, "takenAt" | "offsetMinutes"> | undefined {
   const m = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/.exec(text);
   if (!m) return undefined;
   const [y = 0, mo = 0, d = 0, h = 0, mi = 0, s = 0] = m.slice(1).map(Number);
   if (y < 1900 || mo < 1 || d < 1) return undefined; // "0000:00:00 00:00:00": unset
   const zone = offset ? /^([+-])(\d{2}):(\d{2})$/.exec(offset) : null;
   if (zone) {
-    const minutes = (zone[1] === "-" ? -1 : 1) * (Number(zone[2]) * 60 + Number(zone[3]));
-    return Date.UTC(y, mo - 1, d, h, mi, s) - minutes * 60_000;
+    const offsetMinutes = (zone[1] === "-" ? -1 : 1) * (Number(zone[2]) * 60 + Number(zone[3]));
+    return { takenAt: Date.UTC(y, mo - 1, d, h, mi, s) - offsetMinutes * 60_000, offsetMinutes };
   }
-  return new Date(y, mo - 1, d, h, mi, s).getTime();
+  return { takenAt: new Date(y, mo - 1, d, h, mi, s).getTime() };
 }
 
 // Where the TIFF data starts inside the Exif APP1 segment, if there is one.

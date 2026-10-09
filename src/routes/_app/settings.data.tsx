@@ -26,9 +26,10 @@ function DataSettings() {
         <hr />
         <SettingsBlock title="What we store">
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>Only what you type in: profile fields, moments, notes and links.</li>
+            <li>What you add: profile fields, moments, notes, links, photos and videos.</li>
             <li>Place, notes and links are encrypted before they are saved.</li>
             <li>Photos are encrypted in storage and visible only to people you share with.</li>
+            <li>Photos and videos keep the details the camera saved in them, like where they were taken.</li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
         </SettingsBlock>

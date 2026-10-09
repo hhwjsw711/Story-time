@@ -144,12 +144,14 @@ export function MomentForm({
     const ids = unsaved.current;
     return () => {
       closed.current = true;
+      // A save in flight settles these itself.
+      if (saving.current) return;
       if (ids.size > 0 && latestToken.current) void deletePhotos([...ids], latestToken.current);
       ids.clear();
     };
   }, []);
   const discard = (mediaId: string) => {
-    if (unsaved.current.delete(mediaId) && token) void deletePhotos([mediaId], token);
+    if (unsaved.current.delete(mediaId) && latestToken.current) void deletePhotos([mediaId], latestToken.current);
   };
   // After a save: uploads the moment now uses are its own; any others (say,
   // on a removed stop) are returned for deletion.
@@ -232,7 +234,7 @@ export function MomentForm({
             labels,
           });
           const dropped = settle(value.stops);
-          if (token) await deletePhotos([...removedMediaIds, ...dropped], token);
+          if (latestToken.current) await deletePhotos([...removedMediaIds, ...dropped], latestToken.current);
           toast.success("Moment saved");
         } else {
           await create({
@@ -247,11 +249,12 @@ export function MomentForm({
             labels,
           });
           const dropped = settle(value.stops);
-          if (token && dropped.length > 0) void deletePhotos(dropped, token);
+          if (latestToken.current && dropped.length > 0) void deletePhotos(dropped, latestToken.current);
           toast.success("Moment added");
           formApi.reset();
         }
-        onDone?.();
+        // Closed mid-save: whatever is open now isn't this form's to close.
+        if (!closed.current) onDone?.();
       } catch (e) {
         toast.error(errorMessage(e));
       }
@@ -262,16 +265,18 @@ export function MomentForm({
     const files = Array.from(input.files ?? []);
     // Cleared, so picking the same file again (after removing it) still works.
     input.value = "";
-    if (files.length === 0 || !token) return;
+    if (files.length === 0 || !latestToken.current) return;
     setUploadingStop(stop);
     void locateFromPhotos(stop, files);
     for (const file of files) {
-      if (closed.current) break;
+      // Read per file: tokens are short-lived.
+      const token = latestToken.current;
+      if (closed.current || !token) break;
       try {
         const mediaId = await uploadMedia(file, eventId, token);
         // Closed mid-upload: nothing will ever save this one.
         if (closed.current) {
-          void deletePhotos([mediaId], token);
+          void deletePhotos([mediaId], latestToken.current ?? token);
           break;
         }
         unsaved.current.add(mediaId);
@@ -524,6 +529,11 @@ export function MomentForm({
         saving.current = true;
         void form.handleSubmit().finally(() => {
           saving.current = false;
+          // Closed mid-save and it failed: nothing will save these now.
+          if (closed.current && unsaved.current.size > 0 && latestToken.current) {
+            void deletePhotos([...unsaved.current], latestToken.current);
+            unsaved.current.clear();
+          }
         });
       }}
     >
@@ -576,16 +586,18 @@ export function MomentForm({
         {/* Subscribed, so the button re-renders (and disables) while saving. */}
         <form.Subscribe selector={(state) => state.isSubmitting}>
           {(submitting) => (
-            <Button type="submit" disabled={submitting || uploading}>
-              {uploading ? "Uploading…" : submitting ? "Saving…" : moment ? "Save moment" : "Add moment"}
-            </Button>
+            <>
+              <Button type="submit" disabled={submitting || uploading}>
+                {uploading ? "Uploading…" : submitting ? "Saving…" : moment ? "Save moment" : "Add moment"}
+              </Button>
+              {onDone && (
+                <Button type="button" variant="ghost" disabled={submitting} onClick={onDone}>
+                  Cancel
+                </Button>
+              )}
+            </>
           )}
         </form.Subscribe>
-        {onDone && (
-          <Button type="button" variant="ghost" onClick={onDone}>
-            Cancel
-          </Button>
-        )}
       </div>
     </form>
   );

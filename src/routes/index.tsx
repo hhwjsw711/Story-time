@@ -14,7 +14,7 @@ export const Route = createFileRoute("/")({ component: Landing });
 function Landing() {
   const { isLoading, isAuthenticated } = useConvexAuth();
 
-  if (isAuthenticated) return <Navigate to="/home" />;
+  if (isAuthenticated) return <Navigate to="/home" replace />;
   // Until auth settles a returning visitor looks signed out; don't flash
   // the sign-in at them on the way to /home.
   if (isLoading) return <LogoSplash />;

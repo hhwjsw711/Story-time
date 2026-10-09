@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { dayKey, distanceMeters, groupPhotos, type Geo, type PhotoPoint, toStop } from "./photo-groups";
+import { dayKey, distanceMeters, groupPhotos, type Geo, localClock, type PhotoPoint, toStop } from "./photo-groups";
 
 // Local times, so day boundaries hold in any time zone.
 const at = (day: number, h: number, m = 0) => new Date(2026, 6, day, h, m).getTime();
 let n = 0;
-const photo = (takenAt: number, geo?: Geo): PhotoPoint => ({ id: `p${String(++n).padStart(3, "0")}`, takenAt, geo });
+const photo = (takenAt: number, geo?: Geo, offsetMinutes?: number): PhotoPoint => ({ id: `p${String(++n).padStart(3, "0")}`, takenAt, offsetMinutes, geo });
 
 // Roughly 0.009° of latitude is 1 km.
 const lisbon: Geo = { lat: 38.7, lng: -9.14 };
@@ -33,6 +33,16 @@ describe("groupPhotos", () => {
       photo(at(10, 9, 15), north(1.2)),
     ]);
     expect(shape(days)).toEqual([{ day: "2026-07-10", moments: [[3, 1]] }]);
+  });
+
+  test("days follow the camera's zone when it recorded one, not the browser's", () => {
+    // Tokyo (+09:00): 08:00 and 23:30 on the 10th, 00:30 on the 11th.
+    const tokyo = (day: number, h: number, m = 0) => Date.UTC(2026, 6, day, h - 9, m);
+    const days = groupPhotos([photo(tokyo(10, 8), undefined, 540), photo(tokyo(10, 23, 30), undefined, 540), photo(tokyo(11, 0, 30), undefined, 540)]);
+    expect(shape(days)).toEqual([
+      { day: "2026-07-10", moments: [[1, 1]] },
+      { day: "2026-07-11", moments: [[1]] },
+    ]);
   });
 
   test("one moment per local day, in order, whatever order the files came in", () => {
@@ -87,4 +97,8 @@ test("distanceMeters and dayKey", () => {
   expect(distanceMeters(lisbon, north(1))).toBeGreaterThan(990);
   expect(distanceMeters(lisbon, north(1))).toBeLessThan(1010);
   expect(dayKey(at(9, 23, 59))).toBe("2026-07-09");
+  // 2026-07-10 02:00 UTC is still the 9th in New York (-04:00).
+  expect(dayKey(Date.UTC(2026, 6, 10, 2), -240)).toBe("2026-07-09");
+  expect(localClock(Date.UTC(2026, 6, 10, 2), -240).getUTCHours()).toBe(22);
+  expect(localClock(at(10, 18, 30)).getUTCHours()).toBe(18);
 });

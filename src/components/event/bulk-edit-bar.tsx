@@ -1,7 +1,7 @@
 import { useAuthToken } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
 import { TagIcon, TagsIcon, Trash2Icon } from "lucide-react";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { MAX_LABEL_LENGTH, MAX_LABELS_PER_MOMENT } from "../../../convex/lib/limits";
@@ -62,15 +62,22 @@ export function BulkEditBar({
   moments,
   onClear,
   onDone,
+  onDeleted,
 }: {
   // The selected moments the viewer may change.
   moments: MomentView[];
   onClear: () => void;
   onDone: () => void;
+  onDeleted?: (momentIds: string[]) => void;
 }) {
   const update = useMutation(api.moments.update);
   const remove = useMutation(api.moments.remove);
   const token = useAuthToken();
+  // Read after the deletes: a long run can outlast the token it started with.
+  const latestToken = useRef(token);
+  useEffect(() => {
+    latestToken.current = token;
+  }, [token]);
   const uid = useId();
   const [progress, setProgress] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -141,7 +148,7 @@ export function BulkEditBar({
   }
 
   async function deleteAll(targets: MomentView[]) {
-    let deleted = 0;
+    const deleted: string[] = [];
     const errors: string[] = [];
     const removed: string[] = [];
     for (const [i, m] of targets.entries()) {
@@ -149,15 +156,16 @@ export function BulkEditBar({
       try {
         const { removedMediaIds } = await remove({ momentId: m._id });
         removed.push(...removedMediaIds);
-        deleted++;
+        deleted.push(m._id);
       } catch (e) {
         errors.push(errorMessage(e));
       }
     }
-    if (token && removed.length > 0) await deletePhotos(removed, token);
+    if (latestToken.current && removed.length > 0) await deletePhotos(removed, latestToken.current);
     setProgress(null);
     onClear();
-    report(deleted, errors, "Deleted", "Nothing was deleted");
+    if (deleted.length > 0) onDeleted?.(deleted);
+    report(deleted.length, errors, "Deleted", "Nothing was deleted");
   }
 
   // Two rows in a narrow table (the count and Done, then the actions), one

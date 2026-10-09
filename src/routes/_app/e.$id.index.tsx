@@ -34,7 +34,8 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/_app/e/$id/")({
-  validateSearch: search,
+  // Old edit links name the moment in `momentId` only.
+  validateSearch: search.transform((s) => (s.panel === "moment" && !s.editId && s.momentId ? { ...s, editId: s.momentId } : s)),
   component: EventPage,
 });
 
@@ -194,6 +195,19 @@ function EventPage() {
                 selectedMomentId={momentId}
                 onSelectMoment={selectMoment}
                 canEditMoment={canAdd ? canEditMoment : undefined}
+                // Checked against the URL as it is by then: the feed may
+                // have moved on while they were deleted.
+                onDeleted={(ids) =>
+                  void navigate({
+                    search: (s) => ({
+                      ...s,
+                      momentId: s.momentId && ids.includes(s.momentId) ? undefined : s.momentId,
+                      ...(s.editId && ids.includes(s.editId) ? { panel: "outline" as const, editId: undefined } : {}),
+                    }),
+                    replace: true,
+                    resetScroll: false,
+                  })
+                }
                 renderActions={(m) => (
                   <MomentActionsMenu
                     eventId={eventId}
