@@ -4,6 +4,7 @@ import { useMutation } from "convex/react";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  ImagesIcon,
   LinkIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -33,10 +34,12 @@ export function EventActionsMenu({
   event,
   onEditDetails,
   onAddMoment,
+  onAddFromPhotos,
 }: {
   event: EventView;
   onEditDetails?: () => void;
   onAddMoment?: () => void;
+  onAddFromPhotos?: () => void;
 }) {
   const update = useMutation(api.events.update);
   const token = useAuthToken();
@@ -84,6 +87,11 @@ export function EventActionsMenu({
           {onAddMoment && event.role !== "viewer" && !archived && (
             <DropdownMenuItem onSelect={onAddMoment}>
               <PlusIcon /> Add moment
+            </DropdownMenuItem>
+          )}
+          {onAddFromPhotos && event.role !== "viewer" && !archived && (
+            <DropdownMenuItem onSelect={onAddFromPhotos}>
+              <ImagesIcon /> Add from photos
             </DropdownMenuItem>
           )}
           {event.momentCount > 0 && (

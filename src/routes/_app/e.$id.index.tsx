@@ -1,10 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { ArrowLeftIcon, PlayIcon, PlusIcon } from "lucide-react";
+import { ArrowLeftIcon, ImagesIcon, PlayIcon, PlusIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
 import { ActivityTab } from "@/components/event/activity-tab";
+import { BulkAddSheet } from "@/components/event/bulk-add-sheet";
 import { EventActionsMenu } from "@/components/event/event-actions-menu";
 import { eventDates } from "@/components/event/event-dates";
 import { EditorPanel, MomentFeed, type Panel } from "@/components/event/itinerary-panel";
@@ -48,6 +49,7 @@ function EventPage() {
   useDocumentTitle(event ? `${event.title} · Story-time` : undefined);
   // The table's visible moments, in its order; the feed follows it.
   const [order, setOrder] = useState<string[] | null>(null);
+  const [addingPhotos, setAddingPhotos] = useState(false);
   // Scrolling the feed selects the moment in view, without new history
   // entries. `resetScroll: false` stops the router restoring the feed's old
   // scroll position (and the window's) after each of these navigations.
@@ -149,11 +151,18 @@ function EventPage() {
               <PlusIcon /> Add moment
             </Button>
           )}
+          {canAdd && (
+            <Button variant="outline" onClick={() => setAddingPhotos(true)}>
+              <ImagesIcon /> <span className="max-sm:sr-only">Add from photos</span>
+            </Button>
+          )}
           <EventActionsMenu
             event={event}
             onEditDetails={() => openPanel("details")}
             onAddMoment={() => openPanel("new-moment")}
+            onAddFromPhotos={() => setAddingPhotos(true)}
           />
+          {canAdd && <BulkAddSheet event={event} open={addingPhotos} onOpenChange={setAddingPhotos} />}
         </div>
       </header>
 
@@ -184,6 +193,7 @@ function EventPage() {
                 onOrderChange={setOrder}
                 selectedMomentId={momentId}
                 onSelectMoment={selectMoment}
+                canEditMoment={canAdd ? canEditMoment : undefined}
                 renderActions={(m) => (
                   <MomentActionsMenu
                     eventId={eventId}

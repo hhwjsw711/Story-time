@@ -22,6 +22,7 @@ const photonResponse = z.object({
       properties: z.object({
         osm_type: z.string().optional(),
         osm_id: z.number().optional(),
+        osm_value: z.string().optional(),
         name: z.string().optional(),
         street: z.string().optional(),
         housenumber: z.string().optional(),
@@ -50,7 +51,8 @@ function photonUrl(path: "api" | "reverse", params: { q?: string; near?: Geo; li
 // A short name for a point (say, where a photo was taken), or undefined.
 export async function reversePlace(geo: Geo): Promise<string | undefined> {
   try {
-    const res = await fetch(photonUrl("reverse", { near: geo, limit: 1 }));
+    // A few candidates, since the nearest is often just a postcode.
+    const res = await fetch(photonUrl("reverse", { near: geo, limit: 5 }));
     return res.ok ? toSuggestions(await res.json())[0]?.label : undefined;
   } catch {
     return undefined;
@@ -65,6 +67,8 @@ function toSuggestions(json: unknown): Suggestion[] {
   const seen = new Set<string>();
   return parsed.data.features.flatMap((f, i) => {
     const p = f.properties;
+    // A postcode isn't a place anyone would name a stop after.
+    if (p.osm_value === "postcode") return [];
     // The list may show a house number; the field never gets one.
     const name = p.name ?? [p.street, p.housenumber].filter(Boolean).join(" ");
     const short = p.name ?? p.street ?? "";
