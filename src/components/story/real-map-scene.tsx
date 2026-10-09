@@ -1,5 +1,5 @@
 import { LngLatBounds } from "maplibre-gl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { transportOf } from "@/components/event/transport";
 import {
   MapArc,
@@ -22,6 +22,8 @@ type Point = [number, number];
 const lngLat = (g: LatLng): Point => [g.lng, g.lat];
 // Planes arc high; everything else bends a little, as on the drawn map.
 const bend = (transport: string) => (transport === "plane" ? 0.3 : 0.08);
+// How long a leg in view waits for the basemap before showing the drawn map.
+const LOAD_TIMEOUT_MS = 6000;
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const PAST = { "line-color": "#e7e5e4", "line-opacity": 0.3, "line-width": 1.5, "line-dasharray": [2, 2] };
 
@@ -56,6 +58,7 @@ export function RealMapScene({
   places,
   animate,
   active,
+  fallback,
 }: {
   leg: Leg;
   from: LatLng;
@@ -65,12 +68,15 @@ export function RealMapScene({
   places: Array<{ name: string; geo: LatLng }>;
   animate: boolean;
   active: boolean;
+  // Shown instead when the basemap doesn't arrive (tiles blocked, offline).
+  fallback: ReactNode;
 }) {
   const seconds = legDuration(leg.transport);
   const transport = transportOf(leg.transport);
   const Icon = transport?.icon;
   const [progress, setProgress] = useState(animate ? 0 : 1);
   const [loaded, setLoaded] = useState(false);
+  const [gaveUp, setGaveUp] = useState(false);
   const route = useMemo(
     () => curve([from.lng, from.lat], [to.lng, to.lat], bend(leg.transport)),
     [from.lng, from.lat, to.lng, to.lat, leg.transport],
@@ -93,6 +99,15 @@ export function RealMapScene({
     });
     return () => cancelAnimationFrame(raf);
   }, [animate, active, seconds]);
+
+  // Timed only while in view: a scene mounted ahead may load at leisure.
+  useEffect(() => {
+    if (loaded || !active) return;
+    const t = setTimeout(() => setGaveUp(true), LOAD_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [loaded, active]);
+
+  if (gaveUp && !loaded) return fallback;
 
   return (
     <section aria-label={`${transport?.phrase ?? "Travelling"} from ${leg.from} to ${leg.to}`} className="relative flex-1">

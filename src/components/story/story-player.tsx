@@ -238,25 +238,9 @@ export function StoryPlayer({
       case "end":
         // Built on arrival, so its prints are dealt out in view.
         return active && <EndCard event={event} moments={moments} onReplay={() => restart(!reduced)} />;
-      case "travel":
+      case "travel": {
         if (!near) return null;
-        if (webgl && s.fromGeo && s.toGeo) {
-          return (
-            <Suspense fallback={null}>
-              <RealMapScene
-                leg={s}
-                from={s.fromGeo}
-                to={s.toGeo}
-                legs={legs}
-                current={legs.indexOf(s)}
-                places={located}
-                animate={!reduced}
-                active={active}
-              />
-            </Suspense>
-          );
-        }
-        return (
+        const drawn = (
           <MapScene
             key={active ? "on" : "off"}
             places={places}
@@ -266,6 +250,23 @@ export function StoryPlayer({
             idle={i > current}
           />
         );
+        if (!webgl || !s.fromGeo || !s.toGeo) return drawn;
+        return (
+          <Suspense fallback={null}>
+            <RealMapScene
+              leg={s}
+              from={s.fromGeo}
+              to={s.toGeo}
+              legs={legs}
+              current={legs.indexOf(s)}
+              places={located}
+              animate={!reduced}
+              active={active}
+              fallback={drawn}
+            />
+          </Suspense>
+        );
+      }
       case "stop":
         return (
           <>

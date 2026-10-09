@@ -112,6 +112,23 @@ describe("invites", () => {
     expect((await guest.query(api.events.get, { eventId }))?.role).toBe("viewer");
   });
 
+  test("a link opened before access was revoked can't restore it", async () => {
+    const { owner, guest, eventId } = await setup();
+    const first = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    await guest.mutation(api.invites.accept, { token: tokenOf(first.link) });
+    // A second link in the group chat: the guest opens it while still a viewer.
+    const { link } = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    await guest.mutation(api.invites.accept, { token: tokenOf(link) });
+    vi.advanceTimersByTime(1000);
+    const [session] = await owner.query(api.sessions.listForEvent, { eventId });
+    await owner.mutation(api.sessions.revoke, { sessionId: session!._id });
+
+    await expect(guest.mutation(api.invites.accept, { token: tokenOf(link) })).rejects.toThrow(
+      /expired or was already used/,
+    );
+    expect(await guest.query(api.events.get, { eventId })).toBeNull();
+  });
+
   test("the owner, or a guest with as much access, doesn't use a link up", async () => {
     const { owner, guest, eventId } = await setup();
     const contributor = await owner.mutation(api.invites.create, {

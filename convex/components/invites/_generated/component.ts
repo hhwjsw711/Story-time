@@ -70,6 +70,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         { token: string },
         null | {
+          createdAt: number;
           eventId: string;
           expiresAt: number;
           invitedBy: string;

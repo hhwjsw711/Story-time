@@ -62,6 +62,7 @@ export const lookup = query({
       invitedBy: v.string(),
       role: vRole,
       expiresAt: v.number(),
+      createdAt: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -76,6 +77,7 @@ export const lookup = query({
       invitedBy: invite.invitedBy,
       role: invite.role,
       expiresAt: invite.expiresAt,
+      createdAt: invite._creationTime,
     };
   },
 });

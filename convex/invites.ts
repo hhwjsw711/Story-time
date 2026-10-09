@@ -147,6 +147,15 @@ export const accept = mutation({
         q.eq("eventId", event._id).eq("userId", userId),
       )
       .unique();
+    // A link made before someone's access was revoked can't bring it back
+    // (say, one they opened while they still had access): that takes a new
+    // invite.
+    if (existing?.revokedAt !== undefined && invite.createdAt < existing.revokedAt) {
+      throw new ConvexError({
+        code: "INVITE_INVALID",
+        message: "This invite has expired or was already used",
+      });
+    }
     // A viewer link never downgrades an active contributor.
     if (
       existing !== null &&

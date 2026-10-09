@@ -1,3 +1,4 @@
+# Invite and story links stay crawlable so chat apps can show their preview
+# card; with server rendering off, crawlers only ever see the public shell.
 User-agent: *
-Disallow: /invite/
-Disallow: /e/
+Allow: /
