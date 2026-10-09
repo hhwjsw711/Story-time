@@ -15,6 +15,7 @@ import {
   PlusIcon,
   RouteIcon,
   SearchIcon,
+  UserIcon,
   VideoIcon,
   XIcon,
 } from "lucide-react";
@@ -51,6 +52,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { initials } from "@/components/user-avatar";
 import {
   allBlocks,
   type BlockType,
@@ -109,7 +111,8 @@ function groupLabel(grouping: Grouping, key: string, label: string) {
   return label;
 }
 
-type Row = MomentView & { groupKey: string; groupLabel: string };
+// `dayKey` is the author's local day the itinerary groups by, when known.
+type Row = MomentView & { groupKey: string; groupLabel: string; dayKey?: string };
 
 type Meta = {
   meId?: string;
@@ -137,10 +140,12 @@ const helper = createColumnHelper<typeof features, Row>();
 // away as the table narrows (see GRID).
 const columns = helper.columns([
   // The server's group key (author-local day, month or place): grouped on,
-  // never rendered. Day and month keys sort chronologically as strings.
+  // never rendered. Groups sort by label: day and month labels are their
+  // keys, which sort chronologically as strings; place keys are hashes, so
+  // places sort by name instead.
   helper.accessor("groupKey", {
     id: "group",
-    sortFn: (a, b, id) => String(a.getValue(id)).localeCompare(String(b.getValue(id))),
+    sortFn: (a, b) => a.original.groupLabel.localeCompare(b.original.groupLabel),
   }),
   helper.display({
     id: "glyph",
@@ -214,9 +219,9 @@ const columns = helper.columns([
           <span
             aria-hidden
             title={mine ? "You" : name}
-            className="flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold ring-2 ring-card"
+            className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground ring-2 ring-card"
           >
-            {(m.authorName ?? "?").charAt(0).toUpperCase()}
+            {initials(m.authorName) || <UserIcon className="size-3" />}
           </span>
         </>
       );
@@ -235,6 +240,7 @@ const UNGROUPED: string[] = [];
 
 export function ItineraryTab({
   eventId,
+  momentCount,
   meId,
   grouping,
   view,
@@ -247,6 +253,8 @@ export function ItineraryTab({
   renderActions,
 }: {
   eventId: Id<"events">;
+  // How many moments are coming, so the loading state can take their shape.
+  momentCount?: number;
   meId?: string;
   grouping: Grouping;
   view: ItineraryView;
@@ -269,9 +277,15 @@ export function ItineraryTab({
   const [searchOpen, setSearchOpen] = useState(false);
   const [newestFirst, setNewestFirst] = useState(false);
 
+  // Day groups (also behind "All") are keyed by the author's local day,
+  // which the date filter then uses too.
+  const byDay = grouping === "day" || grouping === "none";
   const data = useMemo(
-    () => groups?.flatMap((g) => g.moments.map((m) => ({ ...m, groupKey: g.key, groupLabel: g.label }))) ?? EMPTY,
-    [groups],
+    () =>
+      groups?.flatMap((g) =>
+        g.moments.map((m) => ({ ...m, groupKey: g.key, groupLabel: g.label, dayKey: byDay ? g.key : undefined })),
+      ) ?? EMPTY,
+    [groups, byDay],
   );
   const places = useMemo(
     () => [...new Set(data.map((m) => m.place ?? NO_PLACE))].sort((a, b) => a.localeCompare(b)),
@@ -283,13 +297,13 @@ export function ItineraryTab({
   );
   // Everyone with a moment here, you first.
   const people = useMemo(() => {
-    const byId = new Map<string, { id: string; name: string; initial: string }>();
+    const byId = new Map<string, { id: string; name: string; initials: string }>();
     for (const m of data) {
       if (!byId.has(m.authorId)) {
         byId.set(m.authorId, {
           id: m.authorId,
           name: m.authorId === meId ? "You" : (m.authorName ?? "Anonymous"),
-          initial: (m.authorName ?? "?").charAt(0).toUpperCase(),
+          initials: initials(m.authorName),
         });
       }
     }
@@ -398,10 +412,27 @@ export function ItineraryTab({
   );
 
   let body: ReactNode;
+  const empty = <p className="py-12 text-center text-muted-foreground">No moments yet. Add one to start the itinerary.</p>;
   if (groups === undefined) {
-    body = <Skeleton className="m-1.5 h-48" />;
+    // Shaped like what's coming, so the editor below doesn't jump when it
+    // loads: the empty state, or a header strip and a row per moment.
+    body =
+      momentCount === 0 ? (
+        empty
+      ) : (
+        <div aria-hidden className="space-y-1 px-1.5 pb-1.5">
+          <Skeleton className="h-9 rounded-lg" />
+          {Array.from({ length: Math.min(momentCount ?? 3, 6) }, (_, i) => (
+            <div key={i} className="flex h-11 items-center gap-3 px-4">
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="size-5 rounded-full" />
+            </div>
+          ))}
+        </div>
+      );
   } else if (all === 0) {
-    body = <p className="py-12 text-center text-muted-foreground">No moments yet. Add one to start the itinerary.</p>;
+    body = empty;
   } else if (count === 0) {
     body = (
       <div className="space-y-3 py-12 text-center">
@@ -606,7 +637,7 @@ function People({
   selected,
   onChange,
 }: {
-  people: Array<{ id: string; name: string; initial: string }>;
+  people: Array<{ id: string; name: string; initials: string }>;
   selected: string[];
   onChange: (authors: string[]) => void;
 }) {
@@ -629,7 +660,7 @@ function People({
               selected.length > 0 && !on && "opacity-50 hover:opacity-100",
             )}
           >
-            {p.initial}
+            {p.initials || <UserIcon aria-hidden className="size-3.5" />}
           </button>
         );
       })}

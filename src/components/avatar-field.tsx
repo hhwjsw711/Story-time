@@ -11,10 +11,10 @@ import { AVATAR_TYPES, deleteMedia, uploadAvatar } from "@/lib/upload";
 
 export function AvatarField({
   mediaId,
-  initial,
+  name,
 }: {
   mediaId?: Id<"media">;
-  initial: string;
+  name?: string;
 }) {
   const token = useAuthToken();
   const setAvatar = useMutation(api.media.setAvatar);
@@ -54,7 +54,7 @@ export function AvatarField({
 
   return (
     <div className="flex items-center gap-4">
-      <UserAvatar mediaId={mediaId} initial={initial} className="size-20 text-2xl" />
+      <UserAvatar mediaId={mediaId} name={name} className="size-20 text-2xl" />
       <div className="space-y-2">
         <div className="flex gap-2">
           <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>

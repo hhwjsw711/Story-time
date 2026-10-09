@@ -8,9 +8,14 @@ import { MomentPreview } from "@/components/event/moment-preview";
 import type { EventView, MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 // "outline" means no editor is open; the others name the open form.
 export type Panel = "outline" | "details" | "new-moment" | "moment";
+
+// One moment per screen: the viewport less the header, title and tabs above
+// the feed, so it fits without the page scrolling.
+const FEED_HEIGHT = "h-[calc(100svh-14rem)]";
 
 const TITLES: Record<Exclude<Panel, "outline">, string> = {
   details: "Experience details",
@@ -19,7 +24,8 @@ const TITLES: Record<Exclude<Panel, "outline">, string> = {
 };
 
 // The form under the itinerary, in the left column: experience details, a new
-// moment, or the selected moment being edited.
+// moment, or a moment being edited (`momentId`; not the one in the feed,
+// which changes as it scrolls).
 export function EditorPanel({
   event,
   panel,
@@ -52,7 +58,7 @@ export function EditorPanel({
       />
     );
   } else if (moments === undefined) {
-    body = <Skeleton className="h-64 w-full" />;
+    body = <Skeleton className="h-[32rem] w-full" />;
   } else {
     const moment = moments.find((m) => m._id === momentId);
     body = !moment ? (
@@ -117,7 +123,8 @@ export function MomentFeed({
   useEffect(() => {
     const root = feed.current;
     if (!root || !momentId || momentId === reported.current) return;
-    const el = root.querySelector<HTMLElement>(`[data-moment-id="${momentId}"]`);
+    // Escaped: the id comes from the URL.
+    const el = root.querySelector<HTMLElement>(`[data-moment-id="${CSS.escape(momentId)}"]`);
     if (el) root.scrollTo({ top: el.offsetTop });
   }, [momentId, ids]);
 
@@ -142,19 +149,30 @@ export function MomentFeed({
     return () => observer.disconnect();
   }, [ids, onActiveChange]);
 
-  if (moments === undefined || order === null) return <Skeleton className="h-96 w-full" />;
-  if (moments.length === 0) {
+  const empty = (
+    <div className="space-y-3 rounded-xl border border-dashed border-amber-900/15 bg-[#f3e9d6]/40 p-8 text-center dark:border-amber-100/10 dark:bg-amber-100/[0.03]">
+      <p className="font-serif text-lg">The story starts with a moment.</p>
+      <p className="text-sm text-muted-foreground">Moments you add show up here, stop by stop.</p>
+      {canAdd && (
+        <Button variant="outline" size="sm" onClick={onAdd}>
+          <PlusIcon /> Add the first moment
+        </Button>
+      )}
+    </div>
+  );
+  // Loading takes the loaded shape, so nothing jumps: the empty state when
+  // there's nothing to load, else a moment-shaped placeholder.
+  if (moments === undefined || order === null) {
+    if (event.momentCount === 0) return empty;
     return (
-      <div className="space-y-3 rounded-xl border border-dashed p-8 text-center">
-        <p className="text-muted-foreground">Moments you add show up here, stop by stop.</p>
-        {canAdd && (
-          <Button variant="outline" size="sm" onClick={onAdd}>
-            <PlusIcon /> Add the first moment
-          </Button>
-        )}
+      <div aria-hidden className={cn(FEED_HEIGHT, "space-y-3 py-4")}>
+        <Skeleton className="h-4 w-56 max-w-full" />
+        <Skeleton className="h-8 w-64 max-w-full" />
+        <Skeleton className="mt-6 aspect-[4/3] w-full max-w-2xl rounded-xl" />
       </div>
     );
   }
+  if (moments.length === 0) return empty;
   if (list.length === 0) {
     return <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">No moments match.</p>;
   }
@@ -162,7 +180,7 @@ export function MomentFeed({
     <div
       ref={feed}
       aria-label="Moments"
-      className="relative h-[calc(100svh-9rem)] snap-y snap-mandatory overflow-y-auto overscroll-contain lg:sticky lg:top-4"
+      className={cn(FEED_HEIGHT, "relative snap-y snap-mandatory overflow-y-auto overscroll-contain lg:sticky lg:top-4")}
     >
       {list.map((moment) => (
         <section

@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 export function MomentCard({ moment }: { moment: MomentView }) {
   const stops = stopsOf(moment);
   return (
-    <article className="space-y-3 rounded-lg border bg-card p-4">
-      <header className="space-y-2 text-sm text-muted-foreground">
-        <p>
+    <article className="space-y-3 rounded-xl border bg-card p-4 shadow-xs">
+      <header className="space-y-1.5">
+        <p className="text-xs text-muted-foreground">
           {new Date(moment.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
-          {moment.place ? ` · ${moment.place}` : ""}
         </p>
+        <h3 className="font-serif text-lg leading-snug font-semibold">{moment.place ?? "A moment"}</h3>
         {moment.labels.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {moment.labels.map((l) => (
@@ -28,14 +28,14 @@ export function MomentCard({ moment }: { moment: MomentView }) {
           <section key={s} className="space-y-3">
             {/* Later stops get a heading; the first is the card's header. */}
             {s > 0 && (
-              <h3 className="flex items-center gap-1.5 border-t pt-3 text-sm font-medium">
+              <h4 className="flex items-center gap-1.5 border-t pt-3 font-serif text-sm font-semibold">
                 {transport && <transport.icon aria-label={transport.phrase} className="size-3.5 text-muted-foreground" />}
                 {stop.place ?? `Stop ${s + 1}`}
-              </h3>
+              </h4>
             )}
             {stop.blocks.map((b, i) =>
               b.type === "photo" ? (
-                <AuthImage key={i} mediaId={b.mediaId} alt="Moment photo" />
+                <AuthImage key={i} mediaId={b.mediaId} alt="Moment photo" className="aspect-[4/3] rounded-lg" />
               ) : b.type === "video" ? (
                 <AuthVideo key={i} mediaId={b.mediaId} label="Moment video" />
               ) : b.type === "link" ? (
@@ -45,7 +45,7 @@ export function MomentCard({ moment }: { moment: MomentView }) {
               ) : b.type === "note" ? (
                 <p key={i} className="whitespace-pre-wrap text-sm">{b.text}</p>
               ) : (
-                <p key={i} className="whitespace-pre-wrap text-sm italic">
+                <p key={i} className="border-l-2 border-amber-300 pl-3 font-serif text-sm whitespace-pre-wrap italic dark:border-amber-200/40">
                   {b.mood} {b.text}
                 </p>
               ),

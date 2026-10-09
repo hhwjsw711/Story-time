@@ -33,7 +33,7 @@ export const transportOf = (t: Transport | undefined) => TRANSPORTS.find((x) => 
 // The first stop lives on the moment itself; later ones in `stops`.
 export function stopsOf(m: MomentView) {
   return [
-    { startsAt: m.startsAt as number | undefined, place: m.place, transport: m.transport, blocks: m.blocks },
+    { startsAt: m.startsAt as number | undefined, place: m.place, geo: m.geo, transport: m.transport, blocks: m.blocks },
     ...m.stops,
   ];
 }

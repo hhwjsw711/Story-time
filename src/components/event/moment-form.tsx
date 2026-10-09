@@ -2,11 +2,13 @@ import { useAuthToken } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import { ArrowDownIcon, ArrowUpIcon, ImageIcon, PlusIcon, Trash2Icon, VideoIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { AuthImage } from "@/components/auth-image";
+import { type Geo, PlaceInput, reversePlace } from "@/components/event/place-input";
 import { stopsOf, TRANSPORT_VALUES, TRANSPORTS, type Transport } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
@@ -16,7 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { deletePhotos } from "@/lib/actions";
 import { errorMessage } from "@/lib/errors";
+import { readPhotoMeta } from "@/lib/photo-meta";
 import { isVideoFile, MEDIA_ACCEPT, uploadMedia } from "@/lib/upload";
+import { cn } from "@/lib/utils";
 
 const MOODS = ["😊", "😍", "😌", "😂", "🥹", "😴"];
 const MAX_STOPS = 10;
@@ -27,6 +31,10 @@ type StopValue = {
   transport: Transport | "";
   startsAt: string;
   place: string;
+  // Set by picking a suggested place (typing clears it), or read from a
+  // photo's GPS (`geoFromPhoto`; typing keeps it).
+  geo?: Geo;
+  geoFromPhoto?: boolean;
   media: Media[];
   notes: string[];
   links: string[];
@@ -41,6 +49,8 @@ const schema = z.object({
       transport: z.enum(["", ...TRANSPORT_VALUES]),
       startsAt: z.string(),
       place: z.string().max(200, "At most 200 characters"),
+      geo: z.object({ lat: z.number(), lng: z.number() }).optional(),
+      geoFromPhoto: z.boolean().optional(),
       media: z.array(z.object({ mediaId: z.string(), kind: z.enum(["photo", "video"]), name: z.string() })),
       notes: z.array(z.string().max(5000, "At most 5000 characters")),
       links: z.array(
@@ -78,6 +88,7 @@ function stopValuesOf(moment: MomentView): StopValue[] {
       transport: s.transport ?? "",
       startsAt: s.startsAt === undefined ? "" : toLocalInput(s.startsAt),
       place: s.place ?? "",
+      geo: s.geo,
       media: s.blocks.flatMap((b): Media[] =>
         b.type === "photo" || b.type === "video"
           ? [{ mediaId: b.mediaId, kind: b.type, name: b.type === "photo" ? "Saved photo" : "Saved video" }]
@@ -110,7 +121,44 @@ export function MomentForm({
   const update = useMutation(api.moments.update);
   const requestMore = useMutation(api.quota.request);
   const token = useAuthToken();
-  const [uploading, setUploading] = useState(false);
+  // The stop whose photos are uploading, if any.
+  const [uploadingStop, setUploadingStop] = useState<number | null>(null);
+  const uploading = uploadingStop !== null;
+  // Unique ids, so labels stay tied to their inputs wherever this renders.
+  const uid = useId();
+  // Set while a save is in flight: a second Enter or click must not create
+  // the moment twice.
+  const saving = useRef(false);
+
+  // Uploads from this session that no saved moment uses yet. They count
+  // toward the experience's upload cap, so they're deleted (best effort) when
+  // removed or abandoned. Photos already saved on `moment` are never here.
+  const unsaved = useRef(new Set<string>());
+  const closed = useRef(false);
+  const latestToken = useRef(token);
+  useEffect(() => {
+    latestToken.current = token;
+  }, [token]);
+  useEffect(() => {
+    closed.current = false;
+    const ids = unsaved.current;
+    return () => {
+      closed.current = true;
+      if (ids.size > 0 && latestToken.current) void deletePhotos([...ids], latestToken.current);
+      ids.clear();
+    };
+  }, []);
+  const discard = (mediaId: string) => {
+    if (unsaved.current.delete(mediaId) && token) void deletePhotos([mediaId], token);
+  };
+  // After a save: uploads the moment now uses are its own; any others (say,
+  // on a removed stop) are returned for deletion.
+  const settle = (stops: StopValue[]) => {
+    const kept = new Set(stops.flatMap((s) => s.media.map((m) => m.mediaId)));
+    const dropped = [...unsaved.current].filter((id) => !kept.has(id));
+    unsaved.current.clear();
+    return dropped;
+  };
 
   // Link titles aren't editable here; keep them for links that stay.
   const linkTitles = new Map(
@@ -138,6 +186,13 @@ export function MomentForm({
         toast.error("Pick when the first stop happened");
         return;
       }
+      // A feeling needs words; the server rejects a mood on its own, so say
+      // so rather than dropping it.
+      const moodOnly = value.stops.findIndex((s) => s.mood && !s.feeling.trim());
+      if (moodOnly !== -1) {
+        toast.error(`${value.stops.length > 1 ? `Stop ${moodOnly + 1}: add` : "Add"} a few words to go with the mood`);
+        return;
+      }
       const blocksPerStop = value.stops.map(toBlocks);
       if (blocksPerStop.every((b) => b.length === 0)) {
         toast.error("Add a photo, video, link, note or feeling first");
@@ -150,26 +205,34 @@ export function MomentForm({
       }
       const startsAt = new Date(first.startsAt).getTime();
       const tzOffsetMinutes = -new Date(first.startsAt).getTimezoneOffset();
+      // Coordinates only go with a place.
+      const geoOf = (s: StopValue) => (s.place.trim() ? s.geo : undefined);
       const stops = rest.map((s, i) => ({
         startsAt: s.startsAt ? new Date(s.startsAt).getTime() : undefined,
         place: s.place.trim() || undefined,
+        geo: geoOf(s),
         transport: s.transport || undefined,
         blocks: blocksPerStop[i + 1]!,
       }));
       const labels = value.labels.split(",").map((l) => l.trim()).filter(Boolean);
       try {
         if (moment) {
+          // The time, and with it the day the moment is grouped under (the
+          // server reads it in the sender's time zone), only change when the
+          // first stop's time did. Fixing a typo keeps the author's day.
+          const timeChanged = first.startsAt !== toLocalInput(moment.startsAt);
           const { removedMediaIds } = await update({
             momentId: moment._id,
-            startsAt,
-            tzOffsetMinutes,
+            ...(timeChanged ? { startsAt, tzOffsetMinutes } : {}),
             place: first.place.trim(),
+            geo: geoOf(first),
             transport: first.transport || null,
             blocks: blocksPerStop[0]!,
             stops,
             labels,
           });
-          if (token) await deletePhotos(removedMediaIds, token);
+          const dropped = settle(value.stops);
+          if (token) await deletePhotos([...removedMediaIds, ...dropped], token);
           toast.success("Moment saved");
         } else {
           await create({
@@ -177,11 +240,14 @@ export function MomentForm({
             startsAt,
             tzOffsetMinutes,
             place: first.place.trim() || undefined,
+            geo: geoOf(first),
             transport: first.transport || undefined,
             blocks: blocksPerStop[0]!,
             stops,
             labels,
           });
+          const dropped = settle(value.stops);
+          if (token && dropped.length > 0) void deletePhotos(dropped, token);
           toast.success("Moment added");
           formApi.reset();
         }
@@ -192,12 +258,23 @@ export function MomentForm({
     },
   });
 
-  async function onMedia(stop: number, files: FileList | null) {
-    if (!files || !token) return;
-    setUploading(true);
-    for (const file of Array.from(files)) {
+  async function onMedia(stop: number, input: HTMLInputElement) {
+    const files = Array.from(input.files ?? []);
+    // Cleared, so picking the same file again (after removing it) still works.
+    input.value = "";
+    if (files.length === 0 || !token) return;
+    setUploadingStop(stop);
+    void locateFromPhotos(stop, files);
+    for (const file of files) {
+      if (closed.current) break;
       try {
         const mediaId = await uploadMedia(file, eventId, token);
+        // Closed mid-upload: nothing will ever save this one.
+        if (closed.current) {
+          void deletePhotos([mediaId], token);
+          break;
+        }
+        unsaved.current.add(mediaId);
         form.pushFieldValue(`stops[${stop}].media`, {
           mediaId,
           kind: isVideoFile(file) ? "video" : "photo",
@@ -207,7 +284,29 @@ export function MomentForm({
         toast.error(`${file.name}: ${e instanceof Error ? e.message : "Upload failed"}`);
       }
     }
-    setUploading(false);
+    setUploadingStop(null);
+  }
+
+  // A stop with no location takes it from the first photo that has GPS (no
+  // network), then, if its Where is empty, a name for that spot from
+  // OpenStreetMap. Typed text is never overwritten. Stops can't move while
+  // photos upload, so `stop` still points at the same one.
+  async function locateFromPhotos(stop: number, files: File[]) {
+    if (form.state.values.stops[stop]?.geo) return;
+    let geo: Geo | undefined;
+    for (const file of files) {
+      geo = (await readPhotoMeta(file)).geo;
+      if (geo) break;
+    }
+    const current = form.state.values.stops[stop];
+    if (!geo || closed.current || !current || current.geo) return;
+    form.setFieldValue(`stops[${stop}].geo`, geo);
+    form.setFieldValue(`stops[${stop}].geoFromPhoto`, true);
+    if (current.place.trim()) return;
+    const label = await reversePlace(geo);
+    const now = form.state.values.stops[stop];
+    const same = now?.geo?.lat === geo.lat && now.geo.lng === geo.lng;
+    if (label && !closed.current && same && !now.place.trim()) form.setFieldValue(`stops[${stop}].place`, label);
   }
 
   if (full && !moment) {
@@ -228,9 +327,16 @@ export function MomentForm({
     );
   }
 
+  // Where to centre place search for stop `i`: the nearest earlier stop on
+  // the map, else any stop of this moment that is.
+  const biasFor = (i: number) => {
+    const stops = form.state.values.stops;
+    return stops.slice(0, i).reverse().find((s) => s.geo)?.geo ?? stops.find((s) => s.geo)?.geo;
+  };
+
   // One stop's fields. `i` addresses the stop inside the form's array.
   const stopFields = (i: number) => {
-    const id = (name: string) => `stop-${i}-${name}`;
+    const id = (name: string) => `${uid}-stop-${i}-${name}`;
     return (
       <FieldGroup>
         <form.Field name={`stops[${i}].transport`}>
@@ -263,13 +369,34 @@ export function MomentForm({
               </Field>
             )}
           </form.Field>
+          {/* The place's text, its pin and where the pin came from. */}
           <form.Field name={`stops[${i}].place`}>
             {(f) => (
-              <Field data-invalid={f.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor={id("place")}>Where</FieldLabel>
-                <Input id={id("place")} placeholder={i === 0 ? "Optional" : "Hanover Hbf"} value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
-                <FieldError errors={f.state.meta.errors} />
-              </Field>
+              <form.Field name={`stops[${i}].geo`}>
+                {(g) => (
+                  <form.Field name={`stops[${i}].geoFromPhoto`}>
+                    {(p) => (
+                      <Field data-invalid={f.state.meta.errors.length > 0}>
+                        <FieldLabel htmlFor={id("place")}>Where</FieldLabel>
+                        <PlaceInput
+                          id={id("place")}
+                          placeholder={i === 0 ? "Optional" : "Café, station, viewpoint…"}
+                          value={f.state.value}
+                          geo={g.state.value}
+                          fromPhoto={p.state.value}
+                          getBias={() => biasFor(i)}
+                          onChange={(place, geo, fromPhoto) => {
+                            f.handleChange(place);
+                            g.handleChange(geo);
+                            p.handleChange(fromPhoto);
+                          }}
+                        />
+                        <FieldError errors={f.state.meta.errors} />
+                      </Field>
+                    )}
+                  </form.Field>
+                )}
+              </form.Field>
             )}
           </form.Field>
         </div>
@@ -278,24 +405,44 @@ export function MomentForm({
           {(f) => (
             <Field>
               <FieldLabel htmlFor={id("media")}>Photos and videos</FieldLabel>
-              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground hover:bg-accent">
-                <ImageIcon className="size-4" />
-                {uploading ? "Uploading…" : "Choose photos (5 MB) or videos (50 MB)"}
-                <input id={id("media")} type="file" accept={MEDIA_ACCEPT} multiple className="sr-only" disabled={uploading} onChange={(e) => void onMedia(i, e.target.files)} />
+              <label
+                className={cn(
+                  "flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground has-focus-visible:ring-2 has-focus-visible:ring-ring",
+                  uploading ? "cursor-default opacity-70" : "cursor-pointer hover:bg-accent",
+                )}
+              >
+                <ImageIcon aria-hidden className="size-4 shrink-0" />
+                <span aria-live="polite">{uploadingStop === i ? "Uploading…" : "Choose photos (5 MB) or videos (50 MB)"}</span>
+                <input id={id("media")} type="file" accept={MEDIA_ACCEPT} multiple className="sr-only" disabled={uploading} onChange={(e) => void onMedia(i, e.target)} />
               </label>
-              {f.state.value.length > 0 && (
-                <ul className="space-y-1 text-sm">
+              {(f.state.value.length > 0 || uploadingStop === i) && (
+                <ul aria-label={`Stop ${i + 1} photos and videos`} className="grid grid-cols-4 gap-2 sm:grid-cols-5">
                   {f.state.value.map((m, j) => (
-                    <li key={m.mediaId} className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        {m.kind === "video" ? <VideoIcon className="size-3.5 shrink-0" /> : <ImageIcon className="size-3.5 shrink-0" />}
-                        <span className="truncate">{m.name}</span>
-                      </span>
-                      <button type="button" aria-label={`Remove ${m.name}`} onClick={() => f.removeValue(j)}>
-                        <XIcon className="size-4" />
+                    <li key={m.mediaId} className="relative">
+                      {m.kind === "video" ? (
+                        <div title={m.name} className="grid aspect-square place-items-center rounded-md bg-muted text-muted-foreground">
+                          <VideoIcon aria-hidden className="size-5" />
+                          <span className="sr-only">{m.name}</span>
+                        </div>
+                      ) : (
+                        <AuthImage mediaId={m.mediaId} alt={m.name} className="aspect-square rounded-md" />
+                      )}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${m.name}`}
+                        onClick={() => {
+                          f.removeValue(j);
+                          discard(m.mediaId);
+                        }}
+                        className="absolute top-1 right-1 flex size-6 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border outline-none hover:bg-background focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <XIcon className="size-3.5" />
                       </button>
                     </li>
                   ))}
+                  {uploadingStop === i && (
+                    <li aria-hidden className="aspect-square animate-pulse rounded-md bg-muted" />
+                  )}
                 </ul>
               )}
             </Field>
@@ -304,8 +451,8 @@ export function MomentForm({
 
         <form.Field name={`stops[${i}].notes`} mode="array">
           {(f) => (
-            <Field>
-              <FieldLabel>Notes</FieldLabel>
+            <Field aria-labelledby={id("notes")}>
+              <FieldLabel id={id("notes")}>Notes</FieldLabel>
               {f.state.value.map((_, j) => (
                 <form.Field key={j} name={`stops[${i}].notes[${j}]`}>
                   {(n) => (
@@ -325,8 +472,8 @@ export function MomentForm({
 
         <form.Field name={`stops[${i}].links`} mode="array">
           {(f) => (
-            <Field>
-              <FieldLabel>Links</FieldLabel>
+            <Field aria-labelledby={id("links")}>
+              <FieldLabel id={id("links")}>Links</FieldLabel>
               {f.state.value.map((_, j) => (
                 <form.Field key={j} name={`stops[${i}].links[${j}]`}>
                   {(l) => (
@@ -373,14 +520,18 @@ export function MomentForm({
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
-        void form.handleSubmit();
+        if (saving.current) return;
+        saving.current = true;
+        void form.handleSubmit().finally(() => {
+          saving.current = false;
+        });
       }}
     >
       <form.Field name="labels">
         {(f) => (
           <Field data-invalid={f.state.meta.errors.length > 0}>
-            <FieldLabel htmlFor="labels">Labels</FieldLabel>
-            <Input id="labels" placeholder="food, museum, sunset" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
+            <FieldLabel htmlFor={`${uid}-labels`}>Labels</FieldLabel>
+            <Input id={`${uid}-labels`} placeholder="food, museum, sunset" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
             <FieldDescription>Separate labels with commas.</FieldDescription>
             <FieldError errors={f.state.meta.errors} />
           </Field>
@@ -396,14 +547,16 @@ export function MomentForm({
                 <fieldset key={i} className="space-y-4 rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <legend className="text-sm font-medium">Stop {i + 1}</legend>
+                    {/* Locked during uploads: a finished upload lands on the
+                        stop at the index it started from. */}
                     <div className="flex items-center gap-0.5">
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move stop ${i + 1} up`} disabled={i === 0} onClick={() => stops.moveValue(i, i - 1)}>
+                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move stop ${i + 1} up`} disabled={i === 0 || uploading} onClick={() => stops.moveValue(i, i - 1)}>
                         <ArrowUpIcon />
                       </Button>
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move stop ${i + 1} down`} disabled={i === count - 1} onClick={() => stops.moveValue(i, i + 1)}>
+                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Move stop ${i + 1} down`} disabled={i === count - 1 || uploading} onClick={() => stops.moveValue(i, i + 1)}>
                         <ArrowDownIcon />
                       </Button>
-                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove stop ${i + 1}`} disabled={count === 1} onClick={() => stops.removeValue(i)}>
+                      <Button type="button" variant="ghost" size="icon-sm" aria-label={`Remove stop ${i + 1}`} disabled={count === 1 || uploading} onClick={() => stops.removeValue(i)}>
                         <Trash2Icon />
                       </Button>
                     </div>
@@ -420,9 +573,14 @@ export function MomentForm({
       </form.Field>
 
       <div className="flex gap-2">
-        <Button type="submit" disabled={form.state.isSubmitting || uploading}>
-          {uploading ? "Uploading…" : moment ? "Save moment" : "Add moment"}
-        </Button>
+        {/* Subscribed, so the button re-renders (and disables) while saving. */}
+        <form.Subscribe selector={(state) => state.isSubmitting}>
+          {(submitting) => (
+            <Button type="submit" disabled={submitting || uploading}>
+              {uploading ? "Uploading…" : submitting ? "Saving…" : moment ? "Save moment" : "Add moment"}
+            </Button>
+          )}
+        </form.Subscribe>
         {onDone && (
           <Button type="button" variant="ghost" onClick={onDone}>
             Cancel
