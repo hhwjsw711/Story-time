@@ -234,6 +234,22 @@ describe("deleting experience photos", () => {
     await expect(owner.mutation(api.media.markDeleted, { mediaId: photo })).rejects.toThrow();
   });
 
+  test("whoever takes a photo off their moment can delete it", async () => {
+    const { owner, helper, eventId } = await setup();
+    const momentId = await addMoment(helper, eventId);
+    const photo = await readyPhoto(owner, eventId);
+    await owner.mutation(api.moments.update, {
+      momentId,
+      blocks: [{ type: "note", text: "first" }, { type: "photo", mediaId: photo }],
+    });
+    const { removedMediaIds } = await helper.mutation(api.moments.update, {
+      momentId,
+      blocks: [{ type: "note", text: "first" }],
+    });
+    expect(removedMediaIds).toEqual([photo]);
+    expect(await helper.query(api.media.getForDelete, { mediaId: photo })).not.toBeNull();
+  });
+
   test("after markDeleted the photo is gone for everyone", async () => {
     const { owner, helper, viewer, eventId } = await setup();
     const photo = await readyPhoto(helper, eventId);

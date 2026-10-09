@@ -121,3 +121,52 @@ describe("media.listKeysForEvent", () => {
     await expect(friend.query(api.media.listKeysForEvent, { eventId })).rejects.toThrow();
   });
 });
+
+describe("events.listMine, get and update", () => {
+  test("cards use the first photo (not video) as the cover, for owner and guests", async () => {
+    const { owner, friend, eventId } = await setup();
+    expect((await owner.query(api.events.listMine, {}))[0]?.coverMediaId).toBeUndefined();
+    const upload = async (mime: string) => {
+      const { mediaId } = await owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime });
+      await owner.mutation(api.media.confirmUpload, { mediaId });
+      return mediaId;
+    };
+    const video = await upload("video/mp4");
+    const photo = await upload("image/png");
+    await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: Date.UTC(2026, 5, 1, 12),
+      blocks: [{ type: "video", mediaId: video }],
+      stops: [{ place: "Porto", blocks: [{ type: "photo", mediaId: photo }] }],
+    });
+    expect((await owner.query(api.events.listMine, {}))[0]?.coverMediaId).toBe(photo);
+    expect((await friend.query(api.events.listMine, {}))[0]?.coverMediaId).toBe(photo);
+  });
+
+  test("a malformed id reads as not found", async () => {
+    const { owner } = await setup();
+    expect(await owner.query(api.events.get, { eventId: "not-an-id" })).toBeNull();
+  });
+
+  test("null clears a date, and the change is logged as null", async () => {
+    const { t, owner, eventId } = await setup();
+    const at = Date.UTC(2026, 5, 1);
+    await owner.mutation(api.events.update, { eventId, startsAt: at, endsAt: at + 1000 });
+    await owner.mutation(api.events.update, { eventId, startsAt: null });
+    const event = await owner.query(api.events.get, { eventId });
+    expect(event?.startsAt).toBeUndefined();
+    expect(event?.endsAt).toBe(at + 1000);
+    const last = await t.run((ctx) =>
+      ctx.db
+        .query("changes")
+        .withIndex("by_event_and_at", (q) => q.eq("eventId", eventId))
+        .order("desc")
+        .first(),
+    );
+    expect(last).toMatchObject({
+      fields: ["startsAt"],
+      before: { startsAt: at },
+      after: { startsAt: null },
+    });
+  });
+});

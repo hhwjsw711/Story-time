@@ -1,7 +1,12 @@
 import { ConvexError, v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
-import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  mutation,
+  query,
+  type QueryCtx,
+} from "./_generated/server";
 import {
   getEventAccess,
   getUserId,
@@ -40,6 +45,11 @@ const vEventView = v.object({
   role: vRoleOut,
 });
 
+// The home grid's card: the event plus a photo to show on it.
+const vEventCard = vEventView.extend({
+  coverMediaId: v.optional(v.id("media")),
+});
+
 function toView(event: Doc<"events">, role: EventRole) {
   return {
     _id: event._id,
@@ -55,6 +65,25 @@ function toView(event: Doc<"events">, role: EventRole) {
     momentCount: event.momentCount,
     role,
   };
+}
+
+// The chosen cover, else the first photo (not video) of the earliest few
+// moments, first stop before later ones. Bounded to 5 moments per event.
+async function coverFor(
+  ctx: QueryCtx,
+  event: Doc<"events">,
+): Promise<Id<"media"> | undefined> {
+  if (event.coverMediaId !== undefined) return event.coverMediaId;
+  const moments = await ctx.db
+    .query("moments")
+    .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
+    .take(5);
+  for (const moment of moments) {
+    for (const blocks of [moment.blocks, ...(moment.stops ?? []).map((s) => s.blocks)]) {
+      for (const block of blocks) if (block.type === "photo") return block.mediaId;
+    }
+  }
+  return undefined;
 }
 
 function invalid(field: string, message: string): never {
@@ -100,8 +129,9 @@ export const update = mutation({
     eventId: v.id("events"),
     title: v.optional(v.string()),
     description: v.optional(v.string()), // "" clears it
-    startsAt: v.optional(v.number()),
-    endsAt: v.optional(v.number()),
+    // null clears a date; omitted leaves it as is.
+    startsAt: v.optional(v.union(v.number(), v.null())),
+    endsAt: v.optional(v.union(v.number(), v.null())),
     visibility: v.optional(vVisibility),
     status: v.optional(vStatus),
   },
@@ -120,8 +150,10 @@ export const update = mutation({
     if (args.description !== undefined && args.description.length > 2000) {
       invalid("description", "Description must be 2000 characters or fewer");
     }
-    const startsAt = args.startsAt ?? event.startsAt;
-    const endsAt = args.endsAt ?? event.endsAt;
+    const startsAt =
+      args.startsAt === undefined ? event.startsAt : (args.startsAt ?? undefined);
+    const endsAt =
+      args.endsAt === undefined ? event.endsAt : (args.endsAt ?? undefined);
     if (startsAt !== undefined && endsAt !== undefined && endsAt < startsAt) {
       invalid("endsAt", "End must be after the start");
     }
@@ -133,10 +165,11 @@ export const update = mutation({
 
     const note = (
       key: "title" | "startsAt" | "endsAt" | "visibility" | "status",
-      next: string | number | undefined,
+      next: string | number | null | undefined,
     ) => {
-      if (next === undefined || next === event[key]) return;
-      (patch as Record<string, unknown>)[key] = next;
+      // null clears the field; history records it as null.
+      if (next === undefined || next === (event[key] ?? null)) return;
+      (patch as Record<string, unknown>)[key] = next ?? undefined;
       fields.push(key);
       before[key] = event[key] ?? null;
       after[key] = next;
@@ -172,18 +205,22 @@ export const update = mutation({
   },
 });
 
+// Takes a string: the id comes from the URL, and a malformed one should read
+// as "not found" rather than fail validation.
 export const get = query({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.string() },
   returns: v.union(v.null(), vEventView),
   handler: async (ctx, args) => {
-    const access = await getEventAccess(ctx, args.eventId);
+    const eventId = ctx.db.normalizeId("events", args.eventId);
+    if (eventId === null) return null;
+    const access = await getEventAccess(ctx, eventId);
     return access === null ? null : toView(access.event, access.role);
   },
 });
 
 export const listMine = query({
   args: {},
-  returns: v.array(vEventView),
+  returns: v.array(vEventCard),
   handler: async (ctx) => {
     const userId = await getUserId(ctx);
     if (userId === null) return [];
@@ -196,13 +233,18 @@ export const listMine = query({
       .query("sessions")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .take(100);
-    const shared: Array<ReturnType<typeof toView>> = [];
+    const card = async (event: Doc<"events">, role: EventRole) => ({
+      ...toView(event, role),
+      coverMediaId: await coverFor(ctx, event),
+    });
+    const cards: Array<Awaited<ReturnType<typeof card>>> = [];
+    for (const event of owned) cards.push(await card(event, "owner"));
     for (const grant of grants) {
       if (grant.revokedAt !== undefined) continue;
       const event = await ctx.db.get("events", grant.eventId);
-      if (event !== null) shared.push(toView(event, grant.role));
+      if (event !== null) cards.push(await card(event, grant.role));
     }
-    return [...owned.map((e) => toView(e, "owner")), ...shared];
+    return cards;
   },
 });
 
@@ -248,7 +290,7 @@ export const purgeEventData = internalMutation({
     }
     for (const row of await ctx.db
       .query("media")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .withIndex("by_event_and_status", (q) => q.eq("eventId", eventId))
       .take(PURGE_BATCH)) {
       await ctx.db.delete("media", row._id);
       deleted++;

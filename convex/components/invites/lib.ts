@@ -51,6 +51,35 @@ export const create = mutation({
   },
 });
 
+// Read-only check, so the app can decide whether the link needs using up.
+// Expiry is left to the caller: queries don't read the clock.
+export const lookup = query({
+  args: { token: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({
+      eventId: v.string(),
+      invitedBy: v.string(),
+      role: vRole,
+      expiresAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const tokenHash = await sha256Hex(args.token);
+    const invite = await ctx.db
+      .query("invites")
+      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
+      .unique();
+    if (invite === null) return null;
+    return {
+      eventId: invite.eventId,
+      invitedBy: invite.invitedBy,
+      role: invite.role,
+      expiresAt: invite.expiresAt,
+    };
+  },
+});
+
 // Single use: a valid token is deleted as it is read.
 export const consume = mutation({
   args: { token: v.string() },
@@ -80,13 +109,15 @@ export const consume = mutation({
 });
 
 // "This isn't important anymore": hard delete, no tombstone.
+// The id arrives as a plain string from the app's client, so it's checked here.
 export const dismiss = mutation({
-  args: { inviteId: v.id("invites"), eventId: v.string() },
+  args: { inviteId: v.string(), eventId: v.string() },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const invite = await ctx.db.get("invites", args.inviteId);
+    const inviteId = ctx.db.normalizeId("invites", args.inviteId);
+    const invite = inviteId === null ? null : await ctx.db.get("invites", inviteId);
     if (invite === null || invite.eventId !== args.eventId) return false;
-    await ctx.db.delete("invites", args.inviteId);
+    await ctx.db.delete("invites", invite._id);
     return true;
   },
 });

@@ -159,9 +159,17 @@ export default defineSchema({
       v.literal("ready"),
       v.literal("deleted"),
     ),
+    // Who last took it off a moment, so they may delete it even if someone
+    // else uploaded it. Only read while it is unattached.
+    detachedBy: v.optional(v.id("users")),
   })
-    .index("by_event", ["eventId"])
+    .index("by_event_and_status", ["eventId", "status"])
     .index("by_moment", ["momentId"]),
+
+  // One row per invite email sent, for the daily cap. No address is kept.
+  inviteEmails: defineTable({ userId: v.id("users") }).index("by_user", [
+    "userId",
+  ]),
 
   // "Credits": owners/contributors ask for a higher moment limit.
   quotaRequests: defineTable({

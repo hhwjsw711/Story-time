@@ -24,7 +24,8 @@ export function SharedTab({ eventId }: { eventId: Id<"events"> }) {
       const res = await createInvite({ eventId, role, sendTo: email.trim() || undefined });
       setLink(res.link);
       setEmail("");
-      toast.success(email.trim() ? "Invite emailed" : "Invite created");
+      // `emailed` is false when email isn't set up on the server.
+      toast.success(res.emailed ? "Invite emailed" : "Invite link created — copy it below");
     } catch (e) {
       toast.error(errorMessage(e));
     }

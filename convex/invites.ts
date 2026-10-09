@@ -1,14 +1,51 @@
 import { ConvexError, v } from "convex/values";
 import { components, internal } from "./_generated/api";
-import { env, internalMutation, mutation, query } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import {
+  env,
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+} from "./_generated/server";
 import { assertNotArchived, requireEventAccess, requireUserId } from "./lib/access";
+import { appOrigin } from "./lib/appUrl";
 import { recordChange } from "./lib/changes";
 import { vRole } from "./schema";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const EMAILS_PER_DAY = 20;
+
+// Counts invite emails per sender over a rolling day, so the form can't be
+// used to mail arbitrary addresses in bulk.
+async function chargeInviteEmail(ctx: MutationCtx, userId: Id<"users">) {
+  const since = Date.now() - DAY_MS;
+  const recent = await ctx.db
+    .query("inviteEmails")
+    .withIndex("by_user", (q) =>
+      q.eq("userId", userId).gt("_creationTime", since),
+    )
+    .take(EMAILS_PER_DAY);
+  if (recent.length >= EMAILS_PER_DAY) {
+    throw new ConvexError({
+      code: "RATE_LIMITED",
+      message: `You can email up to ${EMAILS_PER_DAY} invites a day. Create a link without an email and share it yourself.`,
+    });
+  }
+  // Rows older than the window are no longer needed.
+  const stale = await ctx.db
+    .query("inviteEmails")
+    .withIndex("by_user", (q) =>
+      q.eq("userId", userId).lte("_creationTime", since),
+    )
+    .take(EMAILS_PER_DAY);
+  for (const row of stale) await ctx.db.delete("inviteEmails", row._id);
+  await ctx.db.insert("inviteEmails", { userId });
+}
 
 // Owner creates an invite. The link is returned once; if an email address is
 // given, it is passed to the email component and not stored by us.
+// `emailed` is false when no address was given or email isn't set up.
 export const create = mutation({
   args: {
     eventId: v.id("events"),
@@ -16,7 +53,11 @@ export const create = mutation({
     ttlDays: v.optional(v.number()),
     sendTo: v.optional(v.string()),
   },
-  returns: v.object({ link: v.string(), expiresAt: v.number() }),
+  returns: v.object({
+    link: v.string(),
+    expiresAt: v.number(),
+    emailed: v.boolean(),
+  }),
   handler: async (ctx, args) => {
     const { userId, event } = await requireEventAccess(
       ctx,
@@ -24,6 +65,23 @@ export const create = mutation({
       "owner",
     );
     assertNotArchived(event);
+    const sendTo = args.sendTo?.trim() ?? "";
+    if (
+      sendTo !== "" &&
+      (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(sendTo) || sendTo.length > 254)
+    ) {
+      throw new ConvexError({
+        code: "INVALID",
+        field: "sendTo",
+        message: "Enter a valid email address",
+      });
+    }
+    // Unconfigured, the email component could only mark the send failed.
+    const canEmail = Boolean(
+      env.CF_ACCOUNT_ID && env.CF_EMAIL_TOKEN && env.EMAIL_FROM,
+    );
+    const emailed = sendTo !== "" && canEmail;
+    if (emailed) await chargeInviteEmail(ctx, userId);
     const ttlDays = Math.min(Math.max(args.ttlDays ?? 7, 1), 14);
     const { token, expiresAt, inviteId } = await ctx.runMutation(
       components.invites.lib.create,
@@ -34,12 +92,11 @@ export const create = mutation({
         ttlMs: ttlDays * DAY_MS,
       },
     );
-    const base = env.APP_URL ?? "http://localhost:3000";
-    const link = `${base}/invite/${token}`;
+    const link = `${appOrigin()}/invite/${token}`;
 
-    if (args.sendTo !== undefined && args.sendTo.trim() !== "") {
+    if (emailed) {
       await ctx.runMutation(components.email.lib.send, {
-        to: args.sendTo.trim(),
+        to: sendTo,
         subject: `You're invited to "${event.title}"`,
         html: `<p>You've been invited to a shared experience on Story-time.</p><p><a href="${link}">Open the invite</a></p><p>The link works once and expires on ${new Date(expiresAt).toUTCString()}.</p>`,
         text: `You've been invited to "${event.title}" on Story-time.\n${link}\nThe link works once and expires on ${new Date(expiresAt).toUTCString()}.`,
@@ -56,21 +113,25 @@ export const create = mutation({
       fields: ["role", "expiresAt"],
       after: { role: args.role, expiresAt },
     });
-    return { link, expiresAt };
+    return { link, expiresAt, emailed };
   },
 });
 
-// Signed-in user redeems a link. The invite is deleted as it is used.
+// Signed-in user redeems a link. The invite is deleted only when it grants
+// something: the owner testing their own link, or a guest who already has
+// that much access, leaves it usable.
 export const accept = mutation({
   args: { token: v.string() },
   returns: v.object({ eventId: v.id("events") }),
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
-    const invite = await ctx.runMutation(components.invites.lib.consume, {
+    const invite = await ctx.runQuery(components.invites.lib.lookup, {
       token: args.token,
     });
     const eventId =
-      invite === null ? null : ctx.db.normalizeId("events", invite.eventId);
+      invite === null || invite.expiresAt < Date.now()
+        ? null
+        : ctx.db.normalizeId("events", invite.eventId);
     const event = eventId === null ? null : await ctx.db.get("events", eventId);
     if (invite === null || event === null) {
       throw new ConvexError({
@@ -86,6 +147,17 @@ export const accept = mutation({
         q.eq("eventId", event._id).eq("userId", userId),
       )
       .unique();
+    // A viewer link never downgrades an active contributor.
+    if (
+      existing !== null &&
+      existing.revokedAt === undefined &&
+      (existing.role === "contributor" || invite.role === "viewer")
+    ) {
+      return { eventId: event._id };
+    }
+    await ctx.runMutation(components.invites.lib.consume, {
+      token: args.token,
+    });
     const grantedBy = ctx.db.normalizeId("users", invite.invitedBy) ?? event.ownerId;
     let sessionId;
     if (existing === null) {
@@ -123,7 +195,7 @@ export const dismiss = mutation({
   handler: async (ctx, args) => {
     const { userId } = await requireEventAccess(ctx, args.eventId, "owner");
     const deleted = await ctx.runMutation(components.invites.lib.dismiss, {
-      inviteId: args.inviteId as never,
+      inviteId: args.inviteId,
       eventId: args.eventId,
     });
     if (deleted) {

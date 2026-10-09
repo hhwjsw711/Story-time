@@ -313,7 +313,7 @@ export const update = mutation({
       const kept = new Set(mediaIdsOf(after));
       removedMediaIds = before.filter((id) => !kept.has(id));
       for (const id of removedMediaIds) {
-        await ctx.db.patch("media", id, { momentId: undefined });
+        await ctx.db.patch("media", id, { momentId: undefined, detachedBy: userId });
       }
       for (const id of kept) {
         if (!before.includes(id)) {
@@ -383,7 +383,7 @@ export const remove = mutation({
 
     const removedMediaIds = mediaIdsOf(moment);
     for (const id of removedMediaIds) {
-      await ctx.db.patch("media", id, { momentId: undefined });
+      await ctx.db.patch("media", id, { momentId: undefined, detachedBy: userId });
     }
     const row = await ctx.db
       .query("itinerary")
