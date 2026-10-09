@@ -2,7 +2,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import type { PlainBlock, PlainStop } from "../moments";
-import { encryptText, placeKeyFor, type Encrypted } from "./crypto";
+import { encryptGeo, encryptText, placeKeyFor, type Encrypted, type Geo } from "./crypto";
 import {
   MAX_BLOCKS_PER_MOMENT,
   MAX_LABEL_LENGTH,
@@ -43,6 +43,23 @@ export async function encodePlace(
     place: await encryptText(event._id, event.keyVersion, text),
     placeKey: await placeKeyFor(event._id, event.keyVersion, text),
   };
+}
+
+// Coordinates pin a place on the map, so they're only valid with one. The
+// caller passes whether the stop ended up with a place.
+export async function encodeGeo(
+  event: Doc<"events">,
+  geo: Geo | undefined,
+  { field, hasPlace }: { field: string; hasPlace: boolean },
+): Promise<Encrypted | undefined> {
+  if (geo === undefined) return undefined;
+  if (!hasPlace) invalid(field, "Pick a place to pin on the map");
+  const { lat, lng } = geo;
+  const onMap =
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  if (!onMap) invalid(field, "That location isn't on the map");
+  return encryptGeo(event._id, event.keyVersion, geo);
 }
 
 // Validates and encrypts one stop's blocks. When editing, `momentId` is set
@@ -153,6 +170,10 @@ export async function encodeStops(
       invalid(`${field}.startsAt`, "Pick a date");
     }
     const { place } = await encodePlace(args.event, s.place);
+    const geo = await encodeGeo(args.event, s.geo, {
+      field: `${field}.geo`,
+      hasPlace: place !== undefined,
+    });
     const encoded = await encodeBlocks(ctx, {
       event: args.event,
       userId: args.userId,
@@ -164,7 +185,7 @@ export async function encodeStops(
     if (place === undefined && encoded.blocks.length === 0) {
       invalid(field, "Add a place or something to share");
     }
-    stops.push({ startsAt: s.startsAt, place, transport: s.transport, blocks: encoded.blocks });
+    stops.push({ startsAt: s.startsAt, place, geo, transport: s.transport, blocks: encoded.blocks });
     mediaIds.push(...encoded.mediaIds);
   }
   return { stops, mediaIds };

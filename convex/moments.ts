@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import {
   encodeBlocks,
+  encodeGeo,
   encodeLabels,
   encodePlace,
   encodeStops,
@@ -11,9 +12,9 @@ import {
   localKeys,
   mediaIdsOf,
 } from "./lib/blocks";
-import { vTransport } from "./schema";
+import { vGeo, vTransport } from "./schema";
 import { recordChange } from "./lib/changes";
-import { decryptText } from "./lib/crypto";
+import { decryptGeo, decryptText } from "./lib/crypto";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 
@@ -39,6 +40,8 @@ export type PlainBlock = Infer<typeof vPlainBlock>;
 export const vPlainStop = v.object({
   startsAt: v.optional(v.number()),
   place: v.optional(v.string()),
+  // Where the place is on the map; only with a place.
+  geo: v.optional(vGeo),
   transport: v.optional(vTransport),
   blocks: v.array(vPlainBlock),
 });
@@ -51,6 +54,7 @@ export const vMomentView = v.object({
   authorName: v.optional(v.string()),
   startsAt: v.number(),
   place: v.optional(v.string()),
+  geo: v.optional(vGeo),
   blocks: v.array(vPlainBlock),
   // How they got to the first stop; `stops` are the ones after it.
   transport: v.optional(vTransport),
@@ -93,12 +97,14 @@ export async function viewMoment(
     authorName: author?.displayName,
     startsAt: moment.startsAt,
     place: moment.place ? await decryptText(event._id, moment.place) : undefined,
+    geo: moment.geo ? await decryptGeo(event._id, moment.geo) : undefined,
     blocks: await viewBlocks(event, moment.blocks),
     transport: moment.transport,
     stops: await Promise.all(
       (moment.stops ?? []).map(async (s) => ({
         startsAt: s.startsAt,
         place: s.place ? await decryptText(event._id, s.place) : undefined,
+        geo: s.geo ? await decryptGeo(event._id, s.geo) : undefined,
         transport: s.transport,
         blocks: await viewBlocks(event, s.blocks),
       })),
@@ -114,6 +120,8 @@ export const create = mutation({
     // Minutes east of UTC for the author's local day/month grouping.
     tzOffsetMinutes: v.optional(v.number()),
     place: v.optional(v.string()),
+    // Where the place is on the map; only with a place.
+    geo: v.optional(vGeo),
     blocks: v.array(vPlainBlock),
     transport: v.optional(vTransport),
     stops: v.optional(v.array(vPlainStop)),
@@ -150,6 +158,10 @@ export const create = mutation({
     const blocks = first.blocks;
     const mediaIds = [...first.mediaIds, ...rest.mediaIds];
     const { place, placeKey } = await encodePlace(event, args.place);
+    const geo = await encodeGeo(event, args.geo, {
+      field: "geo",
+      hasPlace: place !== undefined,
+    });
     const labels = await encodeLabels(event, args.labels ?? []);
 
     const momentId = await ctx.db.insert("moments", {
@@ -157,6 +169,7 @@ export const create = mutation({
       authorId: userId,
       startsAt: args.startsAt,
       place,
+      geo,
       blocks,
       transport: args.transport,
       stops: rest.stops.length > 0 ? rest.stops : undefined,
@@ -185,7 +198,7 @@ export const create = mutation({
       entityId: momentId,
       actorId: userId,
       action: "create",
-      fields: ["startsAt", "place", "blocks", "transport", "stops", "labels"],
+      fields: ["startsAt", "place", "geo", "blocks", "transport", "stops", "labels"],
       after: { startsAt: args.startsAt, blockCount: blocks.length, stopCount: rest.stops.length + 1 },
     });
     return momentId;
@@ -213,6 +226,8 @@ export const list = query({
 });
 
 // Edit a moment. Only fields that are passed change; "" clears the place.
+// `geo` travels with `place`: it's ignored without one, and a place passed
+// without it clears the old coordinates.
 // Returns photos dropped from the moment so the caller can delete them from
 // R2 (they are detached here; Convex can't reach R2).
 export const update = mutation({
@@ -221,6 +236,7 @@ export const update = mutation({
     startsAt: v.optional(v.number()),
     tzOffsetMinutes: v.optional(v.number()),
     place: v.optional(v.string()),
+    geo: v.optional(vGeo),
     blocks: v.optional(v.array(vPlainBlock)),
     // null clears it.
     transport: v.optional(v.union(vTransport, v.null())),
@@ -246,7 +262,7 @@ export const update = mutation({
     assertNotArchived(event);
 
     const patch: Partial<
-      Pick<Doc<"moments">, "startsAt" | "place" | "blocks" | "transport" | "stops" | "labels">
+      Pick<Doc<"moments">, "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels">
     > = {};
     const fields: string[] = [];
     let placeKey: string | undefined | null = null; // null = unchanged
@@ -265,6 +281,11 @@ export const update = mutation({
       patch.place = encoded.place;
       placeKey = encoded.placeKey;
       fields.push("place");
+      patch.geo = await encodeGeo(event, args.geo, {
+        field: "geo",
+        hasPlace: encoded.place !== undefined,
+      });
+      if (patch.geo !== undefined || moment.geo !== undefined) fields.push("geo");
     }
 
     if (args.transport !== undefined) {

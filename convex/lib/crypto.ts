@@ -1,8 +1,9 @@
 import type { Infer } from "convex/values";
 import { env } from "../_generated/server";
-import { vEncrypted } from "../schema";
+import { vEncrypted, vGeo } from "../schema";
 
 export type Encrypted = Infer<typeof vEncrypted>;
+export type Geo = Infer<typeof vGeo>;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -97,6 +98,24 @@ export async function decryptText(
     fromB64(value.ct),
   );
   return dec.decode(pt);
+}
+
+// Coordinates are stored as "lat,lng" text under the event key, like the
+// place they pin. A malformed value reads as no pin.
+export async function encryptGeo(
+  eventId: string,
+  version: number,
+  geo: Geo,
+): Promise<Encrypted> {
+  return encryptText(eventId, version, `${geo.lat},${geo.lng}`);
+}
+
+export async function decryptGeo(
+  eventId: string,
+  value: Encrypted,
+): Promise<Geo | undefined> {
+  const [lat, lng] = (await decryptText(eventId, value)).split(",").map(Number);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
 }
 
 // Keyed hash so equal places group together without storing the place.
