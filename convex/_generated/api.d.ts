@@ -87,4 +87,6 @@ export declare const components: {
   authAnonymous: import("@convex-dev/auth/providers/anonymous/_generated/component.js").ComponentApi<"authAnonymous">;
   email: import("../components/email/_generated/component.js").ComponentApi<"email">;
   invites: import("../components/invites/_generated/component.js").ComponentApi<"invites">;
+  agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
+  workflow: import("@convex-dev/workflow/_generated/component.js").ComponentApi<"workflow">;
 };
