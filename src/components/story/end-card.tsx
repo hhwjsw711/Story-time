@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { stopsOf } from "@/lib/story-steps";
 
 // Up to nine of the trip's photos, spread evenly through it in time order.
-function contactSheet(moments: StoryMoment[]): string[] {
+export function contactSheet(moments: StoryMoment[]): string[] {
   const all = [...moments]
     .sort((a, b) => a.startsAt - b.startsAt)
     .flatMap((m) => stopsOf(m).flatMap((s) => s.blocks.flatMap((b) => (b.type === "photo" ? [b.mediaId] : []))));
