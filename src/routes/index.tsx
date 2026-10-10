@@ -116,7 +116,7 @@ const STEPS = [
   },
   {
     title: "Invite the people who were there",
-    text: "Each invite is a link that works once. Choose whether that person can only watch or can add moments from their own camera roll.",
+    text: "Each invite is a link that works for the first person who opens it. Choose whether that person can only watch or can add moments from their own camera roll.",
     fragment: <InviteFragment />,
   },
   {
@@ -208,7 +208,7 @@ function StoryMode() {
 // media serving, archive and delete.
 const PROMISES = [
   "Only the people you invite, or anyone holding a link you switch on, can open an experience.",
-  "An invite link works once and expires after 7 days.",
+  "An invite link works for the first person who opens it and expires after 7 days.",
   "You decide whether each guest can only watch or can add moments too.",
   "You can take someone's access away at any time.",
   "We encrypt places, notes, links and feelings with a key that belongs to that one experience.",

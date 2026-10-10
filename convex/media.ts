@@ -15,10 +15,39 @@ import {
   AVATAR_MIME_TYPES,
   IMAGE_MIME_TYPES,
   MAX_AVATAR_BYTES,
+  MAX_LIVE_UPLOAD_BYTES,
   MAX_UPLOAD_BYTES,
   MAX_VIDEO_BYTES,
   VIDEO_MIME_TYPES,
 } from "./lib/limits";
+
+// Live rows read per status when checking one person's upload budget. Past
+// this the total can't be known, so the upload is refused instead of
+// under-counted (a flood of tiny files would otherwise hide the rest).
+const BUDGET_SCAN = 5000;
+
+// One person's live bytes across every experience, so one account can't fill
+// the bucket. Profile images count too. Deleted uploads don't, so removing
+// frees room.
+async function assertUploadBudget(ctx: MutationCtx, userId: Id<"users">, size: number) {
+  let liveBytes = 0;
+  let uncounted = false;
+  for (const status of ["ready", "reserved"] as const) {
+    const rows = await ctx.db
+      .query("media")
+      .withIndex("by_uploader_and_status", (q) => q.eq("uploaderId", userId).eq("status", status))
+      .take(BUDGET_SCAN + 1);
+    if (rows.length > BUDGET_SCAN) uncounted = true;
+    for (const row of rows) liveBytes += row.size;
+  }
+  if (uncounted || liveBytes + size > MAX_LIVE_UPLOAD_BYTES) {
+    throw new ConvexError({
+      code: "UPLOAD_BUDGET",
+      message:
+        "You've reached your upload limit across all experiences. Delete some photos or videos to make room.",
+    });
+  }
+}
 
 // Step 1 of an upload: the server route calls this before it streams bytes
 // to R2, so size, type and per-event caps are enforced here.
@@ -75,6 +104,7 @@ export const reserveUpload = mutation({
         message: "This experience has reached its upload limit",
       });
     }
+    await assertUploadBudget(ctx, userId, args.size);
 
     const r2Key = `events/${args.eventId}/${crypto.randomUUID()}`;
     const mediaId = await ctx.db.insert("media", {
@@ -225,6 +255,7 @@ export const reserveAvatarUpload = mutation({
         message: "Use a JPEG, PNG, WebP or AVIF image",
       });
     }
+    await assertUploadBudget(ctx, userId, args.size);
     const r2Key = `avatars/${userId}/${crypto.randomUUID()}`;
     const mediaId = await ctx.db.insert("media", {
       purpose: "avatar",
@@ -282,8 +313,8 @@ export const clearAvatar = mutation({
 
 // Who may permanently delete a stored object. Profile images: the owner,
 // once it's no longer their current image. Experience photos: once no
-// moment uses them, the uploader, whoever took it off a moment, or the
-// experience owner.
+// moment uses them, the experience owner, or the uploader (or the detacher,
+// which is only ever the uploader; see moments.ts) while they still contribute.
 async function deletableBy(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
@@ -296,9 +327,12 @@ async function deletableBy(
     return user?.imageMediaId !== media._id;
   }
   if (media.momentId !== undefined || media.eventId === undefined) return false;
-  if (media.uploaderId === userId || media.detachedBy === userId) return true;
-  const event = await ctx.db.get("events", media.eventId);
-  return event?.ownerId === userId;
+  // Checked now, not when the photo was added: someone whose access was
+  // revoked, or who is only a viewer now, can no longer delete.
+  const access = await getEventAccess(ctx, media.eventId);
+  if (access === null || access.role === "viewer") return false;
+  if (access.role === "owner") return true;
+  return media.uploaderId === userId || media.detachedBy === userId;
 }
 
 // For the delete route.
@@ -356,16 +390,30 @@ export const sweepReservedUploads = internalMutation({
   },
 });
 
-// R2 keys to delete before an experience is removed. Owner only.
+// Under Convex's per-call document read limit, with room for the row reads.
+const MAX_KEYS = 12_000;
+
+// R2 keys to delete before an experience is removed. Owner only. Deleted rows
+// are included: their objects may not be gone yet, and R2 deletes are
+// idempotent. Each status is streamed, so many deleted rows can't hide live
+// ones, and the total is capped to stay inside Convex's per-call read limits.
 export const listKeysForEvent = query({
   args: { eventId: v.id("events") },
   returns: v.array(v.string()),
   handler: async (ctx, args) => {
     await requireEventAccess(ctx, args.eventId, "owner");
-    const rows = await ctx.db
-      .query("media")
-      .withIndex("by_event_and_status", (q) => q.eq("eventId", args.eventId))
-      .take(5000);
-    return rows.filter((m) => m.status !== "deleted").map((m) => m.r2Key);
+    const keys: string[] = [];
+    for (const status of ["ready", "reserved", "deleted"] as const) {
+      const rows = ctx.db
+        .query("media")
+        .withIndex("by_event_and_status", (q) =>
+          q.eq("eventId", args.eventId).eq("status", status),
+        );
+      for await (const row of rows) {
+        keys.push(row.r2Key);
+        if (keys.length >= MAX_KEYS) return keys;
+      }
+    }
+    return keys;
   },
 });

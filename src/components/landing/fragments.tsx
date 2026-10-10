@@ -81,7 +81,7 @@ export function InviteFragment() {
           <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 text-xs">…/invite/7Qm2kXr9bT4wLp</code>
           <span className="rounded-md border px-2 py-1 text-xs font-medium">Copy</span>
         </div>
-        <p className="text-xs text-muted-foreground">It works once and expires in 7 days.</p>
+        <p className="text-xs text-muted-foreground">It works for the first person who opens it and expires in 7 days.</p>
       </div>
       <ul className="divide-y border-t">
         {[

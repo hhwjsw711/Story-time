@@ -39,9 +39,10 @@ async function setup() {
 }
 
 const tokenOf = (link: string) => link.split("/invite/")[1]!;
+const firstPage = { numItems: 25, cursor: null };
 
 describe("invites", () => {
-  test("a link works once and grants a viewer session", async () => {
+  test("a link works for the first person who opens it and grants a viewer session", async () => {
     const { owner, guest, eventId } = await setup();
     const { link } = await owner.mutation(api.invites.create, {
       eventId,
@@ -103,7 +104,9 @@ describe("invites", () => {
     const { owner, guest, eventId } = await setup();
     const first = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
     await guest.mutation(api.invites.accept, { token: tokenOf(first.link) });
-    const [session] = await owner.query(api.sessions.listForEvent, { eventId });
+    const [session] = (
+      await owner.query(api.sessions.listForEvent, { eventId, paginationOpts: firstPage })
+    ).page;
     await owner.mutation(api.sessions.revoke, { sessionId: session!._id });
     expect(await guest.query(api.events.get, { eventId })).toBeNull();
 
@@ -120,7 +123,9 @@ describe("invites", () => {
     const { link } = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
     await guest.mutation(api.invites.accept, { token: tokenOf(link) });
     vi.advanceTimersByTime(1000);
-    const [session] = await owner.query(api.sessions.listForEvent, { eventId });
+    const [session] = (
+      await owner.query(api.sessions.listForEvent, { eventId, paginationOpts: firstPage })
+    ).page;
     await owner.mutation(api.sessions.revoke, { sessionId: session!._id });
 
     await expect(guest.mutation(api.invites.accept, { token: tokenOf(link) })).rejects.toThrow(
@@ -175,6 +180,17 @@ describe("invites", () => {
       for (const key of Object.keys(cf)) delete process.env[key];
       vi.unstubAllGlobals();
     }
+  });
+
+  test("archived experiences take no new people, and the link stays usable after", async () => {
+    const { owner, guest, eventId } = await setup();
+    const { link } = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    await owner.mutation(api.events.update, { eventId, status: "archived" });
+    await expect(guest.mutation(api.invites.accept, { token: tokenOf(link) })).rejects.toThrow(/ARCHIVED/);
+
+    await owner.mutation(api.events.update, { eventId, status: "active" });
+    await guest.mutation(api.invites.accept, { token: tokenOf(link) });
+    expect((await guest.query(api.events.get, { eventId }))?.role).toBe("viewer");
   });
 
   test("archived experiences can't create new invites", async () => {
