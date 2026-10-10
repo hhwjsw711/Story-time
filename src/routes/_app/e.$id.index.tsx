@@ -24,7 +24,7 @@ const search = z.object({
   // Old "moments" links fall back to the itinerary, which now has a card view.
   tab: z.enum(["itinerary", "shared", "activity", "settings"]).default("itinerary").catch("itinerary"),
   groupBy: z.enum(["day", "place", "month", "none"]).default("day").catch("day"),
-  view: z.enum(["table", "cards"]).default("table").catch("table"),
+  view: z.enum(["table", "cards", "map"]).default("table").catch("table"),
   panel: z.enum(["outline", "details", "new-moment", "moment"]).default("outline").catch("outline"),
   momentId: z.string().optional().catch(undefined),
   // The moment open in the editor. Kept apart from `momentId`, which follows

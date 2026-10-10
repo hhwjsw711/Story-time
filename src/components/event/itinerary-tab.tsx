@@ -10,6 +10,7 @@ import {
   Layers2Icon,
   LinkIcon,
   ListFilterIcon,
+  MapIcon,
   MapPinIcon,
   PaperclipIcon,
   PlusIcon,
@@ -33,7 +34,7 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { BulkEditBar, SelectBox } from "@/components/event/bulk-edit-bar";
@@ -67,7 +68,10 @@ import {
 import { cn } from "@/lib/utils";
 
 export type Grouping = "day" | "place" | "month" | "none";
-export type ItineraryView = "table" | "cards";
+export type ItineraryView = "table" | "cards" | "map";
+
+// MapLibre is large, so the map view loads it only when opened.
+const ItineraryMap = lazy(() => import("@/components/event/itinerary-map").then((m) => ({ default: m.ItineraryMap })));
 
 // The outline links to groups by this id.
 export const groupAnchor = (key: string) => `group-${key}`;
@@ -413,7 +417,9 @@ export function ItineraryTab({
   const count = table.getFilteredRowModel().rows.length;
   const rows = table.getRowModel().rows;
   const leaves = rows.flatMap((r) => (r.getIsGrouped() ? r.subRows : [r]));
-  const order = groups === undefined ? null : leaves.map((r) => r.original._id).join(",");
+  // The map numbers its stops oldest first, so the feed follows that order there.
+  const shown = view === "map" ? [...leaves].sort((a, b) => a.original.startsAt - b.original.startsAt) : leaves;
+  const order = groups === undefined ? null : shown.map((r) => r.original._id).join(",");
   useEffect(() => {
     if (order !== null) onOrderChange?.(order === "" ? [] : order.split(","));
   }, [order, onOrderChange]);
@@ -574,6 +580,14 @@ export function ItineraryTab({
         <Button variant="outline" size="sm" onClick={() => setFilters(noFilters)}>
           Clear filters
         </Button>
+      </div>
+    );
+  } else if (view === "map") {
+    body = (
+      <div className="px-1.5 pb-1.5">
+        <Suspense fallback={<div aria-hidden className="h-[28rem] rounded-lg border" />}>
+          <ItineraryMap moments={leaves.map((r) => r.original)} selectedMomentId={selectedMomentId} onSelectMoment={onSelectMoment} />
+        </Suspense>
       </div>
     );
   } else if (view === "cards") {
@@ -745,6 +759,7 @@ export function ItineraryTab({
               <DropdownMenuRadioGroup value={view} onValueChange={(v) => onViewChange(v as ItineraryView)}>
                 <DropdownMenuRadioItem value="table">Table</DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="cards">Cards</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="map"><MapIcon />Map</DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
               <DropdownMenuSeparator />
               <DropdownMenuLabel>Order</DropdownMenuLabel>
