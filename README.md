@@ -31,6 +31,8 @@ Set these on the Convex deployment with `npx convex env set NAME value` (add `--
 | `ALLOW_ANONYMOUS_SIGNIN` | `true` enables the dev-only anonymous button. Never set it in production |
 | `CF_ACCOUNT_ID`, `CF_EMAIL_TOKEN`, `EMAIL_FROM` | Optional. Without them invites are links only, no email |
 
+AI features (captions, labels, transport) run through the Convex AI Gateway, which needs a paid Convex plan and no provider keys. For captions it gets the photos' 512px copies and the moment's text (experience title and description, places, time, transport, labels, notes); for transport it gets the places and times between stops. None of it is kept in Convex. Without the gateway the app works, just without the automatic fill-ins.
+
 On the client, `VITE_APP_URL` (the site's origin, set at build time) makes the link-preview image URL absolute. Crawlers ignore relative `og:image` URLs.
 
 ## Scripts

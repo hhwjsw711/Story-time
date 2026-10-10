@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import type { Infer } from "convex/values";
+import type { Infer, ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import {
@@ -16,7 +16,7 @@ import { vGeo, vTransport } from "./schema";
 import { recordChange } from "./lib/changes";
 import { decryptGeo, decryptText } from "./lib/crypto";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 // The decrypted shape clients send and receive.
 export const vPlainBlock = v.union(
@@ -225,25 +225,29 @@ export const list = query({
   },
 });
 
+// What an edit can change. `update` takes these with the moment's id; the AI
+// enrichment passes the same shape to `writeMomentUpdate`.
+const momentEdit = {
+  startsAt: v.optional(v.number()),
+  tzOffsetMinutes: v.optional(v.number()),
+  place: v.optional(v.string()),
+  geo: v.optional(vGeo),
+  blocks: v.optional(v.array(vPlainBlock)),
+  // null clears it.
+  transport: v.optional(v.union(vTransport, v.null())),
+  // Replace the whole list when passed.
+  stops: v.optional(v.array(vPlainStop)),
+  labels: v.optional(v.array(v.string())),
+};
+export type MomentEdit = ObjectType<typeof momentEdit>;
+
 // Edit a moment. Only fields that are passed change; "" clears the place.
 // `geo` travels with `place`: it's ignored without one, and a place passed
 // without it clears the old coordinates.
 // Returns photos dropped from the moment so the caller can delete them from
 // R2 (they are detached here; Convex can't reach R2).
 export const update = mutation({
-  args: {
-    momentId: v.id("moments"),
-    startsAt: v.optional(v.number()),
-    tzOffsetMinutes: v.optional(v.number()),
-    place: v.optional(v.string()),
-    geo: v.optional(vGeo),
-    blocks: v.optional(v.array(vPlainBlock)),
-    // null clears it.
-    transport: v.optional(v.union(vTransport, v.null())),
-    // Replace the whole list when passed.
-    stops: v.optional(v.array(vPlainStop)),
-    labels: v.optional(v.array(v.string())),
-  },
+  args: { momentId: v.id("moments"), ...momentEdit },
   returns: v.object({ removedMediaIds: v.array(v.id("media")) }),
   handler: async (ctx, args) => {
     const moment = await ctx.db.get("moments", args.momentId);
@@ -260,126 +264,151 @@ export const update = mutation({
       });
     }
     assertNotArchived(event);
-
-    const patch: Partial<
-      Pick<Doc<"moments">, "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels">
-    > = {};
-    const fields: string[] = [];
-    let placeKey: string | undefined | null = null; // null = unchanged
-    let removedMediaIds: Id<"media">[] = [];
-
-    if (args.startsAt !== undefined) {
-      if (!Number.isFinite(args.startsAt)) invalid("startsAt", "Pick a date");
-      if (args.startsAt !== moment.startsAt) {
-        patch.startsAt = args.startsAt;
-        fields.push("startsAt");
-      }
-    }
-
-    if (args.place !== undefined) {
-      const encoded = await encodePlace(event, args.place);
-      patch.place = encoded.place;
-      placeKey = encoded.placeKey;
-      fields.push("place");
-      patch.geo = await encodeGeo(event, args.geo, {
-        field: "geo",
-        hasPlace: encoded.place !== undefined,
-      });
-      if (patch.geo !== undefined || moment.geo !== undefined) fields.push("geo");
-    }
-
-    if (args.transport !== undefined) {
-      patch.transport = args.transport ?? undefined;
-      fields.push("transport");
-    }
-
-    if (args.labels !== undefined) {
-      const labels = await encodeLabels(event, args.labels);
-      patch.labels = labels.length > 0 ? labels : undefined;
-      fields.push("labels");
-    }
-
-    if (args.blocks !== undefined || args.stops !== undefined) {
-      if (args.blocks !== undefined) {
-        const encoded = await encodeBlocks(ctx, {
-          event,
-          userId,
-          blocks: args.blocks,
-          momentId: moment._id,
-          allowEmpty: true,
-        });
-        patch.blocks = encoded.blocks;
-        fields.push("blocks");
-      }
-      if (args.stops !== undefined) {
-        const encoded = await encodeStops(ctx, {
-          event,
-          userId,
-          stops: args.stops,
-          momentId: moment._id,
-        });
-        patch.stops = encoded.stops.length > 0 ? encoded.stops : undefined;
-        fields.push("stops");
-      }
-      const after = {
-        blocks: patch.blocks ?? moment.blocks,
-        stops: "stops" in patch ? patch.stops : moment.stops,
-      };
-      if (after.blocks.length + (after.stops ?? []).reduce((n, s) => n + s.blocks.length, 0) === 0) {
-        invalid("blocks", "Add something to share");
-      }
-      // Photos and videos dropped from any stop are detached and returned
-      // for deletion; new ones are attached to this moment.
-      const before = mediaIdsOf(moment);
-      const kept = new Set(mediaIdsOf(after));
-      removedMediaIds = before.filter((id) => !kept.has(id));
-      for (const id of removedMediaIds) {
-        await ctx.db.patch("media", id, { momentId: undefined, detachedBy: userId });
-      }
-      for (const id of kept) {
-        if (!before.includes(id)) {
-          await ctx.db.patch("media", id, { momentId: moment._id });
-        }
-      }
-    }
-
-    if (fields.length === 0) return { removedMediaIds: [] };
-    await ctx.db.patch("moments", moment._id, patch);
-
-    // Keep the itinerary row in step with the moment.
-    const row = await ctx.db
-      .query("itinerary")
-      .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
-      .unique();
-    if (row !== null) {
-      const rowPatch: Partial<
-        Pick<Doc<"itinerary">, "startsAt" | "dayKey" | "monthKey" | "placeKey">
-      > = {};
-      if (patch.startsAt !== undefined || args.tzOffsetMinutes !== undefined) {
-        const startsAt = patch.startsAt ?? moment.startsAt;
-        Object.assign(rowPatch, {
-          startsAt,
-          ...localKeys(startsAt, args.tzOffsetMinutes ?? 0),
-        });
-      }
-      if (placeKey !== null) rowPatch.placeKey = placeKey;
-      if (Object.keys(rowPatch).length > 0) {
-        await ctx.db.patch("itinerary", row._id, rowPatch);
-      }
-    }
-
-    await recordChange(ctx, {
-      eventId: event._id,
-      entity: "moment",
-      entityId: moment._id,
+    return writeMomentUpdate(ctx, {
+      event,
+      moment,
+      userId,
       actorId: userId,
-      action: "update",
-      fields,
-      after: patch.startsAt !== undefined ? { startsAt: patch.startsAt } : undefined,
+      patch: args,
     });
-    return { removedMediaIds };
   },
 });
+
+// The write behind `update`, shared with the AI enrichment. Encodes the edit,
+// moves media on and off the moment, keeps the itinerary in step and logs the
+// change. Access checks stay with the caller.
+export async function writeMomentUpdate(
+  ctx: MutationCtx,
+  args: {
+    event: Doc<"events">;
+    moment: Doc<"moments">;
+    // Whose uploads may be attached: the editor's own.
+    userId: Id<"users">;
+    // Who the change log names. Undefined is the system.
+    actorId: Id<"users"> | undefined;
+    patch: MomentEdit;
+  },
+): Promise<{ removedMediaIds: Id<"media">[] }> {
+  const { event, moment, userId, actorId, patch } = args;
+
+  const docPatch: Partial<
+    Pick<Doc<"moments">, "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels">
+  > = {};
+  const fields: string[] = [];
+  let placeKey: string | undefined | null = null; // null = unchanged
+  let removedMediaIds: Id<"media">[] = [];
+
+  if (patch.startsAt !== undefined) {
+    if (!Number.isFinite(patch.startsAt)) invalid("startsAt", "Pick a date");
+    if (patch.startsAt !== moment.startsAt) {
+      docPatch.startsAt = patch.startsAt;
+      fields.push("startsAt");
+    }
+  }
+
+  if (patch.place !== undefined) {
+    const encoded = await encodePlace(event, patch.place);
+    docPatch.place = encoded.place;
+    placeKey = encoded.placeKey;
+    fields.push("place");
+    docPatch.geo = await encodeGeo(event, patch.geo, {
+      field: "geo",
+      hasPlace: encoded.place !== undefined,
+    });
+    if (docPatch.geo !== undefined || moment.geo !== undefined) fields.push("geo");
+  }
+
+  if (patch.transport !== undefined) {
+    docPatch.transport = patch.transport ?? undefined;
+    fields.push("transport");
+  }
+
+  if (patch.labels !== undefined) {
+    const labels = await encodeLabels(event, patch.labels);
+    docPatch.labels = labels.length > 0 ? labels : undefined;
+    fields.push("labels");
+  }
+
+  if (patch.blocks !== undefined || patch.stops !== undefined) {
+    if (patch.blocks !== undefined) {
+      const encoded = await encodeBlocks(ctx, {
+        event,
+        userId,
+        blocks: patch.blocks,
+        momentId: moment._id,
+        allowEmpty: true,
+      });
+      docPatch.blocks = encoded.blocks;
+      fields.push("blocks");
+    }
+    if (patch.stops !== undefined) {
+      const encoded = await encodeStops(ctx, {
+        event,
+        userId,
+        stops: patch.stops,
+        momentId: moment._id,
+      });
+      docPatch.stops = encoded.stops.length > 0 ? encoded.stops : undefined;
+      fields.push("stops");
+    }
+    const after = {
+      blocks: docPatch.blocks ?? moment.blocks,
+      stops: "stops" in docPatch ? docPatch.stops : moment.stops,
+    };
+    if (after.blocks.length + (after.stops ?? []).reduce((n, s) => n + s.blocks.length, 0) === 0) {
+      invalid("blocks", "Add something to share");
+    }
+    // Photos and videos dropped from any stop are detached and returned
+    // for deletion; new ones are attached to this moment.
+    const before = mediaIdsOf(moment);
+    const kept = new Set(mediaIdsOf(after));
+    removedMediaIds = before.filter((id) => !kept.has(id));
+    for (const id of removedMediaIds) {
+      await ctx.db.patch("media", id, { momentId: undefined, detachedBy: userId });
+    }
+    for (const id of kept) {
+      if (!before.includes(id)) {
+        await ctx.db.patch("media", id, { momentId: moment._id });
+      }
+    }
+  }
+
+  if (fields.length === 0) return { removedMediaIds: [] };
+  await ctx.db.patch("moments", moment._id, docPatch);
+
+  // Keep the itinerary row in step with the moment.
+  const row = await ctx.db
+    .query("itinerary")
+    .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
+    .unique();
+  if (row !== null) {
+    const rowPatch: Partial<
+      Pick<Doc<"itinerary">, "startsAt" | "dayKey" | "monthKey" | "placeKey">
+    > = {};
+    if (docPatch.startsAt !== undefined || patch.tzOffsetMinutes !== undefined) {
+      const startsAt = docPatch.startsAt ?? moment.startsAt;
+      Object.assign(rowPatch, {
+        startsAt,
+        ...localKeys(startsAt, patch.tzOffsetMinutes ?? 0),
+      });
+    }
+    if (placeKey !== null) rowPatch.placeKey = placeKey;
+    if (Object.keys(rowPatch).length > 0) {
+      await ctx.db.patch("itinerary", row._id, rowPatch);
+    }
+  }
+
+  await recordChange(ctx, {
+    eventId: event._id,
+    entity: "moment",
+    entityId: moment._id,
+    actorId,
+    action: "update",
+    fields,
+    after: docPatch.startsAt !== undefined ? { startsAt: docPatch.startsAt } : undefined,
+  });
+  return { removedMediaIds };
+}
 
 // Delete a moment. Its photos are detached and returned so the caller can
 // delete them from R2.

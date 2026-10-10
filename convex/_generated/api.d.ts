@@ -8,6 +8,12 @@
  * @module
  */
 
+import type * as ai_apply from "../ai/apply.js";
+import type * as ai_decide from "../ai/decide.js";
+import type * as ai_enrich from "../ai/enrich.js";
+import type * as ai_models from "../ai/models.js";
+import type * as ai_scribe from "../ai/scribe.js";
+import type * as ai_unfurl from "../ai/unfurl.js";
 import type * as auth from "../auth.js";
 import type * as changes from "../changes.js";
 import type * as crons from "../crons.js";
@@ -19,6 +25,7 @@ import type * as lib_appUrl from "../lib/appUrl.js";
 import type * as lib_blocks from "../lib/blocks.js";
 import type * as lib_changes from "../lib/changes.js";
 import type * as lib_crypto from "../lib/crypto.js";
+import type * as lib_geo from "../lib/geo.js";
 import type * as lib_limits from "../lib/limits.js";
 import type * as lib_profile from "../lib/profile.js";
 import type * as media from "../media.js";
@@ -34,6 +41,12 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "ai/apply": typeof ai_apply;
+  "ai/decide": typeof ai_decide;
+  "ai/enrich": typeof ai_enrich;
+  "ai/models": typeof ai_models;
+  "ai/scribe": typeof ai_scribe;
+  "ai/unfurl": typeof ai_unfurl;
   auth: typeof auth;
   changes: typeof changes;
   crons: typeof crons;
@@ -45,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   "lib/blocks": typeof lib_blocks;
   "lib/changes": typeof lib_changes;
   "lib/crypto": typeof lib_crypto;
+  "lib/geo": typeof lib_geo;
   "lib/limits": typeof lib_limits;
   "lib/profile": typeof lib_profile;
   media: typeof media;
