@@ -207,12 +207,12 @@ function StoryMode() {
 // Each line checked against the code: access checks, invites, encryption,
 // media serving, archive and delete.
 const PROMISES = [
-  "Only the people you invite can open an experience.",
+  "Only the people you invite, or anyone holding a link you switch on, can open an experience.",
   "An invite link works once and expires after 7 days.",
   "You decide whether each guest can only watch or can add moments too.",
   "You can take someone's access away at any time.",
   "We encrypt places, notes, links and feelings with a key that belongs to that one experience.",
-  "We store photos and videos encrypted and only send them to people with access.",
+  "We store photos and videos encrypted and only send them to people with access or a link you switch on.",
   "Archiving an experience closes it to new moments and invites.",
   "Deleting an experience removes its moments and everyone's access along with it.",
 ];
@@ -225,7 +225,7 @@ function Privacy() {
           <h2 id="privacy-title" className={H2}>
             Private by default
           </h2>
-          <p className={cn(BODY, "mt-3 max-w-[36ch]")}>An experience stays closed until you invite someone to it.</p>
+          <p className={cn(BODY, "mt-3 max-w-[36ch]")}>An experience stays closed until you invite someone to it or switch on a link.</p>
         </div>
         <ul className="col-span-12 grid gap-x-12 sm:grid-cols-2 lg:col-span-8">
           {PROMISES.map((p) => (

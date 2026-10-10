@@ -1,14 +1,14 @@
 import { Link } from "@tanstack/react-router";
 import { RotateCcwIcon } from "lucide-react";
 import { AuthImage } from "@/components/auth-image";
-import type { EventView, MomentView } from "@/components/event/types";
+import type { StoryEvent, StoryMoment } from "@/components/event/types";
 import { ShareButton } from "@/components/story/share-button";
 import { countStops } from "@/components/story/title-card";
 import { Button } from "@/components/ui/button";
 import { stopsOf } from "@/lib/story-steps";
 
 // Up to nine of the trip's photos, spread evenly through it in time order.
-function contactSheet(moments: MomentView[]): string[] {
+function contactSheet(moments: StoryMoment[]): string[] {
   const all = [...moments]
     .sort((a, b) => a.startsAt - b.startsAt)
     .flatMap((m) => stopsOf(m).flatMap((s) => s.blocks.flatMap((b) => (b.type === "photo" ? [b.mediaId] : []))));
@@ -23,8 +23,8 @@ export function EndCard({
   moments,
   onReplay,
 }: {
-  event: EventView;
-  moments: MomentView[];
+  event: StoryEvent;
+  moments: StoryMoment[];
   onReplay: () => void;
 }) {
   const stops = countStops(moments);
@@ -63,9 +63,13 @@ export function EndCard({
         </Button>
         <ShareButton event={event} label={event.role === "owner" ? "Share" : "Copy link"} />
         <Button variant="ghost" asChild className="text-white hover:bg-white/10 hover:text-white">
-          <Link to="/e/$id" params={{ id: event._id }}>
-            Back to the experience
-          </Link>
+          {event.role === undefined ? (
+            <Link to="/">About Story-time</Link>
+          ) : (
+            <Link to="/e/$id" params={{ id: event._id }}>
+              Back to the experience
+            </Link>
+          )}
         </Button>
       </div>
     </section>

@@ -32,6 +32,7 @@ import type * as media from "../media.js";
 import type * as moments from "../moments.js";
 import type * as quota from "../quota.js";
 import type * as sessions from "../sessions.js";
+import type * as share from "../share.js";
 import type * as users from "../users.js";
 
 import type {
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   moments: typeof moments;
   quota: typeof quota;
   sessions: typeof sessions;
+  share: typeof share;
   users: typeof users;
 }>;
 

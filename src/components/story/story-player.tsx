@@ -8,7 +8,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { EventView, MomentView } from "@/components/event/types";
+import type { StoryEvent, StoryMoment } from "@/components/event/types";
 import { EndCard } from "@/components/story/end-card";
 import { MapScene } from "@/components/story/map-scene";
 import { ShareButton } from "@/components/story/share-button";
@@ -75,8 +75,8 @@ export function StoryPlayer({
   step,
   onStep,
 }: {
-  event: EventView;
-  moments: MomentView[];
+  event: StoryEvent;
+  moments: StoryMoment[];
   meId: string | undefined;
   // Where the link pointed; read once, then the scroll leads.
   step: number;
@@ -117,9 +117,11 @@ export function StoryPlayer({
     setPlaying(play);
     go(-at.current);
   };
+  // A shared story's viewers may have no experience to go back to.
+  const shared = event.role === undefined;
   const exit = useCallback(
-    () => void navigate({ to: "/e/$id", params: { id: event._id } }),
-    [navigate, event._id],
+    () => void (shared ? navigate({ to: "/" }) : navigate({ to: "/e/$id", params: { id: event._id } })),
+    [navigate, event._id, shared],
   );
 
   // A deep link opens on its scene.
@@ -207,10 +209,12 @@ export function StoryPlayer({
     go(e.clientX - left < width / 3 ? -1 : 1);
   };
 
-  const isOwner = event.role === "owner";
   const archived = event.status === "archived";
+  // Editing needs an account here, so a shared story has no editors.
   const canEdit =
-    scene.kind === "stop" && !archived && event.role !== "viewer" && (isOwner || scene.authorId === meId);
+    scene.kind === "stop" &&
+    !archived &&
+    (event.role === "owner" || (event.role === "contributor" && meId !== undefined && scene.authorId === meId));
   const legs = useMemo(() => steps.filter((s) => s.kind === "travel"), [steps]);
   // Places in story order. The experience's own name is one only when the
   // first leg sets off from it.

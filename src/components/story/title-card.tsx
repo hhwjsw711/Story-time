@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import type { EventView, MomentView } from "@/components/event/types";
+import type { StoryEvent, StoryMoment } from "@/components/event/types";
 import { stopsOf } from "@/lib/story-steps";
 
 const day = (ms: number) =>
   new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 // The date range: what the owner set, or the span of the moments.
-export function dateRange(event: EventView, moments: MomentView[]): string | null {
+export function dateRange(event: StoryEvent, moments: StoryMoment[]): string | null {
   const times = moments.map((m) => m.startsAt);
   const from = event.startsAt ?? (times.length ? Math.min(...times) : undefined);
   const to = event.endsAt ?? (times.length ? Math.max(...times) : undefined);
@@ -15,7 +15,7 @@ export function dateRange(event: EventView, moments: MomentView[]): string | nul
   return `${day(from)} – ${day(to)}`;
 }
 
-export function countStops(moments: MomentView[]) {
+export function countStops(moments: StoryMoment[]) {
   return moments.reduce((n, m) => n + stopsOf(m).length, 0);
 }
 
@@ -27,7 +27,7 @@ const MAX_TYPING_MS = 4000;
 const LINE_GAP = 8;
 
 // The page's lines, in typing order: date, title, description, counts.
-function titleLines(event: EventView, moments: MomentView[]): string[] {
+function titleLines(event: StoryEvent, moments: StoryMoment[]): string[] {
   const stops = countStops(moments);
   const counts =
     moments.length === 0
@@ -49,7 +49,7 @@ function timeline(lines: string[]) {
 }
 
 // How long the title page takes to type out, for autoplay.
-export function typingMs(event: EventView, moments: MomentView[]): number {
+export function typingMs(event: StoryEvent, moments: StoryMoment[]): number {
   const { total, charMs } = timeline(titleLines(event, moments));
   return total * charMs;
 }
@@ -60,8 +60,8 @@ export function TitleCard({
   moments,
   animate,
 }: {
-  event: EventView;
-  moments: MomentView[];
+  event: StoryEvent;
+  moments: StoryMoment[];
   animate: boolean;
 }) {
   const lines = titleLines(event, moments);

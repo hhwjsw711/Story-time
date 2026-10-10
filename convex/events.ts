@@ -23,7 +23,13 @@ const vStatus = v.union(
   v.literal("active"),
   v.literal("archived"),
 );
-const vVisibility = v.union(v.literal("private"), v.literal("invite"));
+const vVisibility = v.union(
+  v.literal("private"),
+  v.literal("invite"),
+  v.literal("link"),
+);
+// Owners set these by hand. A link is switched on and off only in share.ts.
+const vEditableVisibility = v.union(v.literal("private"), v.literal("invite"));
 const vRoleOut = v.union(
   v.literal("owner"),
   v.literal("contributor"),
@@ -132,7 +138,7 @@ export const update = mutation({
     // null clears a date; omitted leaves it as is.
     startsAt: v.optional(v.union(v.number(), v.null())),
     endsAt: v.optional(v.union(v.number(), v.null())),
-    visibility: v.optional(vVisibility),
+    visibility: v.optional(vEditableVisibility),
     status: v.optional(vStatus),
   },
   returns: v.null(),
@@ -178,6 +184,11 @@ export const update = mutation({
     note("startsAt", args.startsAt);
     note("endsAt", args.endsAt);
     note("visibility", args.visibility);
+    // Taking the link off here, rather than under Shared, switches it off too.
+    if (event.visibility === "link" && fields.includes("visibility")) {
+      patch.shareKey = undefined;
+      patch.shareToken = undefined;
+    }
     note("status", args.status);
 
     // Free text is user content: log that it changed, never its value.
