@@ -1,21 +1,19 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { ArrowUpToLineIcon, ClockIcon, ImagePlusIcon, VideoIcon, XIcon } from "lucide-react";
 import { type DragEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
-import { IMAGE_MIME_TYPES } from "../../../convex/lib/limits";
 import { PlaceInput, reversePlace } from "@/components/event/place-input";
 import { stopsOf } from "@/components/event/transport";
 import type { EventView } from "@/components/event/types";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { deletePhotos } from "@/lib/actions";
+import { dayLabel, enrichMoment, momentsFromPlan, plural, readPicked, uploadAll } from "@/lib/add-moments";
 import { errorMessage } from "@/lib/errors";
 import { type Geo, groupPhotos, localClock, MAX_PHOTOS_PER_STOP, type PhotoPoint, toStop } from "@/lib/photo-groups";
-import { type PhotoMeta, readPhotoMeta } from "@/lib/photo-meta";
-import { isVideoFile, MAX_UPLOAD_BYTES, MAX_VIDEO_BYTES, MEDIA_ACCEPT, uploadMedia } from "@/lib/upload";
+import { MEDIA_ACCEPT } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 // A picked file. `guessed` marks a time taken from the file's date, not the
@@ -35,18 +33,12 @@ type DraftStop = {
 };
 type DraftDay = { day: string; moments: DraftStop[][] };
 
-const UPLOADS_AT_ONCE = 3;
 // Photon asks for about a request a second.
 const LOOKUP_GAP_MS = 1100;
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 // On the clock where the photo was taken.
 const time = (ms: number, offsetMinutes?: number) =>
   localClock(ms, offsetMinutes).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
-function dayLabel(day: string) {
-  const [y = 0, m = 1, d = 1] = day.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-}
 
 const allStops = (days: DraftDay[]) => days.flatMap((d) => d.moments.flat());
 
@@ -121,6 +113,7 @@ function BulkAdd({
     latestToken.current = token;
   }, [token]);
   const createMoment = useMutation(api.moments.create);
+  const enrich = useAction(api.ai.enrich.enrich);
   const existing = useQuery(api.moments.list, { eventId: event._id });
   const uid = useId();
   const [items, setItems] = useState<ReadonlyMap<string, Item>>(() => new Map());
@@ -196,42 +189,16 @@ function BulkAdd({
     if (files.length === 0) return;
     setReading(true);
     const seen = new Set([...items.values()].map(({ file: f }) => `${f.name}|${f.size}|${f.lastModified}`));
-    const problems: string[] = [];
-    const fresh = await Promise.all(
-      files.map(async (file): Promise<Item | null> => {
-        const video = isVideoFile(file);
-        const key = `${file.name}|${file.size}|${file.lastModified}`;
-        if (!video && !IMAGE_MIME_TYPES.includes(file.type)) {
-          const heic = /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
-          problems.push(`${file.name}: ${heic ? "HEIC photos aren't supported yet; export them as JPEG" : "not a photo or video that can be added"}`);
-          return null;
-        }
-        if (file.size > (video ? MAX_VIDEO_BYTES : MAX_UPLOAD_BYTES)) {
-          problems.push(`${file.name}: ${video ? "videos can be at most 50 MB" : "photos can be at most 5 MB"}`);
-          return null;
-        }
-        if (seen.has(key)) return null;
-        seen.add(key);
-        const meta: PhotoMeta = video ? {} : await readPhotoMeta(file).catch((): PhotoMeta => ({}));
-        const id = `f${nextId.current++}`;
-        return {
-          file,
-          url: URL.createObjectURL(file),
-          kind: video ? "video" : "photo",
-          guessed: meta.takenAt === undefined,
-          point: { id, takenAt: meta.takenAt ?? file.lastModified, offsetMinutes: meta.offsetMinutes, geo: meta.geo },
-        };
-      }),
-    );
+    const { picked, problems } = await readPicked(files, seen, () => `f${nextId.current++}`);
+    const fresh: Item[] = picked.map((p) => ({ ...p, url: URL.createObjectURL(p.file) }));
     // Closed while reading: nothing will show these.
     if (stopped.current) {
-      for (const it of fresh) if (it) URL.revokeObjectURL(it.url);
+      for (const it of fresh) URL.revokeObjectURL(it.url);
       return;
     }
-    const added = fresh.filter((it) => it !== null);
-    setItems((prev) => new Map([...prev, ...added.map((it) => [it.point.id, it] as const)]));
+    setItems((prev) => new Map([...prev, ...fresh.map((it) => [it.point.id, it] as const)]));
     // Days hold exactly the picked photos, so they regroup from themselves.
-    setDays((ds) => draftDays([...allStops(ds).flatMap((s) => s.photos), ...added.map((it) => it.point)], ds));
+    setDays((ds) => draftDays([...allStops(ds).flatMap((s) => s.photos), ...fresh.map((it) => it.point)], ds));
     if (problems.length > 0) setSkipped((s) => [...s, ...problems]);
     setReading(false);
   }
@@ -297,77 +264,40 @@ function BulkAdd({
     stopped.current = false;
     setStopping(false);
     onBusyChange(true);
-    const failures: string[] = [];
-    // Photo id → uploaded media id.
-    const uploaded = new Map<string, string>();
-    let done = 0;
-    let next = 0;
-    let full = false;
-
-    const uploading = () =>
-      setWork({ label: `Uploading ${Math.min(done + 1, ids.length)} of ${ids.length}…`, done, total: ids.length });
-    uploading();
-    const worker = async () => {
-      while (next < ids.length && !stopped.current && !full) {
-        const it = files.get(ids[next++]!);
-        if (!it) continue;
-        try {
-          uploaded.set(it.point.id, await uploadMedia(it.file, event._id, latestToken.current ?? token));
-        } catch (e) {
-          const message = e instanceof Error ? e.message : "Upload failed";
-          failures.push(`${it.file.name}: ${message}`);
-          // Every later upload would fail the same way.
-          if (/upload limit/i.test(message)) full = true;
-        }
-        done++;
-        uploading();
-      }
-    };
-    await Promise.all(Array.from({ length: UPLOADS_AT_ONCE }, worker));
-    if (full && done < ids.length) {
-      failures.push(`${plural(ids.length - done, "more file")} weren't uploaded: this experience has reached its upload limit`);
-    }
-
-    const moments = plan.flatMap((d) =>
-      d.moments.map((stops, i) => ({ label: dayLabel(d.day) + (d.moments.length > 1 ? `, part ${i + 1}` : ""), stops })),
+    const { uploaded, failures } = await uploadAll(
+      ids.flatMap((id) => {
+        const it = files.get(id);
+        return it ? [{ id, file: it.file }] : [];
+      }),
+      event._id,
+      () => latestToken.current ?? token,
+      (done, total) => setWork({ label: `Uploading ${Math.min(done + 1, total)} of ${total}…`, done, total }),
+      () => stopped.current,
     );
+
+    const moments = momentsFromPlan(plan, uploaded, (id) => files.get(id)?.kind);
     // Media ids now on a saved moment; any other upload gets deleted.
     const used = new Set<string>();
     let created = 0;
     for (const [i, m] of moments.entries()) {
       if (stopped.current) break;
       setWork({ label: `Creating moment ${i + 1} of ${moments.length}…`, done: i, total: moments.length });
-      // A stop whose photos all failed to upload is left out.
-      const stops = m.stops.flatMap((s) => {
-        const blocks = s.photos.flatMap((p) => {
-          const mediaId = uploaded.get(p.id);
-          const kind = files.get(p.id)?.kind;
-          return mediaId && kind ? [{ type: kind, mediaId: mediaId as Id<"media"> }] : [];
-        });
-        return blocks.length > 0 ? [{ s, blocks }] : [];
-      });
-      const [first, ...rest] = stops;
-      if (!first) {
+      if (!m.create) {
         failures.push(`${m.label}: none of its photos uploaded`);
         continue;
       }
-      // Coordinates only go with a place.
-      const where = (s: DraftStop) => {
-        const place = s.place.trim() || undefined;
-        return { place, geo: place ? s.geo : undefined };
-      };
       try {
-        await createMoment({
-          eventId: event._id,
-          startsAt: first.s.startsAt,
-          // The camera's zone when it said, so the day is the trip's.
-          tzOffsetMinutes: first.s.photos[0]?.offsetMinutes ?? -new Date(first.s.startsAt).getTimezoneOffset(),
-          ...where(first.s),
-          blocks: first.blocks,
-          stops: rest.map(({ s, blocks }) => ({ startsAt: s.startsAt, ...where(s), blocks })),
-        });
+        const momentId = await createMoment({ eventId: event._id, ...m.create });
         created++;
-        for (const { blocks } of stops) for (const b of blocks) used.add(b.mediaId);
+        for (const u of m.uses) used.add(u.mediaId);
+        enrichMoment(
+          enrich,
+          momentId,
+          m.uses.flatMap((u) => {
+            const it = files.get(u.photoId);
+            return it ? [{ mediaId: u.mediaId, file: it.file }] : [];
+          }),
+        );
       } catch (e) {
         failures.push(`${m.label}: ${errorMessage(e)}`);
       }

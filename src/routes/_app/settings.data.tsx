@@ -30,6 +30,14 @@ function DataSettings() {
             <li>Place, notes and links are encrypted before they are saved.</li>
             <li>Photos are encrypted in storage and visible only to people you share with.</li>
             <li>Photos and videos keep the details the camera saved in them, like where they were taken.</li>
+            <li>
+              When you add photos, small copies of up to four photos from each moment go through Convex's AI gateway to
+              Anthropic to draft the first note and labels; the copies aren't kept.
+            </li>
+            <li>
+              Place search and the names of photo locations use OpenStreetMap data from photon.komoot.io; your typed text
+              or the photo's coordinates are sent to it.
+            </li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
         </SettingsBlock>

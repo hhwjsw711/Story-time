@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { ArrowLeftIcon, ImagesIcon, PlayIcon, PlusIcon } from "lucide-react";
+import { ArrowLeftIcon, PlayIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
@@ -11,6 +11,7 @@ import { eventDates } from "@/components/event/event-dates";
 import { EditorPanel, MomentFeed, type Panel } from "@/components/event/itinerary-panel";
 import { ItineraryTab } from "@/components/event/itinerary-tab";
 import { MomentActionsMenu } from "@/components/event/moment-actions-menu";
+import { QuickAddButton, QuickNote } from "@/components/event/quick-add";
 import { SettingsTab } from "@/components/event/settings-tab";
 import { SharedTab } from "@/components/event/shared-tab";
 import { Badge } from "@/components/ui/badge";
@@ -144,19 +145,7 @@ function EventPage() {
               </Link>
             </Button>
           )}
-          {canAdd && (
-            <Button
-              variant={event.momentCount > 0 ? "outline" : "default"}
-              onClick={() => openPanel("new-moment")}
-            >
-              <PlusIcon /> Add moment
-            </Button>
-          )}
-          {canAdd && (
-            <Button variant="outline" onClick={() => setAddingPhotos(true)}>
-              <ImagesIcon /> <span className="max-sm:sr-only">Add from photos</span>
-            </Button>
-          )}
+          <QuickAddButton event={event} variant={event.momentCount > 0 ? "outline" : "default"} />
           <EventActionsMenu
             event={event}
             onEditDetails={() => openPanel("details")}
@@ -182,6 +171,7 @@ function EventPage() {
               selected moment, stop by stop. Stacked on narrow screens. */}
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
             <div className="flex w-full min-w-0 flex-col gap-4 lg:w-[28rem] lg:shrink-0">
+              <QuickNote event={event} />
               <ItineraryTab
                 eventId={eventId}
                 momentCount={event.momentCount}
@@ -244,7 +234,6 @@ function EventPage() {
                 canAdd={canAdd}
                 canEditMoment={canEditMoment}
                 onEdit={(mid) => openPanel("moment", mid)}
-                onAdd={() => openPanel("new-moment")}
                 onActiveChange={onActiveChange}
               />
             </div>

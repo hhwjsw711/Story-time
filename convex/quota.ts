@@ -153,3 +153,26 @@ export const resolve = internalMutation({
     return null;
   },
 });
+
+// Operator action: `npx convex run quota:setLimit '{"eventId":"...","limit":100}'`
+export const setLimit = internalMutation({
+  args: { eventId: v.id("events"), limit: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get("events", args.eventId);
+    if (event === null) throw new Error("Event not found");
+    const limit = Math.round(args.limit);
+    if (limit < 1 || limit > MAX_MOMENT_LIMIT) throw new Error(`Limit must be 1 to ${MAX_MOMENT_LIMIT}`);
+    await ctx.db.patch("events", event._id, { momentLimit: limit });
+    await recordChange(ctx, {
+      eventId: event._id,
+      entity: "quota",
+      entityId: event._id,
+      action: "update",
+      fields: ["momentLimit"],
+      before: { momentLimit: event.momentLimit },
+      after: { momentLimit: limit },
+    });
+    return null;
+  },
+});

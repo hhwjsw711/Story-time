@@ -1,4 +1,4 @@
-export const DEFAULT_MOMENT_LIMIT = 10;
+export const DEFAULT_MOMENT_LIMIT = 100;
 // Moment list and itinerary reads take at most this many rows.
 export const MAX_MOMENT_LIMIT = 500;
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;

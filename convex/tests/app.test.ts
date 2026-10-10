@@ -54,6 +54,8 @@ describe("moment limit and credits", () => {
   test("11th moment is rejected; an approved request raises the limit", async () => {
     const { t, owner } = await setup();
     const eventId = await owner.mutation(api.events.createDraft, {});
+    // Ten, not the default: a hundred moments would make the test slow.
+    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 10 }));
     for (let i = 0; i < 10; i++) await addMoment(owner, eventId, `m${i}`);
     await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
 
@@ -280,6 +282,8 @@ describe("uploads", () => {
       owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime: "image/png" });
     // The default 10-moment limit allows 50 live uploads.
     await fill("deleted", 60);
+    // Ten moments, so the upload cap is fifty.
+    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 10 }));
     await fill("ready", 49);
     await reserve();
     await expect(reserve()).rejects.toThrow(/MEDIA_LIMIT/);

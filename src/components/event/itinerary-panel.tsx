@@ -1,10 +1,11 @@
 import { useQuery } from "convex/react";
 import { useEffect, useMemo, useRef } from "react";
-import { PlusIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import { EventDetailsForm } from "@/components/event/event-details-form";
 import { MomentForm } from "@/components/event/moment-form";
 import { MomentPreview } from "@/components/event/moment-preview";
+import { QuickAddButton } from "@/components/event/quick-add";
 import type { EventView, MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -95,7 +96,6 @@ export function MomentFeed({
   canAdd,
   canEditMoment,
   onEdit,
-  onAdd,
   onActiveChange,
 }: {
   event: EventView;
@@ -106,7 +106,6 @@ export function MomentFeed({
   canAdd: boolean;
   canEditMoment: (authorId: string) => boolean;
   onEdit: (momentId: string) => void;
-  onAdd: () => void;
   onActiveChange: (momentId: string) => void;
 }) {
   const moments = useQuery(api.moments.list, { eventId: event._id });
@@ -154,9 +153,9 @@ export function MomentFeed({
       <p className="font-serif text-lg">The story starts with a moment.</p>
       <p className="text-sm text-muted-foreground">Moments you add show up here, stop by stop.</p>
       {canAdd && (
-        <Button variant="outline" size="sm" onClick={onAdd}>
-          <PlusIcon /> Add the first moment
-        </Button>
+        <QuickAddButton event={event} variant="outline" size="sm">
+          Add photos
+        </QuickAddButton>
       )}
     </div>
   );

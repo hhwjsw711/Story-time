@@ -33,6 +33,8 @@ Set these on the Convex deployment with `npx convex env set NAME value` (add `--
 
 AI features (captions, labels, transport) run through the Convex AI Gateway, which needs a paid Convex plan and no provider keys. For captions it gets the photos' 512px copies and the moment's text (experience title and description, places, time, transport, labels, notes); for transport it gets the places and times between stops. None of it is kept in Convex. Without the gateway the app works, just without the automatic fill-ins.
 
+Place search and the names of photo locations use OpenStreetMap data from photon.komoot.io; your typed text or the photo's coordinates are sent to it.
+
 On the client, `VITE_APP_URL` (the site's origin, set at build time) makes the link-preview image URL absolute. Crawlers ignore relative `og:image` URLs.
 
 ## Scripts

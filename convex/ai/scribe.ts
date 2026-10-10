@@ -130,7 +130,9 @@ async function writeCaption(
       { threadId },
       { system: JSON_INSTRUCTIONS, messages, maxOutputTokens: MAX_OUTPUT_TOKENS },
     );
-    const parsed = captionSchema.safeParse(JSON.parse(text));
+    // The reply may wrap the JSON in prose or a code fence; take the object.
+    const object = /\{[\s\S]*\}/.exec(text)?.[0] ?? text;
+    const parsed = captionSchema.safeParse(JSON.parse(object));
     if (!parsed.success) throw new Error("Scribe's reply didn't match the caption shape");
     return parsed.data;
   }
