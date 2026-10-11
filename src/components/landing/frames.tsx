@@ -17,7 +17,7 @@ const LAND = "#1b1b1b";
 const WATER = "#10161b";
 const STREET = "#2a2a2a";
 const AVENUE = "#383838";
-const SANS = "Manrope, ui-sans-serif, system-ui, sans-serif";
+const SANS = "'Manrope Variable', Manrope, ui-sans-serif, system-ui, sans-serif";
 const SERIF = "ui-serif, Georgia, serif";
 // Small grey district names, the way the basemap letters them.
 const DISTRICTS = [

@@ -140,11 +140,11 @@ function Leg({ play }: { play: boolean }) {
           { name: "LEIRIA", x: 80, y: 55 },
           { name: "SANTARÉM", x: 92, y: 66 },
         ].map((d) => (
-          <text key={d.name} x={d.x} y={d.y} textAnchor="middle" fontFamily="Manrope, ui-sans-serif, sans-serif" fontSize="1.9" letterSpacing="0.35" fill="#6b6b6b">
+          <text key={d.name} x={d.x} y={d.y} textAnchor="middle" fontFamily="'Manrope Variable', Manrope, ui-sans-serif, sans-serif" fontSize="1.9" letterSpacing="0.35" fill="#6b6b6b">
             {d.name}
           </text>
         ))}
-        <text x="36" y="46" fontFamily="Manrope, ui-sans-serif, sans-serif" fontSize="2.4" fontStyle="italic" fill="#3b4a55">
+        <text x="36" y="46" fontFamily="'Manrope Variable', Manrope, ui-sans-serif, sans-serif" fontSize="2.4" fontStyle="italic" fill="#3b4a55">
           Atlantic
         </text>
         <path d={RAIL} fill="none" stroke="#e7e5e4" strokeOpacity="0.25" strokeWidth="0.45" strokeDasharray="0.5 1" />
@@ -152,11 +152,11 @@ function Leg({ play }: { play: boolean }) {
           {play && <animate attributeName="stroke-dashoffset" from="1" to="0" dur="3s" begin="0.4s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.4 0 0.2 1" />}
         </path>
         <circle cx="74" cy="16" r="0.9" fill="#d6d3d1" stroke="#1c1917" strokeWidth="0.3" />
-        <text x="76.5" y="14.6" fontFamily="Newsreader, ui-serif, Georgia, serif" fontSize="2.8" fill="#d6d3d1" stroke="#141210" strokeWidth="0.5" paintOrder="stroke">
+        <text x="76.5" y="14.6" fontFamily="'Newsreader Variable', Newsreader, ui-serif, Georgia, serif" fontSize="2.8" fill="#d6d3d1" stroke="#141210" strokeWidth="0.5" paintOrder="stroke">
           Porto
         </text>
         <circle cx="58" cy="74" r="1.2" fill="#fde68a" stroke="#c2410c" strokeWidth="0.35" />
-        <text x="61" y="76.5" fontFamily="Newsreader, ui-serif, Georgia, serif" fontSize="3.2" fontWeight="600" fill="#fde68a" stroke="#141210" strokeWidth="0.6" paintOrder="stroke">
+        <text x="61" y="76.5" fontFamily="'Newsreader Variable', Newsreader, ui-serif, Georgia, serif" fontSize="3.2" fontWeight="600" fill="#fde68a" stroke="#141210" strokeWidth="0.6" paintOrder="stroke">
           Lisbon
         </text>
         <g>

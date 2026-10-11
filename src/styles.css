@@ -1,13 +1,17 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&display=swap");
+/* Served with the app rather than from Google Fonts, so no third party sees
+   who opens a page. */
+@import "@fontsource-variable/manrope";
+@import "@fontsource-variable/newsreader/opsz.css";
+@import "@fontsource-variable/newsreader/opsz-italic.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @theme {
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Manrope Variable", "Manrope", ui-sans-serif, system-ui, sans-serif;
   /* One serif everywhere: the site's display type, the app's titles and
      story mode's captions. */
-  --font-display: "Newsreader", ui-serif, Georgia, serif;
-  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --font-display: "Newsreader Variable", "Newsreader", ui-serif, Georgia, serif;
+  --font-serif: "Newsreader Variable", "Newsreader", ui-serif, Georgia, serif;
 }
 
 /* shadcn/ui theme tokens (neutral) */
