@@ -17,6 +17,7 @@ import {
   RouteIcon,
   SearchIcon,
   UserIcon,
+  UsersIcon,
   VideoIcon,
   XIcon,
 } from "lucide-react";
@@ -35,8 +36,10 @@ import {
   useTable,
 } from "@tanstack/react-table";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { ActorBadge } from "@/components/event/actor-badge";
 import { BulkEditBar, SelectBox } from "@/components/event/bulk-edit-bar";
 import { MomentCard } from "@/components/event/moment-card";
 import type { MomentView } from "@/components/event/types";
@@ -56,8 +59,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { initials } from "@/components/user-avatar";
+import { authorOf, editorOf } from "@/lib/actors";
 import {
   allBlocks,
+  type AgentFilter,
   type BlockType,
   type MomentFilters,
   isFiltering,
@@ -91,13 +96,19 @@ const GROUPINGS: Array<{ value: Grouping; label: string }> = [
   { value: "none", label: "All" },
 ];
 
+const AGENT_CHOICES: Array<{ value: AgentFilter; label: string }> = [
+  { value: "any", label: "Anyone" },
+  { value: "hide", label: "People only" },
+  { value: "only", label: "Agents only" },
+];
+
 const GROUP_ICON = { day: CalendarIcon, month: CalendarDaysIcon, place: MapPinIcon } as const;
 
 // One grid for headers and rows, so the columns line up. Columns fold away as
 // the table narrows (it is a container): first the type icon and Contains,
-// then Place, which moves under the title, then Time, which joins it.
+// then Place, which moves under the title, then Time and Who, which join it.
 const GRID =
-  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_6.5rem_1.5rem_2rem] @3xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_6.5rem_1.5rem_2rem]";
+  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_minmax(0,10rem)_6.5rem_1.5rem_2rem] @3xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_minmax(0,10rem)_6.5rem_1.5rem_2rem]";
 
 const date = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -234,6 +245,13 @@ const columns = helper.columns([
     header: () => <MapPinIcon aria-label="Place" className="size-4" />,
     meta: { className: "hidden min-w-0 @xl:flex" },
     cell: ({ row }) => <PlaceChip place={row.original.place} />,
+  }),
+  // Who added the moment. Folds away below `@sm`, with the time.
+  helper.display({
+    id: "who",
+    header: () => <UsersIcon aria-label="Who" className="size-4" />,
+    meta: { className: "hidden min-w-0 @sm:block" },
+    cell: ({ row, table }) => <Who moment={row.original} meId={table.options.meta?.meId} />,
   }),
   helper.accessor("startsAt", {
     header: () => <ClockIcon aria-label="Time" className="size-4" />,
@@ -874,6 +892,22 @@ function Contains({ moment }: { moment: MomentView }) {
   );
 }
 
+// Who added a moment. An agent's later edit gets its own line, unless it is
+// the same agent that added the moment.
+function Who({ moment, meId }: { moment: MomentView; meId?: string }) {
+  const editor = editorOf(moment);
+  return (
+    <div className="min-w-0 space-y-0.5 overflow-hidden">
+      <ActorBadge actor={authorOf(moment)} you={moment.authorId === meId} />
+      {editor?.kind === "agent" && editor.name !== moment.authorAgent && (
+        <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+          edited by <ActorBadge actor={editor} />
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PlaceChip({ place }: { place?: string }) {
   if (!place) {
     return (
@@ -920,7 +954,11 @@ function FiltersPopover({
   onChange: (f: MomentFilters) => void;
 }) {
   const active =
-    filters.places.length + filters.contains.length + filters.labels.length + (filters.from ? 1 : 0);
+    filters.places.length +
+    filters.contains.length +
+    filters.labels.length +
+    (filters.from ? 1 : 0) +
+    (filters.agents === "any" ? 0 : 1);
   const toggle = <T extends string>(list: T[], value: T) =>
     list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 
@@ -949,6 +987,28 @@ function FiltersPopover({
           selected={filters.contains}
           onToggle={(t) => onChange({ ...filters, contains: toggle(filters.contains, t as BlockType) })}
         />
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Added by</p>
+          <RadioGroupPrimitive.Root
+            aria-label="Added by"
+            value={filters.agents}
+            onValueChange={(v) => {
+              const choice = AGENT_CHOICES.find((c) => c.value === v);
+              if (choice) onChange({ ...filters, agents: choice.value });
+            }}
+            className="flex flex-wrap gap-1.5"
+          >
+            {AGENT_CHOICES.map((c) => (
+              <RadioGroupPrimitive.Item
+                key={c.value}
+                value={c.value}
+                className="h-7 rounded-full border px-2.5 text-[13px] whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=unchecked]:text-muted-foreground data-[state=unchecked]:hover:text-foreground"
+              >
+                {c.label}
+              </RadioGroupPrimitive.Item>
+            ))}
+          </RadioGroupPrimitive.Root>
+        </div>
         {labels.length > 0 && (
           <FilterChips
             label="Labels"
