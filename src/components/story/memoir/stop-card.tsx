@@ -3,6 +3,7 @@ import { AuthImage, AuthVideo } from "@/components/auth-image";
 import { transportOf } from "@/components/event/transport";
 import { Near } from "@/components/story/memoir/near";
 import { Button } from "@/components/ui/button";
+import { authorByline } from "@/lib/actors";
 import type { StoryStep } from "@/lib/story-steps";
 
 type StopScene = Extract<StoryStep, { kind: "stop" }>;
@@ -35,10 +36,11 @@ export function StopCard({
   const photos = media.filter((b) => b.type === "photo").length;
   const videos = media.length - photos;
   // A shared story leaves its authors out, so there is no "by" line on one.
+  const author = authorByline(scene);
   const meta = [
     at !== heading ? at : undefined,
     transport?.phrase,
-    scene.authorName && `by ${scene.authorName}`,
+    author && `by ${author}`,
     photos > 0 ? count(photos, "photo") : undefined,
     videos > 0 ? count(videos, "video") : undefined,
   ]

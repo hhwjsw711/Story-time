@@ -26,6 +26,21 @@ export function editorOf(m: {
   return m.editedByName === undefined ? { kind: "system" } : { kind: "human", name: m.editedByName };
 }
 
+// A moment's latest edit, when it is news: an agent's, or a named person's who is
+// not its author. A moment carries names rather than ids, so "not the author"
+// means a different name.
+export function editNoticeOf(m: {
+  authorName?: string;
+  editedAt?: number;
+  editedByName?: string;
+  editedByAgent?: string;
+}): { at: number; by: ActorView } | undefined {
+  const by = editorOf(m);
+  if (by === undefined || m.editedAt === undefined) return undefined;
+  if (by.kind === "agent") return { at: m.editedAt, by };
+  return by.kind === "human" && by.name !== m.authorName ? { at: m.editedAt, by } : undefined;
+}
+
 // A change in the activity log. `name` is the person's display name, when the
 // caller has looked it up.
 export function changeActorOf(c: { actorId?: string; agent?: string }, name?: string): ActorView {
@@ -43,6 +58,18 @@ export function describeActor(actor: ActorView): string {
     case "system":
       return "The system";
   }
+}
+
+// The author as a story's by-line names them: "you" for the signed-in person's
+// own moment, the person by name, or the agent that added the moment for them.
+// A shared story names no one, so it has no author at all.
+export function authorByline(
+  m: { authorId?: string; authorName?: string; authorAgent?: string },
+  meId?: string,
+): string | undefined {
+  if (m.authorId === undefined) return undefined;
+  if (m.authorAgent !== undefined) return describeActor({ kind: "agent", name: m.authorAgent });
+  return m.authorId === meId ? "you" : describeActor({ kind: "human", name: m.authorName });
 }
 
 export const isAgent = (actor: ActorView): actor is Extract<ActorView, { kind: "agent" }> => actor.kind === "agent";
