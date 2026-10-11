@@ -1,7 +1,7 @@
 import { useAuthToken } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { ImagePlusIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { MAX_COMMAND_CHARS } from "../../../convex/lib/limits";
@@ -54,7 +54,6 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
   const [problem, setProblem] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const picker = useRef<HTMLInputElement>(null);
-  const hint = useId();
   const [files, setFiles] = useState<File[]>([]);
   // Read at each call: tokens are short-lived and a batch can run for minutes.
   const latestToken = useRef(token);
@@ -186,7 +185,6 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
           }}
           placeholder="What happened, or what should change?"
           aria-label="What happened, or what should change?"
-          aria-describedby={hint}
           maxLength={MAX_COMMAND_CHARS}
           disabled={busy}
           className="min-w-0 flex-1"
@@ -242,10 +240,6 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
           </Button>
         </div>
       )}
-
-      <p id={hint} className={cn("text-xs text-muted-foreground", (plan !== null || said !== "") && "sr-only")}>
-        Say what happened, or what to change: “move this to Friday”, “add Hanover as a stop by plane”, “delete the second stop”. Speak with the mic, or attach photos and say what they are.
-      </p>
 
       <p role="status" className="sr-only">
         {phase === "reading" ? "Reading your request" : phase === "applying" ? "Applying the changes" : ""}
