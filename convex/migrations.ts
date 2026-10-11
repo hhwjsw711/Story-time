@@ -12,7 +12,7 @@ const BATCH = 100;
 export const encryptPlainText = internalMutation({
   args: {
     table: v.optional(v.union(v.literal("events"), v.literal("quotaRequests"))),
-    cursor: v.optional(v.union(v.string(), v.null())),
+    cursor: v.optional(v.string()),
   },
   returns: v.number(),
   handler: async (ctx, args): Promise<number> => {

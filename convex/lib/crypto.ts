@@ -1,4 +1,5 @@
 import type { Infer } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
 import { vEncrypted, vGeo } from "../schema";
 
@@ -103,7 +104,7 @@ export async function decryptText(
 // Free text that newer rows keep under the event key and older ones still hold
 // as plain text: reads either way.
 export async function readText(
-  eventId: string,
+  eventId: Id<"events">,
   value: string | Encrypted | undefined,
 ): Promise<string | undefined> {
   if (value === undefined || typeof value === "string") return value;

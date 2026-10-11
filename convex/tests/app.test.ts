@@ -167,10 +167,12 @@ describe("change tracking", () => {
       eventId,
       description: "secret-description",
     });
+    await owner.mutation(api.events.update, { eventId, title: "secret-title" });
     await addMoment(owner, eventId, "secret-note");
     const rows = await t.run((ctx) => ctx.db.query("changes").collect());
     const dump = JSON.stringify(rows);
     expect(dump).not.toContain("secret-description");
+    expect(dump).not.toContain("secret-title");
     expect(dump).not.toContain("secret-note");
 
     const moments = await t.run((ctx) => ctx.db.query("moments").collect());
