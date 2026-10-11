@@ -1,5 +1,5 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import { ArrowDownIcon, ArrowUpIcon, ImageIcon, PlusIcon, Trash2Icon, VideoIcon, XIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { deletePhotos } from "@/lib/actions";
+import { enrichMoment } from "@/lib/add-moments";
 import { errorMessage } from "@/lib/errors";
 import { readPhotoMeta } from "@/lib/photo-meta";
 import { isVideoFile, MEDIA_ACCEPT, uploadMedia } from "@/lib/upload";
@@ -119,6 +120,7 @@ export function MomentForm({
 }) {
   const create = useMutation(api.moments.create);
   const update = useMutation(api.moments.update);
+  const enrich = useAction(api.ai.enrich.enrich);
   const requestMore = useMutation(api.quota.request);
   const token = useAuthToken();
   // The stop whose photos are uploading, if any.
@@ -134,6 +136,9 @@ export function MomentForm({
   // toward the experience's upload cap, so they're deleted (best effort) when
   // removed or abandoned. Photos already saved on `moment` are never here.
   const unsaved = useRef(new Set<string>());
+  // The files uploaded in this session, by media id: a new moment's AI
+  // thumbnails come from them.
+  const picked = useRef(new Map<string, File>());
   const closed = useRef(false);
   const latestToken = useRef(token);
   useEffect(() => {
@@ -151,6 +156,7 @@ export function MomentForm({
     };
   }, []);
   const discard = (mediaId: string) => {
+    picked.current.delete(mediaId);
     if (unsaved.current.delete(mediaId) && latestToken.current) void deletePhotos([mediaId], latestToken.current);
   };
   // After a save: uploads the moment now uses are its own; any others (say,
@@ -159,6 +165,7 @@ export function MomentForm({
     const kept = new Set(stops.flatMap((s) => s.media.map((m) => m.mediaId)));
     const dropped = [...unsaved.current].filter((id) => !kept.has(id));
     unsaved.current.clear();
+    picked.current.clear();
     return dropped;
   };
 
@@ -237,7 +244,15 @@ export function MomentForm({
           if (latestToken.current) await deletePhotos([...removedMediaIds, ...dropped], latestToken.current);
           toast.success("Moment saved");
         } else {
-          await create({
+          // The photos this moment uses, as the AI's thumbnails: read before
+          // `settle` forgets them.
+          const photos = value.stops.flatMap((s) =>
+            s.media.flatMap((m) => {
+              const file = m.kind === "photo" ? picked.current.get(m.mediaId) : undefined;
+              return file ? [{ mediaId: m.mediaId as Id<"media">, file }] : [];
+            }),
+          );
+          const momentId = await create({
             eventId,
             startsAt,
             tzOffsetMinutes,
@@ -250,6 +265,7 @@ export function MomentForm({
           });
           const dropped = settle(value.stops);
           if (latestToken.current && dropped.length > 0) void deletePhotos(dropped, latestToken.current);
+          enrichMoment(enrich, momentId, photos);
           toast.success("Moment added");
           formApi.reset();
         }
@@ -280,6 +296,7 @@ export function MomentForm({
           break;
         }
         unsaved.current.add(mediaId);
+        picked.current.set(mediaId, file);
         form.pushFieldValue(`stops[${stop}].media`, {
           mediaId,
           kind: isVideoFile(file) ? "video" : "photo",

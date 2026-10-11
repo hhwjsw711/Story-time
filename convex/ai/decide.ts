@@ -205,7 +205,11 @@ export const decideTransport = internalAction({
     const found: LegsOf = await ctx.runQuery(internal.ai.decide.legsOf, { momentId: args.momentId });
 
     const questions: Record<string, Experimental_DecisionQuestion> = {};
-    for (const leg of found.legs) {
+    // A leg with no distance and no names is a blind guess; it stays unanswered.
+    const judgeable = found.legs.filter(
+      (leg) => leg.km !== undefined || (leg.fromPlace !== undefined && leg.toPlace !== undefined),
+    );
+    for (const leg of judgeable) {
       questions[`transport_${leg.id}`] = {
         type: "choice",
         instructions: `Judge leg ${leg.id}: how the person got there, from the route, distances and times in the state.`,

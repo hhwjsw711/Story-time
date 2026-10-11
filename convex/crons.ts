@@ -11,4 +11,7 @@ crons.cron(
   {},
 );
 
+// Abandoned upload reservations count toward an experience's cap until swept.
+crons.interval("sweep reserved uploads", { hours: 1 }, internal.media.sweepReservedUploads, {});
+
 export default crons;

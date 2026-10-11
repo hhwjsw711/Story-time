@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import {
   assertNotArchived,
   getEventAccess,
@@ -325,6 +326,33 @@ export const markDeleted = mutation({
     }
     await ctx.db.patch("media", args.mediaId, { status: "deleted" });
     return null;
+  },
+});
+
+// An upload still "reserved" an hour later was abandoned: the tab closed before
+// its bytes or its confirm arrived. It still counts toward the experience's cap,
+// so the sweep marks it deleted. Runs hourly (see crons.ts).
+const RESERVATION_TTL_MS = 60 * 60_000;
+const SWEEP_BATCH = 100;
+
+export const sweepReservedUploads = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: async (ctx): Promise<number> => {
+    const stale = await ctx.db
+      .query("media")
+      .withIndex("by_status", (q) =>
+        q.eq("status", "reserved").lt("_creationTime", Date.now() - RESERVATION_TTL_MS),
+      )
+      .take(SWEEP_BATCH);
+    for (const media of stale) {
+      await ctx.db.patch("media", media._id, { status: "deleted" });
+    }
+    // A full batch may leave more behind: continue in a fresh transaction.
+    if (stale.length === SWEEP_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.media.sweepReservedUploads, {});
+    }
+    return stale.length;
   },
 });
 

@@ -161,6 +161,8 @@ describe("moments.update", () => {
 describe("moments.remove", () => {
   test("removes the moment and its itinerary row, and frees a slot", async () => {
     const { t, owner, eventId } = await setup();
+    // Ten, not the default: a hundred moments would make the test slow.
+    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 10 }));
     for (let i = 0; i < 10; i++) await addMoment(owner, eventId, `m${i}`);
     await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
 
