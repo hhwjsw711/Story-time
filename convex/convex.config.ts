@@ -5,6 +5,8 @@ import email from "./components/email/convex.config";
 import invites from "./components/invites/convex.config";
 import oauth from "@convex-dev/auth/providers/oauth/convex.config.js";
 import authAnonymous from "@convex-dev/auth/providers/anonymous/convex.config.js";
+import agent from "@convex-dev/agent/convex.config";
+import workflow from "@convex-dev/workflow/convex.config";
 
 const app = defineApp({
   env: {
@@ -62,5 +64,8 @@ app.use(email, {
   },
 });
 app.use(invites);
+// Haiku captions through the Convex AI Gateway, and durable enrichment steps.
+app.use(agent);
+app.use(workflow);
 
 export default app;
