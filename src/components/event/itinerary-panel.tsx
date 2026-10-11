@@ -14,9 +14,20 @@ import { cn } from "@/lib/utils";
 // "outline" means no editor is open; the others name the open form.
 export type Panel = "outline" | "details" | "new-moment" | "moment";
 
-// One moment per screen: the viewport less the header, title and tabs above
-// the feed, so it fits without the page scrolling.
-const FEED_HEIGHT = "h-[calc(100svh-14rem)]";
+// Tailwind's `lg`. From here up the feed sits beside the table and scrolls on
+// its own, one moment per screen: the viewport less the header, title and tabs
+// above it. Narrower, it's stacked under the table and moves with the page, so
+// there's never a scroller inside a scroller.
+const WIDE = "(min-width: 64rem)";
+const FEED_HEIGHT = "lg:h-[calc(100svh-14rem)]";
+
+// Shows a moment chosen in the table. Wide screens scroll the feed (MomentFeed
+// does, when `momentId` changes); narrow ones scroll the page to it, on every
+// choice, so picking the moment that's already selected still goes there.
+export function revealMoment(id: string) {
+  if (matchMedia(WIDE).matches) return;
+  document.querySelector(`[data-moment-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "start" });
+}
 
 const TITLES: Record<Exclude<Panel, "outline">, string> = {
   details: "Experience details",
@@ -118,7 +129,8 @@ export function MomentFeed({
   const ids = list.map((m) => m._id).join(",");
 
   // Jump to a moment chosen in the table. Instant, so the moments passed on
-  // the way don't each report themselves as active.
+  // the way don't each report themselves as active. Wide screens only: on
+  // narrow ones the feed doesn't scroll, and revealMoment moves the page.
   useEffect(() => {
     const root = feed.current;
     if (!root || !momentId || momentId === reported.current) return;
@@ -127,25 +139,38 @@ export function MomentFeed({
     if (el) root.scrollTo({ top: el.offsetTop });
   }, [momentId, ids]);
 
-  // The moment crossing the feed's middle line is the active one; this works
-  // for moments taller than the feed too.
+  // The moment crossing the middle line of whatever scrolls (the feed on wide
+  // screens, the page on narrow ones) is the active one; this works for
+  // moments taller than the feed too. Rebuilt when the breakpoint is crossed,
+  // as when a tablet turns.
   useEffect(() => {
     const root = feed.current;
     if (!root) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const id = entry.target.getAttribute("data-moment-id");
-          if (entry.isIntersecting && id && id !== reported.current) {
-            reported.current = id;
-            onActiveChange(id);
+    const wide = matchMedia(WIDE);
+    let observer: IntersectionObserver | undefined;
+    const observe = () => {
+      observer?.disconnect();
+      const next = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const id = entry.target.getAttribute("data-moment-id");
+            if (entry.isIntersecting && id && id !== reported.current) {
+              reported.current = id;
+              onActiveChange(id);
+            }
           }
-        }
-      },
-      { root, rootMargin: "-50% 0px -50% 0px" },
-    );
-    root.querySelectorAll("[data-moment-id]").forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+        },
+        { root: wide.matches ? root : null, rootMargin: "-50% 0px -50% 0px" },
+      );
+      root.querySelectorAll("[data-moment-id]").forEach((el) => next.observe(el));
+      observer = next;
+    };
+    observe();
+    wide.addEventListener("change", observe);
+    return () => {
+      wide.removeEventListener("change", observe);
+      observer?.disconnect();
+    };
   }, [ids, onActiveChange]);
 
   const empty = (
@@ -179,13 +204,16 @@ export function MomentFeed({
     <div
       ref={feed}
       aria-label="Moments"
-      className={cn(FEED_HEIGHT, "relative snap-y snap-mandatory overflow-y-auto overscroll-contain lg:sticky lg:top-4")}
+      className={cn(
+        FEED_HEIGHT,
+        "relative lg:sticky lg:top-4 lg:snap-y lg:snap-mandatory lg:overflow-y-auto lg:overscroll-contain",
+      )}
     >
       {list.map((moment) => (
         <section
           key={moment._id}
           data-moment-id={moment._id}
-          className="min-h-full snap-start border-b py-4 pr-2 last:border-b-0"
+          className="border-b py-4 last:border-b-0 lg:min-h-full lg:snap-start lg:pr-2"
         >
           <MomentPreview
             moment={moment}
