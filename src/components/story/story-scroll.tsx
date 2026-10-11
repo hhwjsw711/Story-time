@@ -13,6 +13,7 @@ import { mapPoints } from "@/lib/map-points";
 import { storyDays, travelMinutes } from "@/lib/story-days";
 import { buildStorySteps, clampStep } from "@/lib/story-steps";
 import { usePrefetchMedia } from "@/lib/use-media-url";
+import { isForward, useSwipeSurface } from "@/lib/use-swipe";
 import { cn } from "@/lib/utils";
 
 // Where the story is read: a third of the way down the window. On a phone the
@@ -37,6 +38,13 @@ function revealStep(step: number, behavior: ScrollBehavior) {
   if (!el) return;
   const top = el.getBoundingClientRect().top + window.scrollY - readingLine();
   window.scrollTo({ top, behavior });
+}
+
+// The card a step from the aimed one lands on: the next card down, or the one
+// above, the cover standing above the first.
+function stepFrom(cards: number[], aimed: number, delta: 1 | -1): number | undefined {
+  if (delta > 0) return cards.find((i) => i > aimed);
+  return [...cards].reverse().find((i) => i < aimed) ?? 0;
 }
 
 // The story as a memoir: a long page of stops in time order, day by day, with
@@ -68,6 +76,8 @@ export function StoryScroll({
     });
     return n;
   }, [steps]);
+  // The cards a glide lands on: the stops, and the end.
+  const cards = useMemo(() => steps.flatMap((s, i) => (s.kind === "stop" || s.kind === "end" ? [i] : [])), [steps]);
   // The stops with a place on the map, in story order.
   const located = useMemo<MapStop[]>(() => {
     const at = new Map(steps.flatMap((s, i) => (s.kind === "stop" ? [[`${s.momentId}:${s.stopIndex}`, i] as const] : [])));
@@ -174,21 +184,33 @@ export function StoryScroll({
 
   // ↑ and ↓ move from stop to stop, the cover above the first. Typing is left alone.
   useEffect(() => {
-    const cards = steps.flatMap((s, i) => (s.kind === "stop" || s.kind === "end" ? [i] : []));
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
       const el = e.target instanceof HTMLElement ? e.target : null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
-      let target: number | undefined;
-      if (e.key === "ArrowDown") target = cards.find((i) => i > aim.current);
-      else if (e.key === "ArrowUp") target = [...cards].reverse().find((i) => i < aim.current) ?? 0;
+      const target =
+        e.key === "ArrowDown" ? stepFrom(cards, aim.current, 1) : e.key === "ArrowUp" ? stepFrom(cards, aim.current, -1) : undefined;
       if (target === undefined || target === aim.current) return;
       e.preventDefault();
       glide(target);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [steps, glide]);
+  }, [cards, glide]);
+
+  // A horizontal swipe goes the way the arrows do: left on, right back. Touch
+  // only, so a mouse selecting text across the page doesn't turn it.
+  useSwipeSurface(
+    page,
+    {
+      onSwipe(direction) {
+        const target = stepFrom(cards, aim.current, isForward(direction) ? 1 : -1);
+        if (target === undefined || target === aim.current) return;
+        glide(target);
+      },
+    },
+    { axes: "x", touchOnly: true },
+  );
 
   // The thin line under the header: how far down the story the page is.
   useEffect(() => {
@@ -233,7 +255,7 @@ export function StoryScroll({
         </div>
       </header>
 
-      <main ref={page} className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6 lg:px-8">
+      <main ref={page} className="mx-auto w-full max-w-7xl touch-pan-y px-4 pb-24 sm:px-6 lg:px-8">
         <div className={cn("pt-8 sm:pt-12", hasMap && "lg:grid lg:grid-cols-[minmax(0,38rem)_minmax(0,1fr)] lg:gap-x-12")}>
           <div className={cn("mx-auto w-full max-w-2xl", hasMap && "lg:col-start-1 lg:row-start-1 lg:mx-0")}>
             <Cover event={event} moments={moments} days={days.length} stops={stopCount} onPlayFilm={() => onPlayFilm(0)} />
