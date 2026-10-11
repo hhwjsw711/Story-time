@@ -7,7 +7,7 @@ export type SwipeMove = { dx: number; dy: number; ms: number };
 // Past this much movement a pointer has taken an axis; short of it, a tap.
 const LOCK_PX = 8;
 // A drag this far commits at any speed; a flick commits when quick enough.
-const DISTANCE_PX = 56;
+export const SWIPE_PX = 56;
 const FLICK_PX = 24;
 const FLICK_SPEED = 0.45; // px per ms
 
@@ -17,7 +17,7 @@ export function classifySwipe(
   move: SwipeMove,
   opts: { distance?: number; velocity?: number } = {},
 ): SwipeDirection | null {
-  const distance = opts.distance ?? DISTANCE_PX;
+  const distance = opts.distance ?? SWIPE_PX;
   const velocity = opts.velocity ?? FLICK_SPEED;
   const across = Math.abs(move.dx) >= Math.abs(move.dy);
   const along = across ? move.dx : move.dy;
