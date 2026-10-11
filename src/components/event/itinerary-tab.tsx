@@ -105,12 +105,12 @@ const AGENT_CHOICES: Array<{ value: AgentFilter; label: string }> = [
 
 const GROUP_ICON = { day: CalendarIcon, month: CalendarDaysIcon, place: MapPinIcon } as const;
 
-// One grid for headers and rows, so the columns line up. Columns fold away as
-// the table narrows (it is a container): first the type icon and Contains,
-// then Place (under the title) and Who (the avatar says it: a robot for an
-// agent), then Time, which joins the title. The title always keeps the most room.
+// One grid for headers and rows, so the columns line up. Columns join as the
+// table widens (it is a container), the title always keeping the most room:
+// Time first, then Place (under the title until then), then Who (the avatar
+// says it before: a robot for an agent), then the type icon and Contains.
 const GRID =
-  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem] @3xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem]";
+  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_6.5rem_1.5rem_2rem] @3xl:grid-cols-[minmax(0,1fr)_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem] @5xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem]";
 
 const date = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -191,7 +191,7 @@ const columns = helper.columns([
   }),
   helper.display({
     id: "glyph",
-    meta: { className: "hidden justify-center @3xl:flex" },
+    meta: { className: "hidden justify-center @5xl:flex" },
     cell: ({ row }) => {
       const blocks = allBlocks(row.original);
       const kind = BLOCKS.find((b) => blocks.some((x) => x.type === b.type));
@@ -239,7 +239,7 @@ const columns = helper.columns([
   helper.display({
     id: "contains",
     header: () => <PaperclipIcon aria-label="Contains" className="size-4" />,
-    meta: { className: "hidden @3xl:flex" },
+    meta: { className: "hidden @5xl:flex" },
     cell: ({ row }) => <Contains moment={row.original} />,
   }),
   helper.accessor((m) => m.place ?? NO_PLACE, {
@@ -248,12 +248,12 @@ const columns = helper.columns([
     meta: { className: "hidden min-w-0 @xl:flex" },
     cell: ({ row }) => <PlaceChip place={row.original.place} />,
   }),
-  // Who added the moment, by name. Folds away below `@xl`, where the avatar
+  // Who added the moment, by name. Folds away below `@3xl`, where the avatar
   // alone tells a person from an agent.
   helper.display({
     id: "who",
     header: () => <UsersIcon aria-label="Who" className="size-4" />,
-    meta: { className: "hidden min-w-0 @xl:block" },
+    meta: { className: "hidden min-w-0 @3xl:block" },
     cell: ({ row, table }) => <Who moment={row.original} meId={table.options.meta?.meId} />,
   }),
   helper.accessor("startsAt", {
