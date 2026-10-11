@@ -107,9 +107,10 @@ const GROUP_ICON = { day: CalendarIcon, month: CalendarDaysIcon, place: MapPinIc
 
 // One grid for headers and rows, so the columns line up. Columns fold away as
 // the table narrows (it is a container): first the type icon and Contains,
-// then Place, which moves under the title, then Time and Who, which join it.
+// then Place (under the title) and Who (the avatar says it: a robot for an
+// agent), then Time, which joins the title. The title always keeps the most room.
 const GRID =
-  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_minmax(0,10rem)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_minmax(0,10rem)_6.5rem_1.5rem_2rem] @3xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_minmax(0,10rem)_6.5rem_1.5rem_2rem]";
+  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem] @3xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem]";
 
 const date = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
@@ -247,11 +248,12 @@ const columns = helper.columns([
     meta: { className: "hidden min-w-0 @xl:flex" },
     cell: ({ row }) => <PlaceChip place={row.original.place} />,
   }),
-  // Who added the moment. Folds away below `@sm`, with the time.
+  // Who added the moment, by name. Folds away below `@xl`, where the avatar
+  // alone tells a person from an agent.
   helper.display({
     id: "who",
     header: () => <UsersIcon aria-label="Who" className="size-4" />,
-    meta: { className: "hidden min-w-0 @sm:block" },
+    meta: { className: "hidden min-w-0 @xl:block" },
     cell: ({ row, table }) => <Who moment={row.original} meId={table.options.meta?.meId} />,
   }),
   helper.accessor("startsAt", {

@@ -1,9 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AuthImage, AuthVideo } from "@/components/auth-image";
-import { atEdge, clampIndex, nextIndex, picturesOf, tapDelta, tiltOf } from "@/components/story/photo-deck-math";
+import { atEdge, clampIndex, nextIndex, picturesOf, tapDelta, tiltOf, wordsOf } from "@/components/story/photo-deck-math";
 import type { Stop } from "@/lib/story-steps";
 import { isForward, SWIPE_PX, type SwipeDirection, useSwipeSurface } from "@/lib/use-swipe";
 import { cn } from "@/lib/utils";
+
+const TYPEWRITER = { fontFamily: '"Courier New", Courier, monospace' };
 
 const FLIGHT_MS = 280;
 const SETTLE_MS = 220;
@@ -49,6 +51,10 @@ export const PhotoDeck = forwardRef<
   }
 >(function PhotoDeck({ stop, active, autoplayMs, reduced, onEdge, onInteract, onIndexChange }, ref) {
   const media = useMemo(() => picturesOf(stop), [stop]);
+  const words = useMemo(() => wordsOf(stop), [stop]);
+  // A line or two is set large, so a short note fills its page; a long one smaller.
+  const written = words.reduce((n, b) => n + b.text.length, 0);
+  const wordSize = written < 90 ? "text-2xl sm:text-4xl" : written < 240 ? "text-xl sm:text-3xl" : "text-lg sm:text-2xl";
   const count = media.length;
   const root = useRef<HTMLDivElement>(null);
   const cards = useRef(new Map<number, HTMLDivElement>());
@@ -247,15 +253,32 @@ export const PhotoDeck = forwardRef<
       className="relative flex h-full w-full touch-none select-none flex-col items-center justify-center gap-4 p-4"
     >
       {count === 0 ? (
-        <div className="aspect-[4/3] w-full max-w-md rotate-[-2deg] rounded-sm bg-[#f3e9d6] p-3 pb-10 shadow-2xl">
-          <div className="grid h-full place-items-center rounded-sm bg-[#e8dcc4] text-sm text-stone-500">No pictures at this stop</div>
+        // No pictures: the words are the picture, typed on the same paper as
+        // the title page. The caption below leaves them out.
+        <div
+          style={TYPEWRITER}
+          className="w-full max-w-2xl -rotate-[1deg] rounded-sm bg-[#f3e9d6] bg-[radial-gradient(ellipse_at_50%_40%,transparent_55%,rgb(91_74_58/0.16)_100%)] px-7 py-9 text-stone-900 shadow-[0_30px_60px_-15px_rgb(0_0_0/0.7),0_10px_20px_-10px_rgb(0_0_0/0.5)] [text-shadow:0_0_1px_rgb(28_25_23/0.35)] sm:px-12 sm:py-14"
+        >
+          {words.length > 0 ? (
+            <div className="space-y-4">
+              {words.map((b, i) => (
+                <p key={i} className={cn("leading-relaxed whitespace-pre-wrap text-pretty sm:leading-relaxed", wordSize)}>
+                  {b.type === "feeling" && b.mood ? `${b.mood} ` : ""}
+                  {b.text}
+                </p>
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-sm text-stone-500">Nothing written down here, just the place.</p>
+          )}
         </div>
       ) : (
         <>
           {/* As big as the screen allows: the full width, or the height left
-              after the header, the dots and the caption. */}
+              after the header, the dots and the caption. Upright on a phone
+              held upright, where most pictures are taken that way too. */}
           <div
-            className="relative aspect-[4/3] w-full max-w-[min(100%,calc((100svh-20rem)*4/3))]"
+            className="relative aspect-[4/3] w-full max-w-[min(100%,calc((100svh-20rem)*4/3))] portrait:aspect-[3/4] portrait:max-w-[min(100%,calc((100svh-20rem)*3/4))]"
             onDragStart={(e) => e.preventDefault()}
           >
             {shown.map((i) => {

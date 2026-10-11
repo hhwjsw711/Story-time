@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/map";
 import { bend, curve, ease } from "@/lib/map-route";
 import type { LatLng, Transport } from "@/lib/story-steps";
-import { useRoutePath } from "@/lib/use-route-path";
+import type { Path } from "@/lib/road-path";
+import { useChainPaths, useRoutePath } from "@/lib/use-route-path";
 import { cn } from "@/lib/utils";
 
 // A located stop: its step in the story, its number, and where it is.
@@ -33,12 +34,14 @@ const FLY_MS = 800;
 // The wider right side keeps a framed stop, and its focus ring, clear of them.
 const FRAME_PADDING = { top: 32, bottom: 32, left: 32, right: 64 };
 
-// The stops joined in story order, each leg bowed the way the film bows them.
-function routeThrough(stops: MapStop[]): Point[] {
+// The stops joined in story order: each leg along its streets or tracks once
+// they have come back, bowed the way the film bows it until then.
+function routeThrough(stops: MapStop[], paths: Array<Path | undefined>): Point[] {
   return stops.flatMap((s, i): Point[] => {
     const here: Point = [s.lng, s.lat];
     const prev = stops[i - 1];
-    return prev ? curve([prev.lng, prev.lat], here, bend(s.transport ?? "walk")).slice(1) : [here];
+    if (!prev) return [here];
+    return (paths[i] ?? curve([prev.lng, prev.lat], here, bend(s.transport ?? "walk"))).slice(1);
   });
 }
 
@@ -68,7 +71,8 @@ export function StickyMap({
   useEffect(() => setMounted(true), []);
 
   const dark = resolvedTheme === "dark";
-  const route = useMemo(() => routeThrough(stops), [stops]);
+  const paths = useChainPaths(stops);
+  const route = useMemo(() => routeThrough(stops, paths), [stops, paths]);
   const focused = stops.find((s) => s.step === focus);
   // Framed on the stop in focus with the place its leg set off from, else on
   // every stop. The camera compares framingKey, so a refresh that moves nothing

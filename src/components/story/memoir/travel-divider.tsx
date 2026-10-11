@@ -12,8 +12,9 @@ function duration(minutes: number) {
 }
 
 // The leg into a stop, as a line between the cards: how they went, where to,
-// and how long it took when both stops have times. Its id is its step, so the
-// map and the keys can reach it.
+// and how long after the stop before, when both stops have times (the time
+// between stops, not the ride: the stop before is in it too). Its id is its
+// step, so the map and the keys can reach it.
 export function TravelDivider({ step, leg, minutes }: { step: number; leg: TravelScene; minutes?: number }) {
   const phrase = transportOf(leg.transport)?.phrase.toLowerCase() ?? "on the way";
   return (
@@ -26,7 +27,7 @@ export function TravelDivider({ step, leg, minutes }: { step: number; leg: Trave
       <p className="text-center">
         <span aria-hidden>→ </span>
         {phrase} to {leg.to}
-        {minutes !== undefined && ` · ${duration(minutes)}`}
+        {minutes !== undefined && minutes > 0 && ` · ${duration(minutes)} later`}
       </p>
       <span aria-hidden className="h-px flex-1 bg-current opacity-25" />
     </div>

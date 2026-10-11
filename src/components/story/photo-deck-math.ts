@@ -8,6 +8,12 @@ export type Picture = Extract<Stop["blocks"][number], { type: "photo" | "video" 
 export const picturesOf = (stop: Stop): Picture[] =>
   stop.blocks.filter((b): b is Picture => b.type === "photo" || b.type === "video");
 
+export type Words = Extract<Stop["blocks"][number], { type: "note" | "feeling" }>;
+
+// What was written at a stop: its notes and feelings, in order.
+export const wordsOf = (stop: Stop): Words[] =>
+  stop.blocks.filter((b): b is Words => b.type === "note" || b.type === "feeling");
+
 // How long a stop's scene stays up while autoplay moves through it: its pictures
 // take their turns, then the last one has a beat before the story moves on.
 export const dwellMs = (count: number) => Math.max(5000, count * PHOTO_MS + 1000);

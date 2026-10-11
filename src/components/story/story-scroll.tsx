@@ -52,12 +52,15 @@ function stepFrom(cards: number[], aimed: number, delta: 1 | -1): number | undef
 export function StoryScroll({
   event,
   moments,
+  meId,
   step,
   onStep,
   onPlayFilm,
 }: {
   event: StoryEvent;
   moments: StoryMoment[];
+  // Who is reading, so their own stops say "by you". A shared story has no one.
+  meId?: string;
   // Where the link pointed; read once, then the scroll leads.
   step: number;
   // Keeps ?step= on the scene in view, replacing history rather than adding.
@@ -272,7 +275,7 @@ export function StoryScroll({
           )}
           <div className={cn("mx-auto mt-16 w-full max-w-2xl space-y-20", hasMap && "lg:col-start-1 lg:row-start-2 lg:mx-0")}>
             {days.map((day) => (
-              <DaySection key={day.index} day={day} numbers={numbers} minutes={minutes} onPlayFilm={onPlayFilm} />
+              <DaySection key={day.index} day={day} numbers={numbers} minutes={minutes} meId={meId} onPlayFilm={onPlayFilm} />
             ))}
             <MemoirEnd event={event} moments={moments} step={steps.length - 1} onReplay={() => glide(0)} />
           </div>

@@ -18,11 +18,14 @@ export function StopCard({
   step,
   number,
   scene,
+  meId,
   onPlayFilm,
 }: {
   step: number;
   number: number;
   scene: StopScene;
+  // The reader, so their own stop says "by you".
+  meId?: string;
   onPlayFilm: (step: number) => void;
 }) {
   const { stop } = scene;
@@ -36,7 +39,7 @@ export function StopCard({
   const photos = media.filter((b) => b.type === "photo").length;
   const videos = media.length - photos;
   // A shared story leaves its authors out, so there is no "by" line on one.
-  const author = authorByline(scene);
+  const author = authorByline(scene, meId);
   const meta = [
     at !== heading ? at : undefined,
     transport?.phrase,

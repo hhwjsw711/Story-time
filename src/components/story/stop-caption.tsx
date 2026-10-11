@@ -19,7 +19,11 @@ export function StopCaption({ scene, meId }: { scene: StopScene; meId: string | 
   const { stop } = scene;
   const transport = transportOf(stop.transport);
   const author = authorByline(scene, meId);
-  const text = stop.blocks.filter((b) => b.type !== "photo" && b.type !== "video");
+  // A stop with no pictures shows its words on paper above, so here only its links.
+  const pictured = stop.blocks.some((b) => b.type === "photo" || b.type === "video");
+  const text = stop.blocks.filter((b) =>
+    pictured ? b.type !== "photo" && b.type !== "video" : b.type === "link",
+  );
   // A stop without a place is headed by its time, or its number in the story.
   const time = stop.startsAt === undefined ? undefined : when(stop.startsAt);
   const heading = stop.place || time || scene.place;
