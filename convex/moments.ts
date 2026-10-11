@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Infer, ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
+import { changeFields, lastEditOf, type Actor } from "./lib/actors";
 import {
   encodeBlocks,
   encodeGeo,
@@ -52,6 +53,13 @@ export const vMomentView = v.object({
   authorId: v.id("users"),
   // The author's display name, if they set one. Nothing else from their profile.
   authorName: v.optional(v.string()),
+  // Set when an agent added the moment for `authorId`: the agent's name.
+  authorAgent: v.optional(v.string()),
+  // Present once the moment has been edited: when, by which person (for an
+  // agent's edit, the person it acts for) and by which agent, if one did.
+  editedAt: v.optional(v.number()),
+  editedByName: v.optional(v.string()),
+  editedByAgent: v.optional(v.string()),
   startsAt: v.number(),
   place: v.optional(v.string()),
   geo: v.optional(vGeo),
@@ -91,10 +99,21 @@ export async function viewMoment(
   moment: Doc<"moments">,
 ): Promise<Infer<typeof vMomentView>> {
   const author = await ctx.db.get("users", moment.authorId);
+  const edit = moment.lastEdit;
+  const editor =
+    edit?.userId === undefined
+      ? null
+      : edit.userId === moment.authorId
+        ? author
+        : await ctx.db.get("users", edit.userId);
   return {
     _id: moment._id,
     authorId: moment.authorId,
     authorName: author?.displayName,
+    authorAgent: moment.authorAgent,
+    editedAt: edit?.at,
+    editedByName: editor?.displayName,
+    editedByAgent: edit?.agent,
     startsAt: moment.startsAt,
     place: moment.place ? await decryptText(event._id, moment.place) : undefined,
     geo: moment.geo ? await decryptGeo(event._id, moment.geo) : undefined,
@@ -113,97 +132,109 @@ export async function viewMoment(
   };
 }
 
+// What a new moment takes. `create` takes these as they are; an agent adds
+// a moment through the same write.
+const momentCreate = {
+  eventId: v.id("events"),
+  startsAt: v.number(),
+  // Minutes east of UTC for the author's local day/month grouping.
+  tzOffsetMinutes: v.optional(v.number()),
+  place: v.optional(v.string()),
+  // Where the place is on the map; only with a place.
+  geo: v.optional(vGeo),
+  blocks: v.array(vPlainBlock),
+  transport: v.optional(vTransport),
+  stops: v.optional(v.array(vPlainStop)),
+  labels: v.optional(v.array(v.string())),
+};
+export type MomentCreate = ObjectType<typeof momentCreate>;
+
 export const create = mutation({
-  args: {
-    eventId: v.id("events"),
-    startsAt: v.number(),
-    // Minutes east of UTC for the author's local day/month grouping.
-    tzOffsetMinutes: v.optional(v.number()),
-    place: v.optional(v.string()),
-    // Where the place is on the map; only with a place.
-    geo: v.optional(vGeo),
-    blocks: v.array(vPlainBlock),
-    transport: v.optional(vTransport),
-    stops: v.optional(v.array(vPlainStop)),
-    labels: v.optional(v.array(v.string())),
-  },
+  args: momentCreate,
   returns: v.id("moments"),
   handler: async (ctx, args) => {
-    const { userId, event } = await requireEventAccess(
-      ctx,
-      args.eventId,
-      "contributor",
-    );
-
-    assertNotArchived(event);
-    if (event.momentCount >= event.momentLimit) {
-      throw new ConvexError({
-        code: "MOMENT_LIMIT",
-        message: `This experience is limited to ${event.momentLimit} moments. Request more to add another.`,
-        limit: event.momentLimit,
-      });
-    }
-    if (!Number.isFinite(args.startsAt)) invalid("startsAt", "Pick a date");
-
-    const first = await encodeBlocks(ctx, {
-      event,
-      userId,
-      blocks: args.blocks,
-      allowEmpty: true,
-    });
-    const rest = await encodeStops(ctx, { event, userId, stops: args.stops ?? [] });
-    if (first.blocks.length + rest.stops.reduce((n, s) => n + s.blocks.length, 0) === 0) {
-      invalid("blocks", "Add something to share");
-    }
-    const blocks = first.blocks;
-    const mediaIds = [...first.mediaIds, ...rest.mediaIds];
-    const { place, placeKey } = await encodePlace(event, args.place);
-    const geo = await encodeGeo(event, args.geo, {
-      field: "geo",
-      hasPlace: place !== undefined,
-    });
-    const labels = await encodeLabels(event, args.labels ?? []);
-
-    const momentId = await ctx.db.insert("moments", {
-      eventId: args.eventId,
-      authorId: userId,
-      startsAt: args.startsAt,
-      place,
-      geo,
-      blocks,
-      transport: args.transport,
-      stops: rest.stops.length > 0 ? rest.stops : undefined,
-      labels: labels.length > 0 ? labels : undefined,
-    });
-    for (const mediaId of mediaIds) {
-      await ctx.db.patch("media", mediaId, { momentId });
-    }
-
-    await ctx.db.insert("itinerary", {
-      eventId: args.eventId,
-      momentId,
-      startsAt: args.startsAt,
-      ...localKeys(args.startsAt, args.tzOffsetMinutes ?? 0),
-      placeKey,
-      position: event.momentCount,
-    });
-    await ctx.db.patch("events", args.eventId, {
-      momentCount: event.momentCount + 1,
-      status: event.status === "draft" ? "active" : event.status,
-    });
-
-    await recordChange(ctx, {
-      eventId: args.eventId,
-      entity: "moment",
-      entityId: momentId,
-      actorId: userId,
-      action: "create",
-      fields: ["startsAt", "place", "geo", "blocks", "transport", "stops", "labels"],
-      after: { startsAt: args.startsAt, blockCount: blocks.length, stopCount: rest.stops.length + 1 },
-    });
-    return momentId;
+    const { userId, event } = await requireEventAccess(ctx, args.eventId, "contributor");
+    return createMoment(ctx, { event, userId, actor: { kind: "human", userId }, input: args });
   },
 });
+
+// The write behind `create`, shared with agents. Access stays with the
+// caller; this checks the experience takes more moments and that the content
+// is valid. `userId` is the author: for an agent, the person it acts for.
+export async function createMoment(
+  ctx: MutationCtx,
+  args: { event: Doc<"events">; userId: Id<"users">; actor: Actor; input: MomentCreate },
+): Promise<Id<"moments">> {
+  const { event, userId, actor, input } = args;
+  assertNotArchived(event);
+  if (event.momentCount >= event.momentLimit) {
+    throw new ConvexError({
+      code: "MOMENT_LIMIT",
+      message: `This experience is limited to ${event.momentLimit} moments. Request more to add another.`,
+      limit: event.momentLimit,
+    });
+  }
+  if (!Number.isFinite(input.startsAt)) invalid("startsAt", "Pick a date");
+
+  const first = await encodeBlocks(ctx, {
+    event,
+    userId,
+    blocks: input.blocks,
+    allowEmpty: true,
+  });
+  const rest = await encodeStops(ctx, { event, userId, stops: input.stops ?? [] });
+  if (first.blocks.length + rest.stops.reduce((n, s) => n + s.blocks.length, 0) === 0) {
+    invalid("blocks", "Add something to share");
+  }
+  const blocks = first.blocks;
+  const mediaIds = [...first.mediaIds, ...rest.mediaIds];
+  const { place, placeKey } = await encodePlace(event, input.place);
+  const geo = await encodeGeo(event, input.geo, {
+    field: "geo",
+    hasPlace: place !== undefined,
+  });
+  const labels = await encodeLabels(event, input.labels ?? []);
+
+  const momentId = await ctx.db.insert("moments", {
+    eventId: event._id,
+    authorId: userId,
+    authorAgent: actor.kind === "agent" ? actor.name : undefined,
+    startsAt: input.startsAt,
+    place,
+    geo,
+    blocks,
+    transport: input.transport,
+    stops: rest.stops.length > 0 ? rest.stops : undefined,
+    labels: labels.length > 0 ? labels : undefined,
+  });
+  for (const mediaId of mediaIds) {
+    await ctx.db.patch("media", mediaId, { momentId });
+  }
+
+  await ctx.db.insert("itinerary", {
+    eventId: event._id,
+    momentId,
+    startsAt: input.startsAt,
+    ...localKeys(input.startsAt, input.tzOffsetMinutes ?? 0),
+    placeKey,
+    position: event.momentCount,
+  });
+  await ctx.db.patch("events", event._id, {
+    momentCount: event.momentCount + 1,
+    status: event.status === "draft" ? "active" : event.status,
+  });
+
+  await recordChange(ctx, {
+    eventId: event._id,
+    entity: "moment",
+    entityId: momentId,
+    ...changeFields(actor),
+    action: "create",
+    fields: ["startsAt", "place", "geo", "blocks", "transport", "stops", "labels"],
+    after: { startsAt: input.startsAt, blockCount: blocks.length, stopCount: rest.stops.length + 1 },
+  });
+  return momentId;
+}
 
 export async function listForEvent(
   ctx: QueryCtx,
@@ -268,7 +299,7 @@ export const update = mutation({
       event,
       moment,
       userId,
-      actorId: userId,
+      actor: { kind: "human", userId },
       patch: args,
     });
   },
@@ -285,9 +316,9 @@ async function detachMedia(ctx: MutationCtx, mediaId: Id<"media">, userId: Id<"u
   });
 }
 
-// The write behind `update`, shared with the AI enrichment. Encodes the edit,
-// moves media on and off the moment, keeps the itinerary in step and logs the
-// change. Access checks stay with the caller.
+// The write behind `update`, shared with the AI enrichment and with agents.
+// Encodes the edit, moves media on and off the moment, keeps the itinerary in
+// step, notes who edited and logs the change. Access checks stay with the caller.
 export async function writeMomentUpdate(
   ctx: MutationCtx,
   args: {
@@ -295,15 +326,15 @@ export async function writeMomentUpdate(
     moment: Doc<"moments">;
     // Whose uploads may be attached: the editor's own.
     userId: Id<"users">;
-    // Who the change log names. Undefined is the system.
-    actorId: Id<"users"> | undefined;
+    // Who the change log and the moment name as the editor.
+    actor: Actor;
     patch: MomentEdit;
   },
 ): Promise<{ removedMediaIds: Id<"media">[] }> {
-  const { event, moment, userId, actorId, patch } = args;
+  const { event, moment, userId, actor, patch } = args;
 
   const docPatch: Partial<
-    Pick<Doc<"moments">, "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels">
+    Pick<Doc<"moments">, "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels" | "lastEdit">
   > = {};
   const fields: string[] = [];
   let placeKey: string | undefined | null = null; // null = unchanged
@@ -385,6 +416,7 @@ export async function writeMomentUpdate(
   }
 
   if (fields.length === 0) return { removedMediaIds: [] };
+  docPatch.lastEdit = lastEditOf(actor, Date.now());
   await ctx.db.patch("moments", moment._id, docPatch);
 
   // Keep the itinerary row in step with the moment.
@@ -413,7 +445,7 @@ export async function writeMomentUpdate(
     eventId: event._id,
     entity: "moment",
     entityId: moment._id,
-    actorId,
+    ...changeFields(actor),
     action: "update",
     fields,
     after: docPatch.startsAt !== undefined ? { startsAt: docPatch.startsAt } : undefined,

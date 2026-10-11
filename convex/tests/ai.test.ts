@@ -185,7 +185,7 @@ describe("unfurl: page titles", () => {
 });
 
 describe("apply: AI fill-ins only fill gaps", () => {
-  test("fills an empty moment and logs the change with no actor", async () => {
+  test("fills an empty moment and logs the change as the agent Scribe, with no person", async () => {
     const { t, owner, eventId } = await setup();
     const momentId = await owner.mutation(api.moments.create, {
       eventId,
@@ -215,6 +215,7 @@ describe("apply: AI fill-ins only fill gaps", () => {
     const changes = await t.run((ctx) => ctx.db.query("changes").collect());
     const edit = changes.find((r) => r.entity === "moment" && r.action === "update");
     expect(edit?.actorId).toBeUndefined();
+    expect(edit?.agent).toBe("Scribe");
     expect(edit?.fields).toEqual(expect.arrayContaining(["blocks", "labels", "transport", "stops"]));
     expect(JSON.stringify(changes)).not.toMatch(/castle|tram/);
   });

@@ -167,3 +167,25 @@ export async function shareKeyFor(token: string): Promise<string> {
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(token));
   return toB64(new Uint8Array(sig)).slice(0, 22);
 }
+
+// Finds an agent's connection from its token without keeping the token: a
+// keyed hash of it, under its own salt so a share link's token can never be
+// taken for one (or the other way round).
+export async function agentKeyFor(token: string): Promise<string> {
+  const key = await cached("agent", async () =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: enc.encode("storytime/agent"),
+        info: enc.encode("agent"),
+      },
+      await masterKey(),
+      { name: "HMAC", hash: "SHA-256", length: 256 },
+      false,
+      ["sign"],
+    ),
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(token));
+  return toB64(new Uint8Array(sig)).slice(0, 32);
+}

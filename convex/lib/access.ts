@@ -19,18 +19,18 @@ export async function requireUserId(ctx: Ctx): Promise<Id<"users">> {
   return userId;
 }
 
-// Role of the signed-in user on an event, or null when they have no active
-// share grant. A revoked session grants nothing.
-export async function getEventAccess(
+// Role of a user on an event, or null when they have no active share grant. A
+// revoked session grants nothing. `getEventAccess` asks it about whoever is
+// signed in; an agent acting for a person asks it about that person.
+export async function getEventAccessFor(
   ctx: Ctx,
+  userId: Id<"users">,
   eventId: Id<"events">,
 ): Promise<{
   userId: Id<"users">;
   event: Doc<"events">;
   role: EventRole;
 } | null> {
-  const userId = await getUserId(ctx);
-  if (userId === null) return null;
   const event = await ctx.db.get("events", eventId);
   if (event === null) return null;
   if (event.ownerId === userId) return { userId, event, role: "owner" };
@@ -44,17 +44,35 @@ export async function getEventAccess(
   return { userId, event, role: session.role };
 }
 
+export async function getEventAccess(ctx: Ctx, eventId: Id<"events">) {
+  const userId = await getUserId(ctx);
+  if (userId === null) return null;
+  return getEventAccessFor(ctx, userId, eventId);
+}
+
+// Same error for "missing" and "forbidden" so ids can't be probed.
+function allow<T extends { role: EventRole }>(access: T | null, min: EventRole): T {
+  if (access === null || RANK[access.role] < RANK[min]) {
+    throw new Error("Event not found");
+  }
+  return access;
+}
+
+export async function requireEventAccessFor(
+  ctx: Ctx,
+  userId: Id<"users">,
+  eventId: Id<"events">,
+  min: EventRole,
+) {
+  return allow(await getEventAccessFor(ctx, userId, eventId), min);
+}
+
 export async function requireEventAccess(
   ctx: Ctx,
   eventId: Id<"events">,
   min: EventRole,
 ) {
-  const access = await getEventAccess(ctx, eventId);
-  // Same error for "missing" and "forbidden" so ids can't be probed.
-  if (access === null || RANK[access.role] < RANK[min]) {
-    throw new Error("Event not found");
-  }
-  return access;
+  return allow(await getEventAccess(ctx, eventId), min);
 }
 
 // Archived experiences are read-only: call on every write that adds content.
