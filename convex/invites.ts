@@ -43,6 +43,9 @@ async function chargeInviteEmail(ctx: MutationCtx, userId: Id<"users">) {
   await ctx.db.insert("inviteEmails", { userId });
 }
 
+// Invites waiting to be opened, per experience. The list shows them all.
+const MAX_WAITING_INVITES = 50;
+
 // Owner creates an invite. The link is returned once; if an email address is
 // given, it is passed to the email component and not stored by us.
 // `emailed` is false when no address was given or email isn't set up.
@@ -65,6 +68,15 @@ export const create = mutation({
       "owner",
     );
     assertNotArchived(event);
+    // Before any email is charged. Used and expired invites are deleted, so
+    // the list holds only the ones still waiting.
+    const waiting = await ctx.runQuery(components.invites.lib.listForEvent, { eventId: args.eventId });
+    if (waiting.length >= MAX_WAITING_INVITES) {
+      throw new ConvexError({
+        code: "LIMIT",
+        message: `This experience has ${MAX_WAITING_INVITES} invites waiting to be opened. Cancel some first.`,
+      });
+    }
     const sendTo = args.sendTo?.trim() ?? "";
     if (
       sendTo !== "" &&

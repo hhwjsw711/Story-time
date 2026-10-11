@@ -1,8 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { WorkflowManager, start } from "@convex-dev/workflow";
 import { components, internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { action, internalQuery } from "../_generated/server";
 import { assertNotArchived, requireEventAccess } from "../lib/access";
+import { rateLimiter } from "../lib/rateLimit";
 import { captionMoment, vThumb } from "./scribe";
 
 export const workflow = new WorkflowManager(components.workflow);
@@ -18,11 +20,11 @@ export const enrichMoment = workflow.define({
 });
 
 // Only the moment's author (or the owner) may have it enriched, the same rule
-// as editing it.
+// as editing it. Returns who asks, whose allowance it comes out of.
 export const authorize = internalQuery({
   args: { momentId: v.id("moments") },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  returns: v.id("users"),
+  handler: async (ctx, args): Promise<Id<"users">> => {
     const moment = await ctx.db.get("moments", args.momentId);
     if (moment === null) throw new Error("Moment not found");
     const { userId, event, role } = await requireEventAccess(ctx, moment.eventId, "contributor");
@@ -33,24 +35,28 @@ export const authorize = internalQuery({
       });
     }
     assertNotArchived(event);
-    return null;
+    return userId;
   },
 });
 
 // Called right after a moment is saved. Photos (as 512px JPEGs) go to Scribe
-// first, when the caller sends them; then the workflow runs.
+// first, when the caller sends them; then the workflow runs. False when this
+// hour's fill-ins are used up: the moment stays as saved, and the client stops
+// sending photos for a while.
 export const enrich = action({
   args: {
     momentId: v.id("moments"),
     thumbs: v.optional(v.array(vThumb)),
   },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    await ctx.runQuery(internal.ai.enrich.authorize, { momentId: args.momentId });
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const userId: Id<"users"> = await ctx.runQuery(internal.ai.enrich.authorize, { momentId: args.momentId });
+    const { ok } = await rateLimiter.limit(ctx, "enrich", { key: userId });
+    if (!ok) return false;
     if (args.thumbs !== undefined && args.thumbs.length > 0) {
       await captionMoment(ctx, { momentId: args.momentId, thumbs: args.thumbs });
     }
     await start(ctx, internal.ai.enrich.enrichMoment, { momentId: args.momentId });
-    return null;
+    return true;
   },
 });

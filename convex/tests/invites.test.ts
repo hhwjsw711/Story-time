@@ -42,6 +42,21 @@ const tokenOf = (link: string) => link.split("/invite/")[1]!;
 const firstPage = { numItems: 25, cursor: null };
 
 describe("invites", () => {
+  test("an experience holds at most 50 waiting invites; cancelling one makes room", async () => {
+    const { owner, eventId } = await setup();
+    for (let i = 0; i < 50; i++) {
+      await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    }
+    await expect(owner.mutation(api.invites.create, { eventId, role: "viewer" })).rejects.toThrow(
+      /invites waiting to be opened/,
+    );
+
+    const waiting = await owner.query(api.invites.listForEvent, { eventId });
+    expect(waiting).toHaveLength(50);
+    await owner.mutation(api.invites.dismiss, { eventId, inviteId: waiting[0]!.inviteId });
+    await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+  });
+
   test("a link works for the first person who opens it and grants a viewer session", async () => {
     const { owner, guest, eventId } = await setup();
     const { link } = await owner.mutation(api.invites.create, {

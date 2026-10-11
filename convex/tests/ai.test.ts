@@ -3,6 +3,8 @@ import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { readDecisions, transportFromSpeed, withDistance } from "../ai/decide";
 import { titleFromHtml } from "../ai/unfurl";
+import { rateLimiter } from "../lib/rateLimit";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
@@ -36,7 +38,7 @@ async function setup() {
   await t.run((ctx) =>
     ctx.db.insert("sessions", { eventId, userId: viewerId, grantedBy: ownerId, role: "viewer" }),
   );
-  return { t, eventId, owner, helper: as(helperId), viewer: as(viewerId) };
+  return { t, eventId, ownerId, owner, helper: as(helperId), viewer: as(viewerId) };
 }
 
 describe("decide: the legs of a journey", () => {
@@ -229,6 +231,26 @@ describe("decideTransport: without Jev, speed decides", () => {
   });
 });
 
+describe("enrich: an hourly allowance per person", () => {
+  test("120 fill-ins at once, then a refusal, then it refills over the hour", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
+      const take = (key: string) => t.run((ctx) => rateLimiter.limit(ctx, "enrich", { key }));
+      for (let i = 0; i < 120; i++) expect((await take("sara")).ok).toBe(true);
+      expect((await take("sara")).ok).toBe(false);
+      // Someone else's allowance is their own.
+      expect((await take("sam")).ok).toBe(true);
+      // Half an hour refills about half.
+      vi.advanceTimersByTime(HOUR / 2);
+      expect((await take("sara")).ok).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("unfurl: page titles", () => {
   test("reads the title, decodes basic entities, and drops empty ones", () => {
     expect(titleFromHtml("<html><head><title>  Ponte &amp; Co &#8211;\n2026 </title></head></html>")).toBe(
@@ -352,6 +374,20 @@ describe("enrich: who may ask", () => {
     await expect(
       viewer.action(api.ai.enrich.enrich, { momentId: helpersMoment }),
     ).rejects.toThrow(/Event not found/);
+  });
+
+  test("once the person's allowance is spent, enrich says no and does nothing", async () => {
+    const { t, ownerId, owner, eventId } = await setup();
+    rateLimiterTest.register(t);
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: T0,
+      blocks: [{ type: "note", text: "one too many" }],
+    });
+    for (let i = 0; i < 120; i++) await t.run((ctx) => rateLimiter.limit(ctx, "enrich", { key: ownerId }));
+    // Past the limit it returns before captions or the workflow (which isn't
+    // registered here, so going on would throw).
+    expect(await owner.action(api.ai.enrich.enrich, { momentId })).toBe(false);
   });
 });
 
