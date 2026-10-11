@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { authorOf, changeActorOf, describeActor, editorOf } from "./actors";
+import { authorOf, changeActorOf, describeActor, editNoticeOf, editorOf } from "./actors";
 
 describe("authorOf", () => {
   test("a person, with or without a name", () => {
@@ -29,6 +29,31 @@ describe("editorOf", () => {
       onBehalfOf: undefined,
     });
     expect(editorOf({ editedAt: 1 })).toEqual({ kind: "system" });
+  });
+});
+
+describe("editNoticeOf", () => {
+  test("nothing for a moment that was never edited", () => {
+    expect(editNoticeOf({ authorName: "Sara" })).toBeUndefined();
+  });
+
+  test("an agent's edit is news, even on the author's own moment", () => {
+    expect(editNoticeOf({ authorName: "Sara", editedAt: 5, editedByAgent: "Scribe" })).toEqual({
+      at: 5,
+      by: { kind: "agent", name: "Scribe", onBehalfOf: undefined },
+    });
+  });
+
+  test("another person's edit is news; the author's own edit is not", () => {
+    expect(editNoticeOf({ authorName: "Sara", editedAt: 5, editedByName: "Noor" })).toEqual({
+      at: 5,
+      by: { kind: "human", name: "Noor" },
+    });
+    expect(editNoticeOf({ authorName: "Sara", editedAt: 5, editedByName: "Sara" })).toBeUndefined();
+  });
+
+  test("an edit with no name on it is not named", () => {
+    expect(editNoticeOf({ authorName: "Sara", editedAt: 5 })).toBeUndefined();
   });
 });
 

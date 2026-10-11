@@ -1,5 +1,6 @@
 import { PencilIcon } from "lucide-react";
 import { AuthImage, AuthVideo } from "@/components/auth-image";
+import { MomentAuthors } from "@/components/event/moment-card";
 import { stopsOf, transportOf } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Badge } from "@/components/ui/badge";
@@ -31,16 +32,16 @@ export function MomentPreview({
   onEdit?: () => void;
 }) {
   const stops = stopsOf(moment);
-  const author = mine ? "you" : (moment.authorName ?? "Anonymous");
 
   return (
     <article aria-label="Moment preview" className="max-w-2xl space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
           <p className="text-sm text-muted-foreground">
-            {when(moment.startsAt)} · by {author}
+            {when(moment.startsAt)}
             {stops.length > 1 && ` · ${stops.length} stops`}
           </p>
+          <MomentAuthors moment={moment} you={mine} />
           <h2 className="font-serif text-2xl font-semibold tracking-tight text-balance">{moment.place ?? "A moment"}</h2>
           {moment.labels.length > 0 && (
             <ul aria-label="Labels" className="flex flex-wrap gap-1.5">

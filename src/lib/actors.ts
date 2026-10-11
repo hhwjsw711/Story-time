@@ -26,6 +26,21 @@ export function editorOf(m: {
   return m.editedByName === undefined ? { kind: "system" } : { kind: "human", name: m.editedByName };
 }
 
+// A moment's latest edit, when it is news: an agent's, or a named person's who is
+// not its author. A moment carries names rather than ids, so "not the author"
+// means a different name.
+export function editNoticeOf(m: {
+  authorName?: string;
+  editedAt?: number;
+  editedByName?: string;
+  editedByAgent?: string;
+}): { at: number; by: ActorView } | undefined {
+  const by = editorOf(m);
+  if (by === undefined || m.editedAt === undefined) return undefined;
+  if (by.kind === "agent") return { at: m.editedAt, by };
+  return by.kind === "human" && by.name !== m.authorName ? { at: m.editedAt, by } : undefined;
+}
+
 // A change in the activity log. `name` is the person's display name, when the
 // caller has looked it up.
 export function changeActorOf(c: { actorId?: string; agent?: string }, name?: string): ActorView {
