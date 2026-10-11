@@ -9,6 +9,7 @@ import {
   type EventRole,
 } from "./lib/access";
 import { invalid, localKeys } from "./lib/blocks";
+import { readText } from "./lib/crypto";
 import { MAX_BLOCKS_PER_MOMENT } from "./lib/limits";
 import { MOODS } from "./mcpTools";
 import {
@@ -292,15 +293,15 @@ export const list_experiences = internalMutation({
   handler: async (ctx, args) => {
     const caller = await authenticateToken(ctx, args.token);
     const found = await writableExperiences(ctx, caller);
-    return found.map(({ event, role }) => ({
+    return await Promise.all(found.map(async ({ event, role }) => ({
       id: event._id,
       title: event.title,
-      description: event.description,
+      description: await readText(event._id, event.description),
       startsAt: isoOf(event.startsAt),
       endsAt: isoOf(event.endsAt),
       momentCount: event.momentCount,
       role,
-    }));
+    })));
   },
 });
 

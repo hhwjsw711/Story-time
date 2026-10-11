@@ -7,6 +7,7 @@ import { components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { internalAction, internalQuery } from "../_generated/server";
+import { readText } from "../lib/crypto";
 import { listForEvent, viewMoment, type PlainBlock } from "../moments";
 import { vTransport } from "../schema";
 import { scribeModel, skipReason } from "./models";
@@ -78,7 +79,7 @@ export const context = internalQuery({
     const places = [mine.place, ...mine.stops.map((s) => s.place)];
     return {
       title: event.title,
-      description: event.description,
+      description: await readText(event._id, event.description),
       startsAt: mine.startsAt,
       tzOffsetMinutes: mine.tzOffsetMinutes,
       place: mine.place,

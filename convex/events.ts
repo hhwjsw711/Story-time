@@ -15,7 +15,7 @@ import {
   type EventRole,
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
-import { decryptGeo } from "./lib/crypto";
+import { decryptGeo, encryptText, readText } from "./lib/crypto";
 import { DEFAULT_MOMENT_LIMIT, MAX_EVENTS_PER_USER } from "./lib/limits";
 import { vGeo } from "./schema";
 
@@ -85,12 +85,12 @@ async function sketchFor(ctx: QueryCtx, event: Doc<"events">) {
   return points.length >= 2 ? points : undefined;
 }
 
-function toView(event: Doc<"events">, role: EventRole) {
+async function toView(event: Doc<"events">, role: EventRole) {
   return {
     _id: event._id,
     _creationTime: event._creationTime,
     title: event.title,
-    description: event.description,
+    description: await readText(event._id, event.description),
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     status: event.status,
@@ -230,8 +230,8 @@ export const update = mutation({
     // Free text is user content: log that it changed, never its value.
     if (args.description !== undefined) {
       const next = args.description.trim() === "" ? undefined : args.description;
-      if (next !== event.description) {
-        patch.description = next;
+      if (next !== (await readText(event._id, event.description))) {
+        patch.description = next === undefined ? undefined : await encryptText(event._id, event.keyVersion, next);
         fields.push("description");
       }
     }
@@ -261,7 +261,7 @@ export const get = query({
     const eventId = ctx.db.normalizeId("events", args.eventId);
     if (eventId === null) return null;
     const access = await getEventAccess(ctx, eventId);
-    return access === null ? null : toView(access.event, access.role);
+    return access === null ? null : await toView(access.event, access.role);
   },
 });
 
@@ -283,7 +283,7 @@ export const listMine = query({
     const card = async (event: Doc<"events">, role: EventRole) => {
       const coverMediaId = await coverFor(ctx, event);
       return {
-        ...toView(event, role),
+        ...(await toView(event, role)),
         coverMediaId,
         sketch: coverMediaId === undefined ? await sketchFor(ctx, event) : undefined,
       };

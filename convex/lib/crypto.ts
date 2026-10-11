@@ -100,6 +100,16 @@ export async function decryptText(
   return dec.decode(pt);
 }
 
+// Free text that newer rows keep under the event key and older ones still hold
+// as plain text: reads either way.
+export async function readText(
+  eventId: string,
+  value: string | Encrypted | undefined,
+): Promise<string | undefined> {
+  if (value === undefined || typeof value === "string") return value;
+  return decryptText(eventId, value);
+}
+
 // Coordinates are stored as "lat,lng" text under the event key, like the
 // place they pin. A malformed value reads as no pin.
 export async function encryptGeo(

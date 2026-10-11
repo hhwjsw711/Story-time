@@ -109,7 +109,9 @@ export default defineSchema({
   events: defineTable({
     ownerId: v.id("users"),
     title: v.string(),
-    description: v.optional(v.string()),
+    // Under the event key. Rows from before that hold plain text, which
+    // reads as is until migrations:encryptPlainText runs.
+    description: v.optional(v.union(v.string(), vEncrypted)),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
     status: v.union(
@@ -216,7 +218,8 @@ export default defineSchema({
     eventId: v.id("events"),
     requestedBy: v.id("users"),
     extra: v.number(),
-    reason: v.optional(v.string()),
+    // Under the event key, like the description; quota:reasonOf reads it.
+    reason: v.optional(v.union(v.string(), vEncrypted)),
     status: v.union(
       v.literal("pending"),
       v.literal("approved"),
