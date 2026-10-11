@@ -31,3 +31,6 @@ export const MAX_COMMAND_OPS = 8;
 // inside the 1 MiB a Convex value may hold.
 export const MAX_VOICE_SECONDS = 60;
 export const MAX_VOICE_BYTES = 900_000;
+// A canvas: how many things it holds, and how many one request may add or move.
+export const MAX_CANVAS_NODES = 400;
+export const MAX_CANVAS_BATCH = 100;

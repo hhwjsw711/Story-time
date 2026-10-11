@@ -1,6 +1,7 @@
 /* Served with the app rather than from Google Fonts, so Google doesn't see who
    opens a page. (Maps still load CARTO's tiles.) */
 @import "@fontsource-variable/manrope";
+@import "@fontsource-variable/caveat";
 @import "@fontsource-variable/newsreader/opsz.css";
 @import "@fontsource-variable/newsreader/opsz-italic.css";
 @import "tailwindcss";
@@ -11,6 +12,8 @@
   /* One serif everywhere: the site's display type, the app's titles and
      story mode's captions. */
   --font-display: "Newsreader Variable", ui-serif, Georgia, serif;
+  /* The scrapbook's handwriting: captions on paper scraps. */
+  --font-hand: "Caveat Variable", "Bradley Hand", cursive;
   --font-serif: "Newsreader Variable", ui-serif, Georgia, serif;
 }
 

@@ -375,6 +375,20 @@ export const purgeEventData = internalMutation({
       await ctx.db.delete("changes", row._id);
       deleted++;
     }
+    for (const row of await ctx.db
+      .query("canvasNodes")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("canvasNodes", row._id);
+      deleted++;
+    }
+    for (const row of await ctx.db
+      .query("canvases")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("canvases", row._id);
+      deleted++;
+    }
     deleted += await ctx.runMutation(components.invites.lib.removeForEvent, {
       eventId,
     });

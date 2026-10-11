@@ -1,0 +1,226 @@
+import type { CSSProperties, ReactNode } from "react";
+import type { MomentView } from "@/components/event/types";
+import { type FrameLook, letterLook, paperLook, printLook, seeded, tapeLook, TAPE_ENDS, tornPolygon } from "@/lib/canvas/look";
+import { useMediaUrl } from "@/lib/use-media-url";
+import { cn } from "@/lib/utils";
+
+// The things on the canvas, drawn like a scrapbook: torn paper, taped prints,
+// letters cut from magazines. Every piece fills the box it is given, and its
+// randomness comes from its id, so it looks the same everywhere.
+
+const GRAIN = `url("data:image/svg+xml;utf8,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>",
+)}")`;
+
+// Paper fibre over whatever is under it.
+export function Grain({ strength = 0.3 }: { strength?: number }) {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0"
+      style={{ backgroundImage: GRAIN, mixBlendMode: "multiply", opacity: strength }}
+    />
+  );
+}
+
+// A shadow that follows a cut-out shape (box-shadow would stay a rectangle).
+const LIFT: CSSProperties = { filter: "drop-shadow(1px 2px 0 rgba(40,28,10,.16)) drop-shadow(0 5px 7px rgba(40,28,10,.14))" };
+const LIGHT_LIFT: CSSProperties = { filter: "drop-shadow(0 1px 1px rgba(40,28,10,.22))" };
+
+// ---- Frames ---------------------------------------------------------------------
+
+// A page of the collage: its colour and one loud shape, with the pieces on it
+// as children. Pieces that hang over the edge are cut off, like a page.
+export function FrameBoard({ look, children }: { look: FrameLook; children?: ReactNode }) {
+  return (
+    <div className="relative size-full overflow-hidden" style={{ background: look.page, boxShadow: "0 1px 0 rgba(0,0,0,.08), 0 12px 30px rgba(40,28,10,.22)" }}>
+      <div
+        aria-hidden
+        className="absolute rounded-full"
+        style={{ left: "-5%", bottom: "-9%", width: "24%", aspectRatio: "1", background: look.accent, opacity: 0.92 }}
+      />
+      <Grain strength={0.28} />
+      {children}
+    </div>
+  );
+}
+
+// ---- Scraps ---------------------------------------------------------------------
+
+export function Scrap({ id, w, h, look, text }: { id: string; w: number; h: number; look?: string; text?: string }) {
+  const paper = paperLook(look);
+  const size = Math.max(16, Math.min(h * 0.24, w * 0.115));
+  return (
+    <div className="size-full" style={LIFT}>
+      <div
+        className="relative size-full overflow-hidden"
+        style={{
+          clipPath: tornPolygon(id, { top: true, bottom: true }, 2.4),
+          background: paper.page,
+          color: paper.ink,
+          fontFamily: "var(--font-hand)",
+          fontSize: size,
+          lineHeight: 1.08,
+          padding: `${h * 0.14}px ${w * 0.08}px`,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+        }}
+      >
+        <Grain strength={0.22} />
+        <span className="relative">{text}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---- Prints ---------------------------------------------------------------------
+
+function Picture({ mediaId, className, style }: { mediaId: string; className?: string; style?: CSSProperties }) {
+  const { url, failed } = useMediaUrl(mediaId);
+  if (url) return <img src={url} alt="" draggable={false} className={cn("size-full object-cover", className)} style={style} />;
+  return (
+    <div className={cn("grid size-full place-items-center bg-stone-300/70 text-[0.7em] text-stone-600", !failed && "animate-pulse", className)} style={style}>
+      {failed ? "Photo unavailable" : null}
+    </div>
+  );
+}
+
+export function Print({ id, w, h, look, mediaId }: { id: string; w: number; h: number; look?: string; mediaId: string }) {
+  const style = printLook(look);
+  if (style === "torn") {
+    return (
+      <div className="size-full" style={LIFT}>
+        <div className="size-full" style={{ clipPath: tornPolygon(id, { top: true, right: true, bottom: true, left: true }, 2.2) }}>
+          <Picture mediaId={mediaId} />
+        </div>
+      </div>
+    );
+  }
+  if (style === "cutout") {
+    return (
+      <div className="size-full" style={{ border: `${Math.max(3, w * 0.018)}px solid #fffdf6`, boxShadow: `${w * 0.014}px ${w * 0.02}px 0 rgba(30,20,8,.3)` }}>
+        <Picture mediaId={mediaId} />
+      </div>
+    );
+  }
+  if (style === "plain") {
+    return (
+      <div className="size-full" style={LIFT}>
+        <Picture mediaId={mediaId} />
+      </div>
+    );
+  }
+  // A print with its white border, wider along the bottom.
+  const edge = Math.max(4, w * 0.045);
+  return (
+    <div className="relative size-full bg-[#fdfaf1]" style={{ ...LIFT, padding: `${edge}px ${edge}px ${Math.max(edge * 2.6, h * 0.12)}px` }}>
+      <Picture mediaId={mediaId} />
+    </div>
+  );
+}
+
+// ---- Tape ------------------------------------------------------------------------
+
+export function Tape({ look }: { look?: string }) {
+  const tape = tapeLook(look);
+  return (
+    <div className="size-full" style={LIGHT_LIFT}>
+      <div
+        className="size-full"
+        style={{
+          clipPath: TAPE_ENDS,
+          background: tape.color,
+          backgroundImage: tape.stripe ? "repeating-linear-gradient(90deg, rgba(255,255,255,.42) 0 7px, transparent 7px 14px)" : undefined,
+        }}
+      />
+    </div>
+  );
+}
+
+// ---- Letters -----------------------------------------------------------------------
+
+export function Letter({ id, h, look, char }: { id: string; h: number; look?: string; char?: string }) {
+  const paper = letterLook(look);
+  return (
+    <div className="size-full" style={LIGHT_LIFT}>
+      <div
+        className="grid size-full place-items-center leading-none"
+        style={{
+          clipPath: tornPolygon(id, { top: true, right: true, bottom: true, left: true }, 3.2, 4),
+          background: paper.bg,
+          color: paper.fg,
+          fontFamily: paper.font,
+          fontWeight: paper.weight,
+          fontStyle: paper.italic ? "italic" : undefined,
+          fontSize: h * 0.74,
+        }}
+      >
+        {paper.caps ? char?.toUpperCase() : char}
+      </div>
+    </div>
+  );
+}
+
+// ---- A moment, as a collage of itself ----------------------------------------------
+
+const place = (m: MomentView) => m.place?.split(",")[0]?.trim();
+
+// One moment laid out like a page of a scrapbook: its first photo as a taped
+// print, a second tucked under it, its words on a kraft scrap and its place
+// stamped in a corner. It shows the moment as it is now: edit the moment and
+// the piece follows. Positions are fractions of the piece, so it scales.
+export function MomentCollage({ id, w, h, moment }: { id: string; w: number; h: number; moment: MomentView | undefined }) {
+  if (moment === undefined) {
+    return (
+      <div className="grid size-full place-items-center bg-stone-200/70 text-center text-stone-500" style={{ fontFamily: "var(--font-hand)", fontSize: h * 0.08 }}>
+        This moment is gone
+      </div>
+    );
+  }
+  const blocks = [moment.blocks, ...moment.stops.map((s) => s.blocks)].flat();
+  const photos = blocks.flatMap((b) => (b.type === "photo" ? [b.mediaId] : []));
+  const words = blocks.flatMap((b) => (b.type === "note" || b.type === "feeling" ? [b.text] : []))[0];
+  const rnd = seeded(id);
+  const tilt = (n: number) => (rnd() - 0.5) * n;
+  const at = (box: { l: number; t: number; w: number; h: number }, rotate: number): CSSProperties => ({
+    position: "absolute",
+    left: `${box.l * 100}%`,
+    top: `${box.t * 100}%`,
+    width: `${box.w * 100}%`,
+    height: `${box.h * 100}%`,
+    transform: `rotate(${rotate}deg)`,
+  });
+  const stamp = place(moment);
+  const lead = photos[0];
+  const second = photos[1];
+  return (
+    <div className="relative size-full">
+      {lead !== undefined && (
+        <div style={at({ l: 0.04, t: 0.05, w: second ? 0.6 : 0.78, h: second ? 0.58 : 0.66 }, tilt(6) - 2)}>
+          <Print id={`${id}a`} w={w * 0.6} h={h * 0.58} look="print" mediaId={lead} />
+          <div className="absolute -top-[6%] left-[28%] h-[9%] w-[34%]" style={{ transform: `rotate(${tilt(10)}deg)` }}>
+            <Tape look="tape" />
+          </div>
+        </div>
+      )}
+      {second !== undefined && (
+        <div style={at({ l: 0.5, t: 0.3, w: 0.44, h: 0.4 }, 4 + tilt(5))}>
+          <Print id={`${id}b`} w={w * 0.44} h={h * 0.4} look="cutout" mediaId={second} />
+        </div>
+      )}
+      {words !== undefined && (
+        <div style={at({ l: lead ? 0.08 : 0.05, t: lead ? 0.66 : 0.2, w: lead ? 0.78 : 0.9, h: lead ? 0.3 : 0.6 }, tilt(4) + 1)}>
+          <Scrap id={`${id}c`} w={w * 0.78} h={h * 0.3} look="kraft" text={words.length > 160 ? `${words.slice(0, 157)}…` : words} />
+        </div>
+      )}
+      {stamp !== undefined && (
+        <div
+          className="absolute right-[3%] top-[2%] border-2 border-[#c4412f] px-[3%] py-[1%] text-[#c4412f]"
+          style={{ transform: `rotate(${6 + tilt(6)}deg)`, fontFamily: "'Courier New', monospace", fontWeight: 700, fontSize: Math.max(10, h * 0.05), letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.9 }}
+        >
+          {stamp}
+        </div>
+      )}
+    </div>
+  );
+}

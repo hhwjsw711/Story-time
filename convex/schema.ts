@@ -62,6 +62,17 @@ export const vStop = v.object({
   blocks: v.array(vBlock),
 });
 
+// What can sit on a canvas.
+export const vCanvasKind = v.union(
+  v.literal("frame"),
+  v.literal("moment"),
+  v.literal("photo"),
+  v.literal("scrap"),
+  v.literal("ransom"),
+  v.literal("letter"),
+  v.literal("tape"),
+);
+
 export const vChangeEntity = v.union(
   v.literal("event"),
   v.literal("moment"),
@@ -270,6 +281,45 @@ export default defineSchema({
   })
     .index("by_event_and_at", ["eventId", "at"])
     .index("by_entity", ["entity", "entityId", "at"]),
+
+  // The collage view of an experience: one infinite canvas of frames and
+  // pieces laid over the same moments and photos. It holds no content of its
+  // own beyond what people write on it, so deleting it loses nothing.
+  canvases: defineTable({
+    eventId: v.id("events"),
+    // The desk under the frames, by name (see src/lib/canvas/look.ts).
+    desk: v.string(),
+  }).index("by_event", ["eventId"]),
+
+  // One row per thing on a canvas. They nest: a frame holds pieces, and a
+  // ransom-note title holds its letters, so editing can go from a whole frame
+  // down to one letter. A child's x and y are inside its parent.
+  canvasNodes: defineTable({
+    canvasId: v.id("canvases"),
+    eventId: v.id("events"),
+    parentId: v.optional(v.id("canvasNodes")),
+    kind: vCanvasKind,
+    x: v.number(),
+    y: v.number(),
+    w: v.number(),
+    h: v.number(),
+    // Degrees. Only loose pieces and letters turn; frames and titles don't.
+    rotation: v.number(),
+    z: v.number(),
+    // What a piece shows: a moment of this experience, or one of its photos.
+    momentId: v.optional(v.id("moments")),
+    mediaId: v.optional(v.id("media")),
+    // Words someone wrote on it (a frame's name, a scrap, a title, a letter),
+    // under the event key like every other note.
+    text: v.optional(vEncrypted),
+    // How it looks, by name: a paper, a print style, a tape. Never content.
+    look: v.optional(v.string()),
+    // A frame's place in the flow, which is the order it plays in.
+    order: v.optional(v.number()),
+  })
+    .index("by_canvas", ["canvasId"])
+    .index("by_event", ["eventId"])
+    .index("by_parent", ["parentId"]),
 
   // Connections for assistants (MCP). The token itself is never stored, only a
   // keyed hash of it, so a database leak hands out nothing usable.
