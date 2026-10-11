@@ -16,7 +16,6 @@ import {
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
 import { DEFAULT_MOMENT_LIMIT, MAX_EVENTS_PER_USER } from "./lib/limits";
-import { vRegion } from "./schema";
 
 const vStatus = v.union(
   v.literal("draft"),
@@ -45,7 +44,6 @@ const vEventView = v.object({
   endsAt: v.optional(v.number()),
   status: vStatus,
   visibility: vVisibility,
-  region: vRegion,
   momentLimit: v.number(),
   momentCount: v.number(),
   role: vRoleOut,
@@ -66,7 +64,6 @@ function toView(event: Doc<"events">, role: EventRole) {
     endsAt: event.endsAt,
     status: event.status,
     visibility: event.visibility,
-    region: event.region,
     momentLimit: event.momentLimit,
     momentCount: event.momentCount,
     role,
@@ -112,13 +109,11 @@ export const createDraft = mutation({
         message: `You can have up to ${MAX_EVENTS_PER_USER} experiences. Delete one to make another.`,
       });
     }
-    const user = await ctx.db.get("users", userId);
     const eventId = await ctx.db.insert("events", {
       ownerId: userId,
       title: "Untitled experience",
       status: "draft",
       visibility: "private",
-      region: user?.region ?? "us",
       momentLimit: DEFAULT_MOMENT_LIMIT,
       momentCount: 0,
       keyVersion: 1,
@@ -129,12 +124,11 @@ export const createDraft = mutation({
       entityId: eventId,
       actorId: userId,
       action: "create",
-      fields: ["title", "status", "visibility", "region"],
+      fields: ["title", "status", "visibility"],
       after: {
         title: "Untitled experience",
         status: "draft",
         visibility: "private",
-        region: user?.region ?? "us",
       },
     });
     return eventId;

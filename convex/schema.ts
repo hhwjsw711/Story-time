@@ -14,6 +14,8 @@ export const vEncrypted = v.object({
 // the place it pins.
 export const vGeo = v.object({ lat: v.number(), lng: v.number() });
 
+// Legacy: regions were dropped. Older users and experiences may still carry
+// one, so the field stays optional and nothing reads it.
 export const vRegion = v.union(
   v.literal("us"),
   v.literal("eu"),
@@ -100,7 +102,7 @@ export default defineSchema({
     // verified, so it must not be trusted for sign-in or access decisions.
     email: v.optional(v.string()),
     imageMediaId: v.optional(v.id("media")),
-    region: v.optional(vRegion), // undefined means "us"
+    region: v.optional(vRegion), // legacy, unused
     locale: v.optional(v.string()),
   }).index("by_username", ["username"]),
 
@@ -127,7 +129,7 @@ export default defineSchema({
     // owner can copy the link again.
     shareKey: v.optional(v.string()),
     shareToken: v.optional(vEncrypted),
-    region: vRegion,
+    region: v.optional(vRegion), // legacy, unused
     momentLimit: v.number(),
     momentCount: v.number(),
     keyVersion: v.number(),

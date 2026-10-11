@@ -1,29 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api";
-import { RegionForm } from "@/components/settings/region-form";
 import { SettingsBlock, SettingsPage } from "@/components/settings/section";
-import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/_app/settings/data")({ component: DataSettings });
 
 function DataSettings() {
-  const user = useQuery(api.users.getCurrentUser);
-
   return (
-    <SettingsPage
-      title="Data & region"
-      description="Pick a preferred region, and see what we keep. For now everything is stored in one place."
-    >
+    <SettingsPage title="Data & privacy" description="What we keep, and what leaves your browser to make the app work.">
       <div className="space-y-10">
-        <SettingsBlock title="Region">
-          {user === undefined ? (
-            <Skeleton className="h-32 w-full" />
-          ) : user === null ? null : (
-            <RegionForm region={user.region} />
-          )}
-        </SettingsBlock>
-        <hr />
         <SettingsBlock title="What we store">
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             <li>What you add: profile fields, moments, notes, links, photos and videos.</li>
