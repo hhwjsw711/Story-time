@@ -3,11 +3,12 @@ import { AuthImage, AuthVideo } from "@/components/auth-image";
 import { transportOf } from "@/components/event/transport";
 import { Near } from "@/components/story/memoir/near";
 import { Button } from "@/components/ui/button";
+import { authorByline } from "@/lib/actors";
+import { formatTime } from "@/lib/local-time";
 import type { StoryStep } from "@/lib/story-steps";
 
 type StopScene = Extract<StoryStep, { kind: "stop" }>;
 
-const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // One stop as a card: where and when, how they got there, what they wrote and
@@ -17,15 +18,19 @@ export function StopCard({
   step,
   number,
   scene,
+  meId,
   onPlayFilm,
 }: {
   step: number;
   number: number;
   scene: StopScene;
+  // The reader, so their own stop says "by you".
+  meId?: string;
   onPlayFilm: (step: number) => void;
 }) {
   const { stop } = scene;
-  const at = stop.startsAt === undefined ? undefined : time(stop.startsAt);
+  // On the clock where the stop happened.
+  const at = stop.startsAt === undefined ? undefined : formatTime(stop.startsAt, scene.tzOffsetMinutes);
   // Headed by the place; without one, by its time, else its number in the story.
   const heading = stop.place || at || scene.place;
   const transport = transportOf(stop.transport);
@@ -35,10 +40,11 @@ export function StopCard({
   const photos = media.filter((b) => b.type === "photo").length;
   const videos = media.length - photos;
   // A shared story leaves its authors out, so there is no "by" line on one.
+  const author = authorByline(scene, meId);
   const meta = [
     at !== heading ? at : undefined,
     transport?.phrase,
-    scene.authorName && `by ${scene.authorName}`,
+    author && `by ${author}`,
     photos > 0 ? count(photos, "photo") : undefined,
     videos > 0 ? count(videos, "video") : undefined,
   ]

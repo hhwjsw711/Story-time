@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,400..600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -181,5 +181,24 @@
 @media (prefers-reduced-motion: reduce) {
   .magnetic-indicator {
     transition: none;
+  }
+}
+/* The landing page's film: a progress segment filling over its scene. */
+@keyframes landing-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* The landing page's sea: the sun's reflection breathing on the water. */
+@keyframes landing-shimmer {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
   }
 }

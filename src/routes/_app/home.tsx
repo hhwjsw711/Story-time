@@ -130,7 +130,7 @@ function ExperienceCard({ event: e }: { event: Experience }) {
             className="absolute inset-0 aspect-auto size-full rounded-none transition-transform duration-500 group-hover:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
-          <PaperCover title={e.title} />
+          <PaperCover title={e.title} sketch={e.sketch} />
         )}
       </div>
       {(archived || draft) && (
@@ -174,23 +174,67 @@ function ExperienceCard({ event: e }: { event: Experience }) {
       </div>
 
       <div className="absolute top-2 right-2 z-10 rounded-lg bg-background/85 shadow-xs backdrop-blur-sm">
-        <EventActionsMenu event={e} />
+        <EventActionsMenu event={e} compact />
       </div>
     </li>
   );
 }
 
-// No photo yet: cream paper with the title's first letter, like the story's
-// title page.
-function PaperCover({ title }: { title: string }) {
+// No photo yet: cream paper, like the story's title page, with the trip drawn
+// on it when its stops are on the map, else the title's first letter.
+function PaperCover({ title, sketch }: { title: string; sketch?: Experience["sketch"] }) {
   return (
     <div
       aria-hidden
       className="absolute inset-0 grid place-items-center bg-[#f3e9d6] bg-[radial-gradient(circle_at_30%_20%,rgb(255_255_255/0.55),transparent_60%)] text-stone-800/70 dark:bg-[#2b251d] dark:bg-[radial-gradient(circle_at_30%_20%,rgb(255_255_255/0.06),transparent_60%)] dark:text-amber-100/60"
     >
       <span className="absolute inset-3 rounded-md border border-dashed border-stone-900/15 dark:border-amber-100/15" />
-      <span className="font-serif text-6xl font-semibold">{Array.from(title.trim())[0]?.toUpperCase() ?? ""}</span>
+      {sketch && sketch.length >= 2 ? (
+        <RouteSketch points={sketch} />
+      ) : (
+        <span className="font-serif text-6xl font-semibold">{Array.from(title.trim())[0]?.toUpperCase() ?? ""}</span>
+      )}
     </div>
+  );
+}
+
+// The trip's shape, drawn like a pen line across the paper: fitted to the
+// card, longitude narrowed by latitude so it isn't stretched, a diamond where
+// it set off and a ringed dot where it ended.
+const SKETCH_W = 300;
+const SKETCH_H = 200;
+const SKETCH_PAD = 34;
+
+function RouteSketch({ points }: { points: NonNullable<Experience["sketch"]> }) {
+  const k = Math.cos(((points.reduce((n, p) => n + p.lat, 0) / points.length) * Math.PI) / 180);
+  const xs = points.map((p) => p.lng * k);
+  const ys = points.map((p) => -p.lat);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  // Fit the longer side; a trip on the spot still gets a little room.
+  const span = Math.max(x1 - x0, ((y1 - y0) * SKETCH_W) / SKETCH_H, 1e-4);
+  const scale = (SKETCH_W - 2 * SKETCH_PAD) / span;
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  const at = xs.map((x, i): [number, number] => [
+    SKETCH_W / 2 + (x - cx) * scale,
+    SKETCH_H / 2 + ((ys[i] ?? 0) - cy) * scale,
+  ]);
+  // Straight from stop to stop, joints rounded: a smooth curve would loop
+  // where a trip doubles back, and this is a route, not a scribble.
+  const d = at.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x} ${y}`).join(" ");
+  const end = at[at.length - 1]!;
+  const start = at[0]!;
+
+  return (
+    <svg viewBox={`0 0 ${SKETCH_W} ${SKETCH_H}`} className="absolute inset-0 size-full" preserveAspectRatio="xMidYMid meet">
+      <path d={d} fill="none" className="stroke-[#c2410c]/80 dark:stroke-amber-300/80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {at.slice(1, -1).map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="2.6" className="fill-stone-700/70 dark:fill-amber-100/60" />
+      ))}
+      <rect x={start[0] - 4} y={start[1] - 4} width="8" height="8" transform={`rotate(45 ${start[0]} ${start[1]})`} className="fill-stone-800 dark:fill-amber-100" />
+      <circle cx={end[0]} cy={end[1]} r="8" className="fill-[#c2410c]/15 dark:fill-amber-300/20" />
+      <circle cx={end[0]} cy={end[1]} r="4" className="fill-[#c2410c] dark:fill-amber-300" />
+    </svg>
   );
 }
 

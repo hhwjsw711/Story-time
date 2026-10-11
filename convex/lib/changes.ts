@@ -15,6 +15,9 @@ export async function recordChange(
     entity: Infer<typeof vChangeEntity>;
     entityId: string;
     actorId?: Id<"users">;
+    // The agent that made the change, when one did (`actorId` is then the
+    // person it acts for). See `changeFields` in ./actors.
+    agent?: string;
     action: Infer<typeof vChangeAction>;
     fields: string[];
     before?: Snapshot;

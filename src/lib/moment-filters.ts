@@ -1,7 +1,11 @@
-import { endOfDay, format, startOfDay } from "date-fns";
+import { format } from "date-fns";
 import type { MomentView } from "@/components/event/types";
+import { calendarDay } from "./local-time";
 
 export type BlockType = "photo" | "video" | "note" | "link" | "feeling";
+
+// Who added a moment: keep all of them, only the ones an agent added, or hide those.
+export type AgentFilter = "any" | "only" | "hide";
 
 export type MomentFilters = {
   search: string;
@@ -13,12 +17,13 @@ export type MomentFilters = {
   authors: string[];
   // Keep moments with any of these labels.
   labels: string[];
+  agents: AgentFilter;
   from?: Date;
   to?: Date;
 };
 
 export const NO_PLACE = "";
-export const noFilters: MomentFilters = { search: "", places: [], contains: [], authors: [], labels: [] };
+export const noFilters: MomentFilters = { search: "", places: [], contains: [], authors: [], labels: [], agents: "any" };
 
 export const isFiltering = (f: MomentFilters) =>
   f.search.trim() !== "" ||
@@ -26,6 +31,7 @@ export const isFiltering = (f: MomentFilters) =>
   f.contains.length > 0 ||
   f.authors.length > 0 ||
   f.labels.length > 0 ||
+  f.agents !== "any" ||
   f.from !== undefined;
 
 // ponytail: filters in the browser because places and notes are encrypted at
@@ -33,7 +39,8 @@ export const isFiltering = (f: MomentFilters) =>
 // past that, page the itinerary and search a server-side index instead.
 // `dayKey` (YYYY-MM-DD) is the author's local day the itinerary groups the
 // moment under; when given, dates match on it, so a moment near midnight
-// stays under its own day. Otherwise they use the viewer's local day.
+// stays under its own day. Otherwise they match the day in the zone the
+// moment happened in (the viewer's, when it has none).
 export function matches(m: MomentView & { dayKey?: string }, f: MomentFilters): boolean {
   const q = f.search.trim().toLowerCase();
   if (q !== "" && !searchText(m).includes(q)) return false;
@@ -42,12 +49,12 @@ export function matches(m: MomentView & { dayKey?: string }, f: MomentFilters): 
   if (f.contains.some((t) => !blocks.some((b) => b.type === t))) return false;
   if (f.labels.length > 0 && !f.labels.some((l) => m.labels.includes(l))) return false;
   if (f.authors.length > 0 && !f.authors.includes(m.authorId)) return false;
-  if (f.from !== undefined && m.dayKey !== undefined) {
+  if (f.agents === "only" && m.authorAgent === undefined) return false;
+  if (f.agents === "hide" && m.authorAgent !== undefined) return false;
+  if (f.from !== undefined) {
     const day = (d: Date) => format(d, "yyyy-MM-dd");
-    if (m.dayKey < day(f.from) || m.dayKey > day(f.to ?? f.from)) return false;
-  } else if (f.from !== undefined) {
-    if (m.startsAt < startOfDay(f.from).getTime()) return false;
-    if (m.startsAt > endOfDay(f.to ?? f.from).getTime()) return false;
+    const own = m.dayKey ?? day(calendarDay(m.startsAt, m.tzOffsetMinutes));
+    if (own < day(f.from) || own > day(f.to ?? f.from)) return false;
   }
   return true;
 }
@@ -56,7 +63,7 @@ export function matches(m: MomentView & { dayKey?: string }, f: MomentFilters): 
 export const allBlocks = (m: MomentView) => [m.blocks, ...m.stops.map((s) => s.blocks)].flat();
 
 function searchText(m: MomentView) {
-  const parts = [m.place, m.authorName, ...m.labels, ...m.stops.map((s) => s.place)];
+  const parts = [m.place, m.authorName, m.authorAgent, ...m.labels, ...m.stops.map((s) => s.place)];
   for (const b of allBlocks(m)) {
     if (b.type === "note" || b.type === "feeling") parts.push(b.text);
     else if (b.type === "link") parts.push(b.title, b.url);

@@ -7,6 +7,9 @@ import { vTransport } from "../schema";
 
 type Transport = Infer<typeof vTransport>;
 
+// The name the AI that drafts notes goes by in the activity log and on moments.
+const SCRIBE = "Scribe";
+
 // Writes what the AI produced, into gaps only: anything a person typed stays.
 export const apply = internalMutation({
   args: {
@@ -85,14 +88,14 @@ export const apply = internalMutation({
     if (stopsChanged) edit.stops = stops;
     if (Object.keys(edit).length === 0) return null;
 
-    // No person made this edit, so the change log names no one. Every photo
-    // already sits on this moment, so the uploader check never applies and the
-    // author stands in as the editor.
+    // No person made this edit: Scribe did, for no one in particular. Every
+    // photo already sits on this moment, so the uploader check never applies
+    // and the author stands in as the editor.
     await writeMomentUpdate(ctx, {
       event,
       moment,
       userId: moment.authorId,
-      actorId: undefined,
+      actor: { kind: "agent", name: SCRIBE },
       patch: edit,
     });
     return null;

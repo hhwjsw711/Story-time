@@ -82,5 +82,5 @@ function StoryPage() {
       />
     );
   }
-  return <StoryScroll event={event} moments={moments ?? []} step={start} onStep={onStep} onPlayFilm={playFilm} />;
+  return <StoryScroll event={event} moments={moments ?? []} meId={me?.id} step={start} onStep={onStep} onPlayFilm={playFilm} />;
 }

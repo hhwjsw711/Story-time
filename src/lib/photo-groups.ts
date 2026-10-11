@@ -1,3 +1,5 @@
+import { localParts } from "./local-time";
+
 export type Geo = { lat: number; lng: number };
 
 // A photo or video: when it was taken and, if known, where and the camera's
@@ -30,7 +32,7 @@ export function distanceMeters(a: Geo, b: Geo): number {
 // The clock where the photo was taken, as a Date to read in UTC: at the
 // camera's offset, else the browser's zone.
 export function localClock(ms: number, offsetMinutes?: number): Date {
-  return new Date(ms + (offsetMinutes ?? -new Date(ms).getTimezoneOffset()) * 60_000);
+  return localParts(ms, offsetMinutes);
 }
 
 // YYYY-MM-DD on that clock.

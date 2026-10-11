@@ -29,6 +29,16 @@ export function localKeys(startsAt: number, tzOffsetMinutes: number) {
   return { dayKey: iso.slice(0, 10), monthKey: iso.slice(0, 7) };
 }
 
+// The offset a moment happened at, when one is sent. Real clocks run from
+// UTC-12 to UTC+14, so anything outside that is a bad request.
+export function checkOffset(tzOffsetMinutes: number | undefined): number | undefined {
+  if (tzOffsetMinutes === undefined) return undefined;
+  if (!Number.isFinite(tzOffsetMinutes) || tzOffsetMinutes < -720 || tzOffsetMinutes > 840) {
+    invalid("tzOffsetMinutes", "That time zone isn't valid");
+  }
+  return tzOffsetMinutes;
+}
+
 // An empty place means "no place". The key groups equal places without
 // storing the place itself.
 export async function encodePlace(

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as agentTokens from "../agentTokens.js";
 import type * as ai_apply from "../ai/apply.js";
 import type * as ai_decide from "../ai/decide.js";
 import type * as ai_enrich from "../ai/enrich.js";
@@ -18,9 +19,11 @@ import type * as auth from "../auth.js";
 import type * as changes from "../changes.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
+import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as itinerary from "../itinerary.js";
 import type * as lib_access from "../lib/access.js";
+import type * as lib_actors from "../lib/actors.js";
 import type * as lib_appUrl from "../lib/appUrl.js";
 import type * as lib_blocks from "../lib/blocks.js";
 import type * as lib_changes from "../lib/changes.js";
@@ -28,6 +31,8 @@ import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_geo from "../lib/geo.js";
 import type * as lib_limits from "../lib/limits.js";
 import type * as lib_profile from "../lib/profile.js";
+import type * as mcp from "../mcp.js";
+import type * as mcpTools from "../mcpTools.js";
 import type * as media from "../media.js";
 import type * as moments from "../moments.js";
 import type * as quota from "../quota.js";
@@ -42,6 +47,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentTokens: typeof agentTokens;
   "ai/apply": typeof ai_apply;
   "ai/decide": typeof ai_decide;
   "ai/enrich": typeof ai_enrich;
@@ -52,9 +58,11 @@ declare const fullApi: ApiFromModules<{
   changes: typeof changes;
   crons: typeof crons;
   events: typeof events;
+  http: typeof http;
   invites: typeof invites;
   itinerary: typeof itinerary;
   "lib/access": typeof lib_access;
+  "lib/actors": typeof lib_actors;
   "lib/appUrl": typeof lib_appUrl;
   "lib/blocks": typeof lib_blocks;
   "lib/changes": typeof lib_changes;
@@ -62,6 +70,8 @@ declare const fullApi: ApiFromModules<{
   "lib/geo": typeof lib_geo;
   "lib/limits": typeof lib_limits;
   "lib/profile": typeof lib_profile;
+  mcp: typeof mcp;
+  mcpTools: typeof mcpTools;
   media: typeof media;
   moments: typeof moments;
   quota: typeof quota;

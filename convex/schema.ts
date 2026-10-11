@@ -14,6 +14,8 @@ export const vEncrypted = v.object({
 // the place it pins.
 export const vGeo = v.object({ lat: v.number(), lng: v.number() });
 
+// Legacy: regions were dropped. Older users and experiences may still carry
+// one, so the field stays optional and nothing reads it.
 export const vRegion = v.union(
   v.literal("us"),
   v.literal("eu"),
@@ -81,6 +83,14 @@ export const vChangeAction = v.union(
   v.literal("expire"),
 );
 
+// Who touched a moment last, and when. `userId` is the person (or, for an
+// agent, the person it acts for); `agent` names the agent, if one made the edit.
+export const vLastEdit = v.object({
+  at: v.number(),
+  userId: v.optional(v.id("users")),
+  agent: v.optional(v.string()),
+});
+
 export default defineSchema({
   // Created by Convex Auth (`createUser` inserts `{}`). Everything is
   // optional and user-entered: nothing is copied from the OAuth profile.
@@ -92,7 +102,7 @@ export default defineSchema({
     // verified, so it must not be trusted for sign-in or access decisions.
     email: v.optional(v.string()),
     imageMediaId: v.optional(v.id("media")),
-    region: v.optional(vRegion), // undefined means "us"
+    region: v.optional(vRegion), // legacy, unused
     locale: v.optional(v.string()),
   }).index("by_username", ["username"]),
 
@@ -119,7 +129,7 @@ export default defineSchema({
     // owner can copy the link again.
     shareKey: v.optional(v.string()),
     shareToken: v.optional(vEncrypted),
-    region: vRegion,
+    region: v.optional(vRegion), // legacy, unused
     momentLimit: v.number(),
     momentCount: v.number(),
     keyVersion: v.number(),
@@ -136,6 +146,9 @@ export default defineSchema({
     eventId: v.id("events"),
     authorId: v.id("users"),
     startsAt: v.number(),
+    // Minutes east of UTC where the moment happened. Absent for moments made
+    // before it was kept.
+    tzOffsetMinutes: v.optional(v.number()),
     place: v.optional(vEncrypted),
     geo: v.optional(vEncrypted), // "lat,lng"; only set alongside a place
     blocks: v.array(vBlock),
@@ -143,6 +156,10 @@ export default defineSchema({
     transport: v.optional(vTransport),
     stops: v.optional(v.array(vStop)),
     labels: v.optional(v.array(vEncrypted)),
+    // Set when an agent created the moment for `authorId`: the agent's name.
+    authorAgent: v.optional(v.string()),
+    // Absent until the moment is edited.
+    lastEdit: v.optional(vLastEdit),
   })
     .index("by_event_and_startsAt", ["eventId", "startsAt"])
     .index("by_author", ["authorId"]),
@@ -227,7 +244,11 @@ export default defineSchema({
     eventId: v.id("events"),
     entity: vChangeEntity,
     entityId: v.string(),
-    actorId: v.optional(v.id("users")), // undefined = system / operator
+    // The person behind the change; for an agent, the person it acts for.
+    // Undefined with no agent = the system / operator.
+    actorId: v.optional(v.id("users")),
+    // The agent that made the change (Scribe, an MCP client), when one did.
+    agent: v.optional(v.string()),
     action: vChangeAction,
     fields: v.array(v.string()),
     before: v.optional(
@@ -246,4 +267,26 @@ export default defineSchema({
   })
     .index("by_event_and_at", ["eventId", "at"])
     .index("by_entity", ["entity", "entityId", "at"]),
+
+  // Connections for assistants (MCP). The token itself is never stored, only a
+  // keyed hash of it, so a database leak hands out nothing usable.
+  agentTokens: defineTable({
+    // The person the agent acts for: it can do what they could do, no more.
+    userId: v.id("users"),
+    // Shown on everything the agent adds, e.g. "Claude Desktop".
+    name: v.string(),
+    tokenKey: v.string(),
+    // The first characters of the token, so a list can tell them apart.
+    prefix: v.string(),
+    // Limits the connection to one experience; absent = all of theirs.
+    eventId: v.optional(v.id("events")),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    // A fixed window of requests, for a gentle rate limit.
+    windowStart: v.optional(v.number()),
+    windowCount: v.optional(v.number()),
+  })
+    .index("by_tokenKey", ["tokenKey"])
+    .index("by_user", ["userId"]),
 });

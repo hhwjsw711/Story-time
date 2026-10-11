@@ -15,8 +15,9 @@ import {
   type EventRole,
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
+import { decryptGeo } from "./lib/crypto";
 import { DEFAULT_MOMENT_LIMIT, MAX_EVENTS_PER_USER } from "./lib/limits";
-import { vRegion } from "./schema";
+import { vGeo } from "./schema";
 
 const vStatus = v.union(
   v.literal("draft"),
@@ -45,7 +46,6 @@ const vEventView = v.object({
   endsAt: v.optional(v.number()),
   status: vStatus,
   visibility: vVisibility,
-  region: vRegion,
   momentLimit: v.number(),
   momentCount: v.number(),
   role: vRoleOut,
@@ -54,7 +54,36 @@ const vEventView = v.object({
 // The home grid's card: the event plus a photo to show on it.
 const vEventCard = vEventView.extend({
   coverMediaId: v.optional(v.id("media")),
+  // With no photo to show, the shape of the trip: its first stops on the map,
+  // rounded, for a drawn cover. Absent with fewer than two places.
+  sketch: v.optional(v.array(vGeo)),
 });
+
+// Moments read for a sketch, and the most points it keeps: enough for a shape.
+const SKETCH_MOMENTS = 12;
+const SKETCH_POINTS = 40;
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+// The first stops of an experience with a place on the map, in time order,
+// rounded to about 100 m (it is a drawing, not a map). Repeats in a row drop out.
+async function sketchFor(ctx: QueryCtx, event: Doc<"events">) {
+  const moments = await ctx.db
+    .query("moments")
+    .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
+    .take(SKETCH_MOMENTS);
+  const points: Array<{ lat: number; lng: number }> = [];
+  for (const m of moments) {
+    for (const enc of [m.geo, ...(m.stops ?? []).map((s) => s.geo)]) {
+      if (enc === undefined || points.length >= SKETCH_POINTS) continue;
+      const g = await decryptGeo(event._id, enc);
+      if (g === undefined) continue;
+      const p = { lat: round3(g.lat), lng: round3(g.lng) };
+      const last = points.at(-1);
+      if (!last || last.lat !== p.lat || last.lng !== p.lng) points.push(p);
+    }
+  }
+  return points.length >= 2 ? points : undefined;
+}
 
 function toView(event: Doc<"events">, role: EventRole) {
   return {
@@ -66,7 +95,6 @@ function toView(event: Doc<"events">, role: EventRole) {
     endsAt: event.endsAt,
     status: event.status,
     visibility: event.visibility,
-    region: event.region,
     momentLimit: event.momentLimit,
     momentCount: event.momentCount,
     role,
@@ -112,13 +140,11 @@ export const createDraft = mutation({
         message: `You can have up to ${MAX_EVENTS_PER_USER} experiences. Delete one to make another.`,
       });
     }
-    const user = await ctx.db.get("users", userId);
     const eventId = await ctx.db.insert("events", {
       ownerId: userId,
       title: "Untitled experience",
       status: "draft",
       visibility: "private",
-      region: user?.region ?? "us",
       momentLimit: DEFAULT_MOMENT_LIMIT,
       momentCount: 0,
       keyVersion: 1,
@@ -129,12 +155,11 @@ export const createDraft = mutation({
       entityId: eventId,
       actorId: userId,
       action: "create",
-      fields: ["title", "status", "visibility", "region"],
+      fields: ["title", "status", "visibility"],
       after: {
         title: "Untitled experience",
         status: "draft",
         visibility: "private",
-        region: user?.region ?? "us",
       },
     });
     return eventId;
@@ -255,10 +280,14 @@ export const listMine = query({
       .query("sessions")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .take(100);
-    const card = async (event: Doc<"events">, role: EventRole) => ({
-      ...toView(event, role),
-      coverMediaId: await coverFor(ctx, event),
-    });
+    const card = async (event: Doc<"events">, role: EventRole) => {
+      const coverMediaId = await coverFor(ctx, event);
+      return {
+        ...toView(event, role),
+        coverMediaId,
+        sketch: coverMediaId === undefined ? await sketchFor(ctx, event) : undefined,
+      };
+    };
     const cards: Array<Awaited<ReturnType<typeof card>>> = [];
     for (const event of owned) cards.push(await card(event, "owner"));
     for (const grant of grants) {

@@ -2,6 +2,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MomentView } from "@/components/event/types";
 import { Map as MapView, MapControls, MapMarker, MapRoute, MarkerContent, MarkerTooltip, useMap } from "@/components/ui/map";
+import { formatDateTime } from "@/lib/local-time";
 import { bounds, mapPoints, type MapPoint } from "@/lib/map-points";
 import { cn } from "@/lib/utils";
 
@@ -10,7 +11,8 @@ import { cn } from "@/lib/utils";
 const keyOf = (points: MapPoint[]) => points.map((p) => `${p.momentId}:${p.stopIndex}:${p.lng},${p.lat}`).join(";");
 const lineOf = (points: MapPoint[]) => points.map((p): [number, number] => [p.lng, p.lat]);
 
-const when = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const when = (ms: number, offset?: number) =>
+  formatDateTime(ms, offset, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 // The experience's stops on a map: numbered in time order and joined by a
 // dashed route. Clicking a marker selects its moment; a moment selected
@@ -83,7 +85,7 @@ export function ItineraryMap({
             </MarkerContent>
             <MarkerTooltip>
               <span className="block font-medium">{name}</span>
-              {p.startsAt !== undefined && <span className="block opacity-70">{when(p.startsAt)}</span>}
+              {p.startsAt !== undefined && <span className="block opacity-70">{when(p.startsAt, p.tzOffsetMinutes)}</span>}
             </MarkerTooltip>
           </MapMarker>
         );

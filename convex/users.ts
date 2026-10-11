@@ -12,7 +12,6 @@ import {
   cleanEmail,
   cleanUsername,
 } from "./lib/profile";
-import { vRegion } from "./schema";
 
 // Privacy by default: the user row starts empty. Nothing from the OAuth
 // profile (name, email, avatar) is copied; users add what they choose.
@@ -73,7 +72,6 @@ export const getCurrentUser = query({
       username: v.optional(v.string()),
       email: v.optional(v.string()),
       imageMediaId: v.optional(v.id("media")),
-      region: vRegion,
       locale: v.optional(v.string()),
     }),
   ),
@@ -90,7 +88,6 @@ export const getCurrentUser = query({
       username: user.username,
       email: user.email,
       imageMediaId: user.imageMediaId,
-      region: user.region ?? "us",
       locale: user.locale,
     };
   },
@@ -106,7 +103,6 @@ export const updateSettings = mutation({
     displayName: v.optional(v.string()),
     username: v.optional(v.string()),
     email: v.optional(v.string()),
-    region: v.optional(vRegion),
     locale: v.optional(v.string()),
   },
   returns: v.null(),
@@ -116,7 +112,6 @@ export const updateSettings = mutation({
       displayName?: string;
       username?: string;
       email?: string;
-      region?: typeof args.region;
       locale?: string;
     } = {};
 
@@ -159,7 +154,6 @@ export const updateSettings = mutation({
       patch.email = email;
     }
 
-    if (args.region !== undefined) patch.region = args.region;
     if (args.locale !== undefined) patch.locale = args.locale;
 
     if (Object.keys(patch).length === 0) return null;

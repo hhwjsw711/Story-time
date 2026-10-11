@@ -1,16 +1,18 @@
 import { PencilIcon } from "lucide-react";
 import { AuthImage, AuthVideo } from "@/components/auth-image";
+import { MomentAuthors } from "@/components/event/moment-card";
 import { stopsOf, transportOf } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/local-time";
 import { cn } from "@/lib/utils";
 
 type Block = MomentView["blocks"][number];
 
 // dateStyle can't be combined with weekday, so spell the parts out.
-const when = (ms: number) =>
-  new Date(ms).toLocaleString(undefined, {
+const when = (ms: number, offset?: number) =>
+  formatDateTime(ms, offset, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -31,16 +33,16 @@ export function MomentPreview({
   onEdit?: () => void;
 }) {
   const stops = stopsOf(moment);
-  const author = mine ? "you" : (moment.authorName ?? "Anonymous");
 
   return (
     <article aria-label="Moment preview" className="max-w-2xl space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
           <p className="text-sm text-muted-foreground">
-            {when(moment.startsAt)} · by {author}
+            {when(moment.startsAt, moment.tzOffsetMinutes)}
             {stops.length > 1 && ` · ${stops.length} stops`}
           </p>
+          <MomentAuthors moment={moment} you={mine} />
           <h2 className="font-serif text-2xl font-semibold tracking-tight text-balance">{moment.place ?? "A moment"}</h2>
           {moment.labels.length > 0 && (
             <ul aria-label="Labels" className="flex flex-wrap gap-1.5">
@@ -81,7 +83,7 @@ export function MomentPreview({
                 )}
                 <h3 className="font-serif text-lg leading-snug font-semibold">{stop.place ?? `Stop ${i + 1}`}</h3>
                 {stop.startsAt !== undefined && (
-                  <p className="text-sm text-muted-foreground">{when(stop.startsAt)}</p>
+                  <p className="text-sm text-muted-foreground">{when(stop.startsAt, moment.tzOffsetMinutes)}</p>
                 )}
                 <StopContent blocks={stop.blocks} />
               </section>

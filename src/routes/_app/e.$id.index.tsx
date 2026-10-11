@@ -8,7 +8,7 @@ import { ActivityTab } from "@/components/event/activity-tab";
 import { BulkAddSheet } from "@/components/event/bulk-add-sheet";
 import { EventActionsMenu } from "@/components/event/event-actions-menu";
 import { eventDates } from "@/components/event/event-dates";
-import { EditorPanel, MomentFeed, type Panel } from "@/components/event/itinerary-panel";
+import { EditorPanel, MomentFeed, revealMoment, type Panel } from "@/components/event/itinerary-panel";
 import { ItineraryTab } from "@/components/event/itinerary-tab";
 import { MomentActionsMenu } from "@/components/event/moment-actions-menu";
 import { QuickAddButton, QuickNote } from "@/components/event/quick-add";
@@ -113,8 +113,10 @@ function EventPage() {
         day: nextDay,
       }),
     });
-  const selectMoment = (mid: string) =>
+  const selectMoment = (mid: string) => {
     void navigate({ search: (s) => ({ ...s, tab: "itinerary" as const, momentId: mid }), resetScroll: false });
+    revealMoment(mid);
+  };
 
   return (
     <div className="space-y-5">
@@ -240,7 +242,7 @@ function EventPage() {
           </div>
         </TabsContent>
         {isOwner && <TabsContent value="shared"><SharedTab eventId={eventId} archived={archived} /></TabsContent>}
-        {isOwner && <TabsContent value="activity"><ActivityTab eventId={eventId} /></TabsContent>}
+        {isOwner && <TabsContent value="activity"><ActivityTab eventId={eventId} meId={me?.id} /></TabsContent>}
         {isOwner && <TabsContent value="settings"><SettingsTab eventId={eventId} /></TabsContent>}
       </Tabs>
     </div>

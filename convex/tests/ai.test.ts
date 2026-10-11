@@ -185,7 +185,7 @@ describe("unfurl: page titles", () => {
 });
 
 describe("apply: AI fill-ins only fill gaps", () => {
-  test("fills an empty moment and logs the change with no actor", async () => {
+  test("fills an empty moment and logs the change as the agent Scribe, with no person", async () => {
     const { t, owner, eventId } = await setup();
     const momentId = await owner.mutation(api.moments.create, {
       eventId,
@@ -215,6 +215,7 @@ describe("apply: AI fill-ins only fill gaps", () => {
     const changes = await t.run((ctx) => ctx.db.query("changes").collect());
     const edit = changes.find((r) => r.entity === "moment" && r.action === "update");
     expect(edit?.actorId).toBeUndefined();
+    expect(edit?.agent).toBe("Scribe");
     expect(edit?.fields).toEqual(expect.arrayContaining(["blocks", "labels", "transport", "stops"]));
     expect(JSON.stringify(changes)).not.toMatch(/castle|tram/);
   });
@@ -295,5 +296,22 @@ describe("enrich: who may ask", () => {
     await expect(
       viewer.action(api.ai.enrich.enrich, { momentId: helpersMoment }),
     ).rejects.toThrow(/Event not found/);
+  });
+});
+
+describe("scribe: what it is told about a moment", () => {
+  test("its context carries the zone the moment happened in, for the clock time", async () => {
+    const { t, owner, eventId } = await setup();
+    // 22:15 UTC on 8 November: 07:15 on the 9th in Japan.
+    const startsAt = Date.UTC(2025, 10, 8, 22, 15);
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt,
+      tzOffsetMinutes: 540,
+      place: "Kyoto",
+      blocks: [{ type: "note", text: "Fushimi Inari" }],
+    });
+    const context = await t.query(internal.ai.scribe.context, { momentId });
+    expect(context).toMatchObject({ startsAt, tzOffsetMinutes: 540 });
   });
 });

@@ -1,16 +1,43 @@
+import { formatDistanceToNow } from "date-fns";
 import { AuthImage, AuthVideo } from "@/components/auth-image";
+import { ActorBadge } from "@/components/event/actor-badge";
 import { stopsOf, transportOf } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Badge } from "@/components/ui/badge";
+import { authorOf, editNoticeOf } from "@/lib/actors";
+import { formatDateTime } from "@/lib/local-time";
 
-export function MomentCard({ moment }: { moment: MomentView }) {
+// Who added a moment, and who changed it since: one muted line that wraps on a
+// narrow screen. An edit is named only when it is news (see editNoticeOf).
+export function MomentAuthors({ moment, you }: { moment: MomentView; you: boolean }) {
+  const edit = editNoticeOf(moment);
+  return (
+    <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+      <span>Added by</span>
+      <ActorBadge actor={authorOf(moment)} you={you} />
+      {edit && (
+        <>
+          <span aria-hidden>·</span>
+          <span title={new Date(edit.at).toLocaleString()}>
+            edited {formatDistanceToNow(edit.at, { addSuffix: true })} by
+          </span>
+          <ActorBadge actor={edit.by} />
+        </>
+      )}
+    </p>
+  );
+}
+
+// `meId` is the signed-in person, so their own moments say "You".
+export function MomentCard({ moment, meId }: { moment: MomentView; meId?: string }) {
   const stops = stopsOf(moment);
   return (
     <article className="space-y-3 rounded-xl border bg-card p-4 shadow-xs">
       <header className="space-y-1.5">
         <p className="text-xs text-muted-foreground">
-          {new Date(moment.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+          {formatDateTime(moment.startsAt, moment.tzOffsetMinutes, { dateStyle: "medium", timeStyle: "short" })}
         </p>
+        <MomentAuthors moment={moment} you={moment.authorId === meId} />
         <h3 className="font-serif text-lg leading-snug font-semibold">{moment.place ?? "A moment"}</h3>
         {moment.labels.length > 0 && (
           <div className="flex flex-wrap gap-1">

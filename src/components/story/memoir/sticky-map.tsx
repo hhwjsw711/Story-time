@@ -5,6 +5,7 @@ import { transportOf } from "@/components/event/transport";
 import { RUST } from "@/components/landing/paper";
 import {
   Map as MapView,
+  MapControls,
   MapMarker,
   MapRoute,
   MarkerContent,
@@ -15,6 +16,8 @@ import {
 } from "@/components/ui/map";
 import { bend, curve, ease } from "@/lib/map-route";
 import type { LatLng, Transport } from "@/lib/story-steps";
+import type { Path } from "@/lib/road-path";
+import { useChainPaths, useRoutePath } from "@/lib/use-route-path";
 import { cn } from "@/lib/utils";
 
 // A located stop: its step in the story, its number, and where it is.
@@ -27,13 +30,18 @@ type Point = [number, number];
 // How long the leg in focus takes to draw, and how long the camera flies to it.
 const LEG_MS = 1200;
 const FLY_MS = 800;
+// The zoom buttons sit in the bottom-right corner, 42px in from the right edge.
+// The wider right side keeps a framed stop, and its focus ring, clear of them.
+const FRAME_PADDING = { top: 32, bottom: 32, left: 32, right: 64 };
 
-// The stops joined in story order, each leg bowed the way the film bows them.
-function routeThrough(stops: MapStop[]): Point[] {
+// The stops joined in story order: each leg along its streets or tracks once
+// they have come back, bowed the way the film bows it until then.
+function routeThrough(stops: MapStop[], paths: Array<Path | undefined>): Point[] {
   return stops.flatMap((s, i): Point[] => {
     const here: Point = [s.lng, s.lat];
     const prev = stops[i - 1];
-    return prev ? curve([prev.lng, prev.lat], here, bend(s.transport ?? "walk")).slice(1) : [here];
+    if (!prev) return [here];
+    return (paths[i] ?? curve([prev.lng, prev.lat], here, bend(s.transport ?? "walk"))).slice(1);
   });
 }
 
@@ -63,7 +71,8 @@ export function StickyMap({
   useEffect(() => setMounted(true), []);
 
   const dark = resolvedTheme === "dark";
-  const route = useMemo(() => routeThrough(stops), [stops]);
+  const paths = useChainPaths(stops);
+  const route = useMemo(() => routeThrough(stops, paths), [stops, paths]);
   const focused = stops.find((s) => s.step === focus);
   // Framed on the stop in focus with the place its leg set off from, else on
   // every stop. The camera compares framingKey, so a refresh that moves nothing
@@ -73,9 +82,13 @@ export function StickyMap({
     return leg ? [[leg.from.lng, leg.from.lat], [focused.lng, focused.lat]] : [[focused.lng, focused.lat]];
   }, [stops, focused, leg]);
   const framingKey = framing.map((p) => p.join(",")).join(";");
+  // The leg in focus follows its streets or tracks when a router knows them (the
+  // overview line behind stays the arcs it was). It draws once that is settled,
+  // so the highlight never reshapes after it starts.
+  const { path, settled } = useRoutePath(leg?.from, leg?.to, leg?.transport ?? "walk");
   const legLine = useMemo(
-    () => (leg ? curve([leg.from.lng, leg.from.lat], [leg.to.lng, leg.to.lat], bend(leg.transport)) : undefined),
-    [leg],
+    () => (leg ? (path ?? curve([leg.from.lng, leg.from.lat], [leg.to.lng, leg.to.lat], bend(leg.transport))) : undefined),
+    [leg, path],
   );
 
   if (stops.length === 0) return null;
@@ -99,7 +112,7 @@ export function StickyMap({
             interactive={false}
           />
         )}
-        {leg && legLine && focus !== null && (
+        {leg && legLine && focus !== null && settled && (
           <LegRoute
             key={focus}
             id={`memoir-leg-${focus}`}
@@ -133,6 +146,8 @@ export function StickyMap({
             </MapMarker>
           );
         })}
+        {/* The map takes no gestures of its own, so these are its zoom, by mouse or touch. */}
+        <MapControls position="bottom-right" showZoom />
       </MapView>
     </section>
   );
@@ -154,7 +169,7 @@ function Camera({ framing, framingKey, reduced }: { framing: Point[]; framingKey
       return;
     }
     const box = framing.reduce((b, p) => b.extend(p), new LngLatBounds(first, first));
-    map.fitBounds(box, { padding: 32, maxZoom: 14, duration });
+    map.fitBounds(box, { padding: FRAME_PADDING, maxZoom: 14, duration });
   }, [isLoaded, map, framing, framingKey, reduced]);
   return null;
 }

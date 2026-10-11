@@ -1,5 +1,6 @@
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState } from "react";
+import { CopyIcon, Link2Icon, UserPlusIcon, UsersIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -8,9 +9,50 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { errorMessage } from "@/lib/errors";
+
+type Role = "viewer" | "contributor";
+// What each role may do, in the words a person would use.
+const ROLE_LABEL: Record<Role, string> = { viewer: "Can watch", contributor: "Can add moments" };
+
+const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+const initials = (name: string | undefined) =>
+  (name ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => Array.from(w)[0]?.toUpperCase() ?? "")
+    .join("");
+
+async function copy(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success("Copied");
+  } catch {
+    toast.error("Couldn't copy: select the link and copy it");
+  }
+}
+
+// A section of the tab: an icon, a title, a sentence on what it does, then its controls.
+function Card({ icon, title, lead, aside, children }: { icon: ReactNode; title: string; lead: string; aside?: ReactNode; children?: ReactNode }) {
+  return (
+    <section aria-label={title} className="space-y-4 rounded-xl border bg-card p-5 sm:p-6">
+      <div className="flex items-start gap-3">
+        <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground [&_svg]:size-4">
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <h2 className="font-semibold">{title}</h2>
+          <p className="text-sm text-pretty text-muted-foreground">{lead}</p>
+        </div>
+        {aside}
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archived: boolean }) {
   const people = usePaginatedQuery(api.sessions.listForEvent, { eventId }, { initialNumItems: 25 });
@@ -23,10 +65,13 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
   const revoke = useMutation(api.sessions.revoke);
   const createInvite = useMutation(api.invites.create);
   const dismiss = useMutation(api.invites.dismiss);
-  const [role, setRole] = useState<"viewer" | "contributor">("viewer");
+  const [role, setRole] = useState<Role>("viewer");
   const [email, setEmail] = useState("");
   const [link, setLink] = useState<string | null>(null);
   const [rotating, setRotating] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  // The person whose access is about to be taken away, while they confirm.
+  const [removing, setRemoving] = useState<{ id: Id<"sessions">; name: string } | null>(null);
 
   async function setLinkOn(on: boolean) {
     try {
@@ -43,30 +88,36 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
   }
 
   async function invite() {
+    setInviting(true);
     try {
       const res = await createInvite({ eventId, role, sendTo: email.trim() || undefined });
       setLink(res.link);
       setEmail("");
       // `emailed` is false when email isn't set up on the server.
-      toast.success(res.emailed ? "Invite emailed" : "Invite link created — copy it below");
+      toast.success(res.emailed ? "Invite emailed" : "Invite link ready: copy it below");
     } catch (e) {
       toast.error(errorMessage(e));
+    } finally {
+      setInviting(false);
     }
   }
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-3">
-        <h2 className="font-semibold">Link</h2>
-        <div className="flex items-center justify-between gap-4">
-          <Label htmlFor="share-link-switch">Anyone with the link can watch</Label>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <Card
+        icon={<Link2Icon />}
+        title="Share a link"
+        lead="Anyone with the link can watch the story, without an account. They see the moments and photos, not who added them."
+        aside={
           <Switch
-            id="share-link-switch"
+            aria-label="Anyone with the link can watch"
             checked={Boolean(publicLink)}
             disabled={publicLink === undefined || (archived && !publicLink)}
             onCheckedChange={(on) => void setLinkOn(on)}
+            className="mt-1"
           />
-        </div>
+        }
+      >
         {archived && !publicLink && (
           <p className="text-sm text-muted-foreground">Archived experiences can't switch on a link.</p>
         )}
@@ -80,23 +131,13 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
                 onFocus={(e) => e.currentTarget.select()}
                 className="font-mono text-xs"
               />
-              <Button
-                variant="outline"
-                onClick={() =>
-                  void navigator.clipboard.writeText(publicLink).then(
-                    () => toast.success("Copied"),
-                    () => toast.error("Couldn't copy: select the link and copy it"),
-                  )
-                }
-              >
-                Copy
+              <Button variant="outline" onClick={() => void copy(publicLink)}>
+                <CopyIcon /> Copy
               </Button>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Anyone with this link can watch without signing in. They see the moments and photos, not who added them.
-            </p>
-            <div>
-              <Button variant="outline" size="sm" disabled={archived} onClick={() => setRotating(true)}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">Switch it off and the link stops working.</p>
+              <Button variant="ghost" size="sm" disabled={archived} onClick={() => setRotating(true)}>
                 Make a new link
               </Button>
             </div>
@@ -113,104 +154,135 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
             toast.success("New link ready");
           }}
         />
-      </section>
+      </Card>
 
-      <section className="space-y-3">
-        <h2 className="font-semibold">Invite someone</h2>
-        <div className="flex flex-wrap gap-2">
-          <select
-            aria-label="Role"
-            className="h-9 rounded-md border bg-background px-3 text-sm"
-            value={role}
-            onChange={(e) => setRole(e.target.value as typeof role)}
-          >
-            <option value="viewer">Can view</option>
-            <option value="contributor">Can add moments</option>
-          </select>
-          <Input
-            className="max-w-xs"
-            type="email"
-            placeholder="Email (optional, not stored)"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <Button onClick={() => void invite()}>Create invite</Button>
-        </div>
+      <Card
+        icon={<UserPlusIcon />}
+        title="Invite someone"
+        lead="An invite works once, for the first person who opens it. Choose what they can do."
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void invite();
+          }}
+          className="grid gap-3 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:items-end"
+        >
+          {/* gap, not space-y: inside a form the Select adds a hidden <select> after
+              its trigger, and space-y would push the trigger up by a margin. */}
+          <div className="grid gap-2">
+            <Label htmlFor="invite-role">Access</Label>
+            <Select value={role} onValueChange={(v) => setRole(v === "contributor" ? "contributor" : "viewer")}>
+              <SelectTrigger id="invite-role" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="viewer">{ROLE_LABEL.viewer}</SelectItem>
+                <SelectItem value="contributor">{ROLE_LABEL.contributor}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid min-w-0 gap-2">
+            <Label htmlFor="invite-email">Email them (optional)</Label>
+            <Input
+              id="invite-email"
+              type="email"
+              placeholder="name@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <Button type="submit" disabled={archived || inviting}>
+            <UserPlusIcon /> {inviting ? "Making it…" : "Create invite"}
+          </Button>
+        </form>
+        <p className="text-xs text-muted-foreground">The email address is used to send the invite and isn't stored.</p>
         {link && (
-          <div className="flex items-center gap-2 text-sm">
-            <code className="truncate rounded bg-muted px-2 py-1">{link}</code>
-            <Button size="sm" variant="outline" onClick={() => void navigator.clipboard.writeText(link).then(() => toast.success("Copied"))}>
-              Copy
-            </Button>
-            <span className="text-muted-foreground">Works for the first person who opens it. Shown only now.</span>
+          <div className="space-y-2 rounded-lg border border-dashed p-3">
+            <div className="flex gap-2">
+              <Input readOnly aria-label="Invite link" value={link} onFocus={(e) => e.currentTarget.select()} className="font-mono text-xs" />
+              <Button variant="outline" onClick={() => void copy(link)}>
+                <CopyIcon /> Copy
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Shown only now. It works for the first person who opens it.</p>
           </div>
         )}
         {invites && invites.length > 0 && (
-          <ul className="space-y-1 text-sm">
+          <ul aria-label="Invites waiting to be opened" className="divide-y rounded-lg border">
             {invites.map((i) => (
-              <li key={i.inviteId} className="flex items-center justify-between rounded border px-3 py-2">
-                <span>
-                  Pending {i.role} invite, expires {new Date(i.expiresAt).toLocaleDateString()}
+              <li key={i.inviteId} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                <span className="min-w-0">
+                  <span className="font-medium">{ROLE_LABEL[i.role]}</span>
+                  <span className="text-muted-foreground"> · waiting, until {day(i.expiresAt)}</span>
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => void dismiss({ eventId, inviteId: i.inviteId })}>
-                  Delete
+                  Cancel invite
                 </Button>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Card>
 
-      <section className="space-y-3">
-        <h2 className="font-semibold">People with access</h2>
+      <Card icon={<UsersIcon />} title="People with access" lead="Everyone you've invited who opened their invite.">
         {people.status !== "LoadingFirstPage" && people.results.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nobody yet. Only you can see this.</p>
+          <p className="rounded-lg border border-dashed py-6 text-center text-sm text-muted-foreground">
+            Nobody yet. Only you can see this experience.
+          </p>
         ) : (
-          <div className="space-y-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Person</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Since</TableHead>
-                  <TableHead className="text-right">Access</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {people.results.map((s) => (
-                  <TableRow key={s._id}>
-                    <TableCell>{s.displayName ?? "Anonymous"}</TableCell>
-                    <TableCell className="capitalize">{s.role}</TableCell>
-                    <TableCell>{new Date(s.grantedAt).toLocaleDateString()}</TableCell>
-                    <TableCell className="text-right">
-                      {s.revokedAt ? (
-                        <Badge variant="secondary">Revoked</Badge>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() =>
-                            void revoke({ sessionId: s._id })
-                              .then(() => toast.success("Access revoked"))
-                              .catch((e) => toast.error(errorMessage(e)))
-                          }
-                        >
-                          Revoke access
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="space-y-3">
+            <ul aria-label="People with access" className="divide-y rounded-lg border">
+              {people.results.map((s) => {
+                const name = s.displayName ?? "Anonymous";
+                return (
+                  <li key={s._id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                      {initials(s.displayName) || <UsersIcon className="size-3.5" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {ROLE_LABEL[s.role]} · since {day(s.grantedAt)}
+                      </p>
+                    </div>
+                    {s.revokedAt ? (
+                      <Badge variant="secondary">Removed</Badge>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setRemoving({ id: s._id, name })}>
+                        Remove access
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
             {people.status === "CanLoadMore" && (
               <Button variant="outline" onClick={() => people.loadMore(25)}>
-                Load more
+                Show more people
               </Button>
             )}
           </div>
         )}
-      </section>
+        <ConfirmDialog
+          open={removing !== null}
+          onOpenChange={(open) => {
+            if (!open) setRemoving(null);
+          }}
+          title={`Remove ${removing?.name ?? "this person"}'s access?`}
+          description="They can't open this experience any more. What they added stays. You can invite them again later."
+          confirmLabel="Remove access"
+          onConfirm={async () => {
+            if (removing === null) return;
+            try {
+              await revoke({ sessionId: removing.id });
+              toast.success("Access removed");
+            } catch (e) {
+              toast.error(errorMessage(e));
+            }
+          }}
+        />
+      </Card>
     </div>
   );
 }

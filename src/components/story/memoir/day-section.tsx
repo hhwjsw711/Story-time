@@ -9,6 +9,7 @@ export function DaySection({
   day,
   numbers,
   minutes,
+  meId,
   onPlayFilm,
 }: {
   day: StoryDay;
@@ -16,6 +17,7 @@ export function DaySection({
   numbers: Map<number, number>;
   // Minutes travelled into each stop, by its step.
   minutes: Map<number, number>;
+  meId?: string;
   onPlayFilm: (step: number) => void;
 }) {
   return (
@@ -26,7 +28,7 @@ export function DaySection({
       {day.stops.map(({ step, scene, leg }) => (
         <Fragment key={step}>
           {leg && <TravelDivider step={step - 1} leg={leg} minutes={minutes.get(step)} />}
-          <StopCard step={step} number={numbers.get(step) ?? 0} scene={scene} onPlayFilm={onPlayFilm} />
+          <StopCard step={step} number={numbers.get(step) ?? 0} scene={scene} meId={meId} onPlayFilm={onPlayFilm} />
         </Fragment>
       ))}
     </section>

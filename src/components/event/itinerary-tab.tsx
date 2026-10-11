@@ -1,5 +1,7 @@
 import { useQuery } from "convex/react";
 import {
+  ArrowRightIcon,
+  BotIcon,
   CalendarDaysIcon,
   CalendarIcon,
   ChevronDownIcon,
@@ -17,6 +19,7 @@ import {
   RouteIcon,
   SearchIcon,
   UserIcon,
+  UsersIcon,
   VideoIcon,
   XIcon,
 } from "lucide-react";
@@ -34,11 +37,14 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { ActorBadge } from "@/components/event/actor-badge";
 import { BulkEditBar, SelectBox } from "@/components/event/bulk-edit-bar";
 import { MomentCard } from "@/components/event/moment-card";
+import { stopsOf, transportOf } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -56,8 +62,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { initials } from "@/components/user-avatar";
+import { authorOf, describeActor, editorOf } from "@/lib/actors";
+import { calendarDay, formatDateTime, formatDay, formatTime } from "@/lib/local-time";
 import {
   allBlocks,
+  type AgentFilter,
   type BlockType,
   type MomentFilters,
   isFiltering,
@@ -88,33 +97,77 @@ const GROUPINGS: Array<{ value: Grouping; label: string }> = [
   { value: "day", label: "Day" },
   { value: "place", label: "Place" },
   { value: "month", label: "Month" },
-  { value: "none", label: "All" },
+  { value: "none", label: "None" },
+];
+
+const AGENT_CHOICES: Array<{ value: AgentFilter; label: string }> = [
+  { value: "any", label: "Anyone" },
+  { value: "hide", label: "People only" },
+  { value: "only", label: "Agents only" },
 ];
 
 const GROUP_ICON = { day: CalendarIcon, month: CalendarDaysIcon, place: MapPinIcon } as const;
 
-// One grid for headers and rows, so the columns line up. Columns fold away as
-// the table narrows (it is a container): first the type icon and Contains,
-// then Place, which moves under the title, then Time, which joins it.
+// One grid for headers and rows, so the columns line up. Columns join as the
+// table widens (it is a container), the title always keeping the most room:
+// Time first, then Place (under the title until then), then Who (the avatar
+// says it before: a robot for an agent), then the type icon and Contains.
 const GRID =
-  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_6.5rem_1.5rem_2rem] @3xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_6.5rem_1.5rem_2rem]";
+  "grid items-center gap-x-3 px-4 grid-cols-[minmax(0,1fr)_1.5rem_2rem] @sm:grid-cols-[minmax(0,1fr)_6.5rem_1.5rem_2rem] @xl:grid-cols-[minmax(0,1fr)_8rem_6.5rem_1.5rem_2rem] @3xl:grid-cols-[minmax(0,1fr)_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem] @5xl:grid-cols-[1rem_minmax(0,1fr)_7.5rem_8rem_minmax(0,9rem)_6.5rem_1.5rem_2rem]";
 
 const date = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-function whenText(ms: number, timeOnly: boolean | undefined) {
-  const when = new Date(ms);
-  const time = when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return timeOnly ? time : `${date(when)}, ${time}`;
+// The moment's own day and clock, in the zone it happened in.
+function whenText(ms: number, offset: number | undefined, timeOnly: boolean | undefined) {
+  const time = formatTime(ms, offset);
+  return timeOnly ? time : `${formatDay(ms, offset, { month: "short", day: "numeric" })}, ${time}`;
+}
+
+// A moment's stops in order, each name cut to its first part and shortened on
+// its own, so the last stop always shows ("Queen Alia Intern… 🚗 Hanover").
+// Between two stops: how they got to the second.
+function Route({ stops }: { stops: ReturnType<typeof stopsOf> }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="sr-only">{stops.length} stops: </span>
+      {stops.map((s, i) => {
+        const Way = transportOf(s.transport)?.icon ?? ArrowRightIcon;
+        return (
+          <Fragment key={i}>
+            {i > 0 && (
+              <>
+                <Way aria-hidden className="size-3 shrink-0" />
+                <span className="sr-only">, then </span>
+              </>
+            )}
+            <span title={s.place} className="min-w-0 truncate">
+              {s.place?.split(",")[0]?.trim()}
+            </span>
+          </Fragment>
+        );
+      })}
+    </span>
+  );
 }
 
 // Under the title while their columns are folded away: the time (narrowest
-// tables only) and the place, unless the title already is the place.
+// tables only) and the place, unless the title already is the place. A moment
+// with several stops lists them all, at every width.
 function Subtitle({ moment, title, timeOnly }: { moment: MomentView; title: string | undefined; timeOnly: boolean | undefined }) {
+  const stops = stopsOf(moment).filter((s) => s.place);
+  if (stops.length > 1) {
+    return (
+      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <span className="shrink-0 @sm:hidden">{whenText(moment.startsAt, moment.tzOffsetMinutes, timeOnly)} ·</span>
+        <Route stops={stops} />
+      </span>
+    );
+  }
   const place = title === moment.place ? null : (moment.place ?? "No place");
   return (
     <span className="block truncate text-xs text-muted-foreground @xl:hidden">
       <span className="@sm:hidden">
-        {whenText(moment.startsAt, timeOnly)}
+        {whenText(moment.startsAt, moment.tzOffsetMinutes, timeOnly)}
         {place && " · "}
       </span>
       {place}
@@ -178,7 +231,7 @@ const columns = helper.columns([
   }),
   helper.display({
     id: "glyph",
-    meta: { className: "hidden justify-center @3xl:flex" },
+    meta: { className: "hidden justify-center @5xl:flex" },
     cell: ({ row }) => {
       const blocks = allBlocks(row.original);
       const kind = BLOCKS.find((b) => blocks.some((x) => x.type === b.type));
@@ -226,7 +279,7 @@ const columns = helper.columns([
   helper.display({
     id: "contains",
     header: () => <PaperclipIcon aria-label="Contains" className="size-4" />,
-    meta: { className: "hidden @3xl:flex" },
+    meta: { className: "hidden @5xl:flex" },
     cell: ({ row }) => <Contains moment={row.original} />,
   }),
   helper.accessor((m) => m.place ?? NO_PLACE, {
@@ -235,10 +288,18 @@ const columns = helper.columns([
     meta: { className: "hidden min-w-0 @xl:flex" },
     cell: ({ row }) => <PlaceChip place={row.original.place} />,
   }),
+  // Who added the moment, by name. Folds away below `@3xl`, where the avatar
+  // alone tells a person from an agent.
+  helper.display({
+    id: "who",
+    header: () => <UsersIcon aria-label="Who" className="size-4" />,
+    meta: { className: "hidden min-w-0 @3xl:block" },
+    cell: ({ row, table }) => <Who moment={row.original} meId={table.options.meta?.meId} />,
+  }),
   helper.accessor("startsAt", {
     header: () => <ClockIcon aria-label="Time" className="size-4" />,
     meta: { className: "hidden truncate whitespace-nowrap text-muted-foreground @sm:block" },
-    cell: ({ getValue, table }) => whenText(getValue(), table.options.meta?.timeOnly),
+    cell: ({ row, table }) => whenText(row.original.startsAt, row.original.tzOffsetMinutes, table.options.meta?.timeOnly),
   }),
   helper.accessor((m) => m.authorName ?? "", {
     id: "author",
@@ -247,15 +308,22 @@ const columns = helper.columns([
       const m = row.original;
       const mine = m.authorId === table.options.meta?.meId;
       const name = m.authorName ?? "Anonymous";
+      // An agent's moment shows a robot, not the initials of the person it acts
+      // for, so it can be told apart where the Who column has folded away.
+      const agent = m.authorAgent !== undefined;
+      const who = agent ? describeActor(authorOf(m)) : mine ? "You" : name;
       return (
         <>
-          <span className="sr-only">By {mine ? "you" : name}</span>
+          <span className="sr-only">By {agent ? who : mine ? "you" : name}</span>
           <span
             aria-hidden
-            title={mine ? "You" : name}
-            className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground ring-2 ring-card"
+            title={who}
+            className={cn(
+              "flex size-5 items-center justify-center rounded-full text-[9px] font-semibold ring-2 ring-card",
+              agent ? "bg-violet-100 text-violet-900 dark:bg-violet-500/20 dark:text-violet-200" : "bg-muted text-muted-foreground",
+            )}
           >
-            {initials(m.authorName) || <UserIcon className="size-3" />}
+            {agent ? <BotIcon className="size-3" /> : initials(m.authorName) || <UserIcon className="size-3" />}
           </span>
         </>
       );
@@ -308,18 +376,18 @@ export function ItineraryTab({
   // After a bulk delete, with the ids deleted.
   onDeleted?: (momentIds: string[]) => void;
 }) {
-  // "All" still asks for days: the rows come back the same, just ungrouped.
+  // "None" still asks for days: the rows come back the same, just ungrouped.
   const groups = useQuery(api.itinerary.grouped, {
     eventId,
     groupBy: grouping === "none" ? "day" : grouping,
   });
   const [filters, setFilters] = useState<MomentFilters>(noFilters);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [newestFirst, setNewestFirst] = useState(false);
   // Bulk editing: picking moments in the table, then acting on them at once.
   const [selecting, setSelecting] = useState(false);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const selectToggle = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const canSelect = canEditMoment !== undefined && view === "table";
   const selectionOn = selecting && canSelect;
   const editable = (m: MomentView) => canEditMoment?.(m.authorId) ?? false;
@@ -351,8 +419,18 @@ export function ItineraryTab({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [selectionOn]);
+  // "/" jumps to the search from anywhere outside a text field, as on most sites.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+      e.preventDefault();
+      searchInput.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
-  // Day groups (also behind "All") are keyed by the author's local day,
+  // Day groups (also behind "None") are keyed by the author's local day,
   // which the date filter then uses too.
   const byDay = grouping === "day" || grouping === "none";
   const data = useMemo(
@@ -385,6 +463,7 @@ export function ItineraryTab({
     return [...byId.values()].sort((a, b) => Number(b.id === meId) - Number(a.id === meId));
   }, [data, meId]);
   const filtering = isFiltering(filters);
+  const chips = activeChips(filters, people, setFilters);
   // Groups sort by key: newest first reverses days and months, while places
   // stay alphabetical. Within a group, moments sort by time.
   const sorting = useMemo(
@@ -466,7 +545,7 @@ export function ItineraryTab({
       const m = r.original;
       const canChange = editable(m);
       const on = canChange && checked.has(m._id);
-      const when = new Date(m.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+      const when = formatDateTime(m.startsAt, m.tzOffsetMinutes, { dateStyle: "medium", timeStyle: "short" });
       const name = `${firstLine(m) ?? "Untitled moment"}, ${when}`;
       const box = (
         <SelectBox
@@ -594,7 +673,7 @@ export function ItineraryTab({
     body = (
       <div className="grid gap-4 p-1.5 sm:grid-cols-2 xl:grid-cols-3">
         {leaves.map((r) => (
-          <MomentCard key={r.id} moment={r.original} />
+          <MomentCard key={r.id} moment={r.original} meId={meId} />
         ))}
       </div>
     );
@@ -669,30 +748,63 @@ export function ItineraryTab({
     // panel open it is much narrower than the screen.
     <div className="@container rounded-xl border bg-card text-sm text-card-foreground">
       <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3 pb-2">
-        <div role="group" aria-label="Group by" className="inline-flex rounded-full text-[13px]">
+        {/* A radio group: the arrow keys move between the choices. */}
+        <RadioGroupPrimitive.Root
+          aria-label="Group by"
+          value={grouping}
+          onValueChange={(v) => {
+            const next = GROUPINGS.find((g) => g.value === v);
+            if (next) onGroupingChange(next.value);
+          }}
+          className="inline-flex rounded-full text-[13px]"
+        >
           {GROUPINGS.map((g) => (
-            <button
+            <RadioGroupPrimitive.Item
               key={g.value}
-              type="button"
-              aria-pressed={grouping === g.value}
-              onClick={() => onGroupingChange(g.value)}
-              className={cn(
-                "rounded-full px-3 py-1.5 whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                grouping === g.value
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+              value={g.value}
+              className="rounded-full px-3 py-1.5 whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:bg-muted data-[state=checked]:text-foreground data-[state=checked]:shadow-sm data-[state=unchecked]:text-muted-foreground data-[state=unchecked]:hover:text-foreground"
             >
               {g.label}
-            </button>
+            </RadioGroupPrimitive.Item>
           ))}
-        </div>
+        </RadioGroupPrimitive.Root>
 
         <People
           people={people}
           selected={filters.authors}
           onChange={(authors) => setFilters({ ...filters, authors })}
         />
+
+        {/* Always visible. Full width on phones, where it gets its own line. */}
+        <div className="relative w-full sm:w-72">
+          <SearchIcon
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            ref={searchInput}
+            type="search"
+            aria-label="Search moments"
+            aria-keyshortcuts="/"
+            placeholder="Search places, notes, people…"
+            className="h-8 pr-8 pl-8"
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") return;
+              setFilters({ ...filters, search: "" });
+              e.currentTarget.blur();
+            }}
+          />
+          {filters.search === "" && (
+            <kbd
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border px-1 text-[11px] text-muted-foreground sm:block"
+            >
+              /
+            </kbd>
+          )}
+        </div>
 
         <div className="ms-auto flex min-w-0 items-center gap-0.5">
           {canSelect && all > 0 && (
@@ -705,47 +817,11 @@ export function ItineraryTab({
               {selectionOn ? "Done" : "Select"}
             </Button>
           )}
-          {searchOpen || filters.search !== "" ? (
-            <div className="relative w-48 max-w-full sm:w-60">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                autoFocus
-                aria-label="Search moments"
-                placeholder="Search places and notes…"
-                className="h-8 pr-8 pl-8"
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setFilters({ ...filters, search: "" });
-                    setSearchOpen(false);
-                  }
-                }}
-              />
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Close search"
-                className="absolute top-1/2 right-1 -translate-y-1/2"
-                onClick={() => {
-                  setFilters({ ...filters, search: "" });
-                  setSearchOpen(false);
-                }}
-              >
-                <XIcon />
-              </Button>
-            </div>
-          ) : (
-            <Button variant="ghost" size="icon-sm" aria-label="Search moments" onClick={() => setSearchOpen(true)}>
-              <SearchIcon />
-            </Button>
-          )}
           <FiltersPopover
             filters={filters}
             places={places}
             labels={labels}
-            defaultMonth={data[0] ? new Date(data[0].startsAt) : undefined}
+            defaultMonth={data[0] ? calendarDay(data[0].startsAt, data[0].tzOffsetMinutes) : undefined}
             onChange={setFilters}
           />
           <DropdownMenu>
@@ -775,13 +851,29 @@ export function ItineraryTab({
         </div>
       </div>
 
-      <div className={cn("flex items-center gap-2 px-4 pb-2", !filtering && "sr-only")}>
+      <div className={cn("flex flex-wrap items-center gap-1.5 px-4 pb-2", !filtering && "sr-only")}>
         <p aria-live="polite" className="text-xs text-muted-foreground">
           {count === all ? `${count} moment${count === 1 ? "" : "s"}` : `${count} of ${all} moments`}
         </p>
-        {filtering && count > 0 && (
+        {chips.map((c) => (
+          <span
+            key={c.key}
+            className="inline-flex h-6 max-w-full items-center gap-0.5 rounded-full border border-primary bg-primary ps-2.5 pe-0.5 text-[13px] text-primary-foreground"
+          >
+            <span className="truncate">{c.label}</span>
+            <button
+              type="button"
+              aria-label={`Remove filter: ${c.label}`}
+              onClick={c.onRemove}
+              className="flex size-5 shrink-0 items-center justify-center rounded-full outline-none hover:bg-primary-foreground/20 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <XIcon aria-hidden className="size-3" />
+            </button>
+          </span>
+        ))}
+        {filtering && (
           <Button variant="ghost" size="xs" onClick={() => setFilters(noFilters)}>
-            Clear filters
+            Clear all
           </Button>
         )}
       </div>
@@ -874,6 +966,22 @@ function Contains({ moment }: { moment: MomentView }) {
   );
 }
 
+// Who added a moment. An agent's later edit gets its own line, unless it is
+// the same agent that added the moment.
+function Who({ moment, meId }: { moment: MomentView; meId?: string }) {
+  const editor = editorOf(moment);
+  return (
+    <div className="min-w-0 space-y-0.5 overflow-hidden">
+      <ActorBadge actor={authorOf(moment)} you={moment.authorId === meId} />
+      {editor?.kind === "agent" && editor.name !== moment.authorAgent && (
+        <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+          edited by <ActorBadge actor={editor} />
+        </span>
+      )}
+    </div>
+  );
+}
+
 function PlaceChip({ place }: { place?: string }) {
   if (!place) {
     return (
@@ -895,6 +1003,11 @@ function placeColor(place: string) {
   let hue = 0;
   for (const ch of place.toLowerCase()) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
   return `oklch(0.65 0.16 ${hue})`;
+}
+
+// Keys typed into a field belong to the field, not to the page's shortcuts.
+function isTyping(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select") !== null);
 }
 
 function firstLine(m: MomentView) {
@@ -920,7 +1033,11 @@ function FiltersPopover({
   onChange: (f: MomentFilters) => void;
 }) {
   const active =
-    filters.places.length + filters.contains.length + filters.labels.length + (filters.from ? 1 : 0);
+    filters.places.length +
+    filters.contains.length +
+    filters.labels.length +
+    (filters.from ? 1 : 0) +
+    (filters.agents === "any" ? 0 : 1);
   const toggle = <T extends string>(list: T[], value: T) =>
     list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 
@@ -949,6 +1066,28 @@ function FiltersPopover({
           selected={filters.contains}
           onToggle={(t) => onChange({ ...filters, contains: toggle(filters.contains, t as BlockType) })}
         />
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Added by</p>
+          <RadioGroupPrimitive.Root
+            aria-label="Added by"
+            value={filters.agents}
+            onValueChange={(v) => {
+              const choice = AGENT_CHOICES.find((c) => c.value === v);
+              if (choice) onChange({ ...filters, agents: choice.value });
+            }}
+            className="flex flex-wrap gap-1.5"
+          >
+            {AGENT_CHOICES.map((c) => (
+              <RadioGroupPrimitive.Item
+                key={c.value}
+                value={c.value}
+                className="h-7 rounded-full border px-2.5 text-[13px] whitespace-nowrap outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground data-[state=unchecked]:text-muted-foreground data-[state=unchecked]:hover:text-foreground"
+              >
+                {c.label}
+              </RadioGroupPrimitive.Item>
+            ))}
+          </RadioGroupPrimitive.Root>
+        </div>
         {labels.length > 0 && (
           <FilterChips
             label="Labels"
@@ -989,6 +1128,67 @@ function FiltersPopover({
       </PopoverContent>
     </Popover>
   );
+}
+
+type Chip = { key: string; label: string; onRemove: () => void };
+
+// One removable chip per active filter, in the order the popover lists them.
+function activeChips(
+  filters: MomentFilters,
+  people: Array<{ id: string; name: string }>,
+  onChange: (f: MomentFilters) => void,
+): Chip[] {
+  const chips: Chip[] = [];
+  const search = filters.search.trim();
+  if (search !== "") {
+    chips.push({ key: "search", label: `Search: ${search}`, onRemove: () => onChange({ ...filters, search: "" }) });
+  }
+  for (const place of filters.places) {
+    chips.push({
+      key: `place:${place}`,
+      label: `Place: ${place === NO_PLACE ? "No place" : place}`,
+      onRemove: () => onChange({ ...filters, places: filters.places.filter((p) => p !== place) }),
+    });
+  }
+  for (const type of filters.contains) {
+    const label = BLOCKS.find((b) => b.type === type)?.label ?? type;
+    chips.push({
+      key: `contains:${type}`,
+      label: `With ${label.toLowerCase()}`,
+      onRemove: () => onChange({ ...filters, contains: filters.contains.filter((t) => t !== type) }),
+    });
+  }
+  for (const label of filters.labels) {
+    chips.push({
+      key: `label:${label}`,
+      label: `Label: ${label}`,
+      onRemove: () => onChange({ ...filters, labels: filters.labels.filter((l) => l !== label) }),
+    });
+  }
+  if (filters.from) {
+    const range = filters.to ? `${date(filters.from)} – ${date(filters.to)}` : date(filters.from);
+    chips.push({
+      key: "dates",
+      label: `Dates: ${range}`,
+      onRemove: () => onChange({ ...filters, from: undefined, to: undefined }),
+    });
+  }
+  for (const id of filters.authors) {
+    const name = people.find((p) => p.id === id)?.name ?? "Anonymous";
+    chips.push({
+      key: `author:${id}`,
+      label: `By ${name === "You" ? "you" : name}`,
+      onRemove: () => onChange({ ...filters, authors: filters.authors.filter((a) => a !== id) }),
+    });
+  }
+  if (filters.agents !== "any") {
+    chips.push({
+      key: "agents",
+      label: filters.agents === "only" ? "Agents only" : "People only",
+      onRemove: () => onChange({ ...filters, agents: "any" }),
+    });
+  }
+  return chips;
 }
 
 function FilterChips({

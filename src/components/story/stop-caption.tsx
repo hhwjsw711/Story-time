@@ -1,10 +1,13 @@
 import { transportOf } from "@/components/event/transport";
+import { authorByline } from "@/lib/actors";
+import { formatDateTime } from "@/lib/local-time";
 import type { StoryStep } from "@/lib/story-steps";
 
 type StopScene = Extract<StoryStep, { kind: "stop" }>;
 
-const when = (ms: number) =>
-  new Date(ms).toLocaleString(undefined, {
+// On the clock where the stop happened.
+const when = (ms: number, offset?: number) =>
+  formatDateTime(ms, offset, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -17,12 +20,14 @@ const when = (ms: number) =>
 export function StopCaption({ scene, meId }: { scene: StopScene; meId: string | undefined }) {
   const { stop } = scene;
   const transport = transportOf(stop.transport);
-  // A shared story names no one, so there is no author to show.
-  const author =
-    scene.authorId === undefined ? undefined : scene.authorId === meId ? "you" : (scene.authorName ?? "Anonymous");
-  const text = stop.blocks.filter((b) => b.type !== "photo" && b.type !== "video");
+  const author = authorByline(scene, meId);
+  // A stop with no pictures shows its words on paper above, so here only its links.
+  const pictured = stop.blocks.some((b) => b.type === "photo" || b.type === "video");
+  const text = stop.blocks.filter((b) =>
+    pictured ? b.type !== "photo" && b.type !== "video" : b.type === "link",
+  );
   // A stop without a place is headed by its time, or its number in the story.
-  const time = stop.startsAt === undefined ? undefined : when(stop.startsAt);
+  const time = stop.startsAt === undefined ? undefined : when(stop.startsAt, scene.tzOffsetMinutes);
   const heading = stop.place || time || scene.place;
   const showTime = time !== undefined && heading !== time;
 
