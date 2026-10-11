@@ -10,6 +10,7 @@ import { internalAction, internalQuery } from "../_generated/server";
 import { readText } from "../lib/crypto";
 import { listForEvent, viewMoment, type PlainBlock } from "../moments";
 import { vTransport } from "../schema";
+import { generateStructured } from "./generate";
 import { scribeModel, skipReason } from "./models";
 
 // The mood emojis the moment form offers. Copied, not imported from src/.
@@ -123,32 +124,13 @@ function promptFor(c: ScribeContext): string {
   return lines.filter((line): line is string => line !== undefined).join("\n");
 }
 
-// Structured output first. If the gateway refuses it, ask for JSON text and
-// check the shape here.
-async function writeCaption(
-  ctx: ActionCtx,
-  threadId: string,
-  messages: ModelMessage[],
-): Promise<Caption> {
-  try {
-    const { object } = await scribe.generateObject(
-      ctx,
-      { threadId },
-      { schema: captionSchema, messages, maxOutputTokens: MAX_OUTPUT_TOKENS },
-    );
-    return object;
-  } catch {
-    const { text } = await scribe.generateText(
-      ctx,
-      { threadId },
-      { system: JSON_INSTRUCTIONS, messages, maxOutputTokens: MAX_OUTPUT_TOKENS },
-    );
-    // The reply may wrap the JSON in prose or a code fence; take the object.
-    const object = /\{[\s\S]*\}/.exec(text)?.[0] ?? text;
-    const parsed = captionSchema.safeParse(JSON.parse(object));
-    if (!parsed.success) throw new Error("Scribe's reply didn't match the caption shape");
-    return parsed.data;
-  }
+function writeCaption(ctx: ActionCtx, threadId: string, messages: ModelMessage[]): Promise<Caption> {
+  return generateStructured(ctx, scribe, threadId, {
+    schema: captionSchema,
+    messages,
+    jsonInstructions: JSON_INSTRUCTIONS,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
+  });
 }
 
 // Writes the diary line and labels from the photos, then hands them to `apply`,

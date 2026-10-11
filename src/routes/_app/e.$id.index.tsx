@@ -11,7 +11,8 @@ import { eventDates } from "@/components/event/event-dates";
 import { EditorPanel, MomentFeed, revealMoment, type Panel } from "@/components/event/itinerary-panel";
 import { ItineraryTab } from "@/components/event/itinerary-tab";
 import { MomentActionsMenu } from "@/components/event/moment-actions-menu";
-import { QuickAddButton, QuickNote } from "@/components/event/quick-add";
+import { CommandBar } from "@/components/event/command-bar";
+import { QuickAddButton } from "@/components/event/quick-add";
 import { SettingsTab } from "@/components/event/settings-tab";
 import { SharedTab } from "@/components/event/shared-tab";
 import { Badge } from "@/components/ui/badge";
@@ -173,7 +174,7 @@ function EventPage() {
               selected moment, stop by stop. Stacked on narrow screens. */}
           <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
             <div className="flex w-full min-w-0 flex-col gap-4 lg:w-[28rem] lg:shrink-0">
-              <QuickNote event={event} />
+              <CommandBar event={event} openMomentId={momentId} />
               <ItineraryTab
                 eventId={eventId}
                 momentCount={event.momentCount}

@@ -24,3 +24,6 @@ export const MAX_EVENTS_PER_USER = 20;
 // Bytes one person may hold in live uploads (reserved or ready) across all
 // their experiences. Deleted uploads don't count.
 export const MAX_LIVE_UPLOAD_BYTES = 2 * 1024 ** 3;
+// What one typed request may do: how long it is, and how many things it may change.
+export const MAX_COMMAND_CHARS = 600;
+export const MAX_COMMAND_OPS = 8;

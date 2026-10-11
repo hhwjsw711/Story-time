@@ -493,29 +493,39 @@ export const remove = mutation({
       });
     }
     assertNotArchived(event);
-
-    const removedMediaIds = mediaIdsOf(moment);
-    for (const id of removedMediaIds) {
-      await detachMedia(ctx, id, userId);
-    }
-    const row = await ctx.db
-      .query("itinerary")
-      .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
-      .unique();
-    if (row !== null) await ctx.db.delete("itinerary", row._id);
-    await ctx.db.delete("moments", moment._id);
-    await ctx.db.patch("events", event._id, {
-      momentCount: Math.max(0, event.momentCount - 1),
-    });
-
-    await recordChange(ctx, {
-      eventId: event._id,
-      entity: "moment",
-      entityId: moment._id,
-      actorId: userId,
-      action: "delete",
-      fields: [],
-    });
-    return { removedMediaIds };
+    return deleteMoment(ctx, { event, moment, userId });
   },
 });
+
+// The write behind `remove`, shared with typed requests. Detaches the moment's
+// photos (returned, so the caller can clear them from R2), drops its itinerary
+// row and logs the change. Access checks stay with the caller.
+export async function deleteMoment(
+  ctx: MutationCtx,
+  args: { event: Doc<"events">; moment: Doc<"moments">; userId: Id<"users"> },
+): Promise<{ removedMediaIds: Id<"media">[] }> {
+  const { event, moment, userId } = args;
+  const removedMediaIds = mediaIdsOf(moment);
+  for (const id of removedMediaIds) {
+    await detachMedia(ctx, id, userId);
+  }
+  const row = await ctx.db
+    .query("itinerary")
+    .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
+    .unique();
+  if (row !== null) await ctx.db.delete("itinerary", row._id);
+  await ctx.db.delete("moments", moment._id);
+  await ctx.db.patch("events", event._id, {
+    momentCount: Math.max(0, event.momentCount - 1),
+  });
+
+  await recordChange(ctx, {
+    eventId: event._id,
+    entity: "moment",
+    entityId: moment._id,
+    actorId: userId,
+    action: "delete",
+    fields: [],
+  });
+  return { removedMediaIds };
+}

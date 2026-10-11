@@ -1,14 +1,12 @@
 import { useAuthToken } from "@convex-dev/auth/react";
 import { useAction, useMutation } from "convex/react";
-import { ImagePlusIcon, PlusIcon } from "lucide-react";
-import { type ComponentProps, type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { ImagePlusIcon } from "lucide-react";
+import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
-import { MAX_TEXT_LENGTH } from "../../../convex/lib/limits";
 import { reversePlace } from "@/components/event/place-input";
 import type { EventView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { deletePhotos } from "@/lib/actions";
 import {
   enrichMoment,
@@ -26,7 +24,7 @@ import { thumbnail } from "@/lib/thumbs";
 import { MEDIA_ACCEPT } from "@/lib/upload";
 
 // Viewers can't add, and nothing is added to an archived experience.
-const canAddTo = (event: EventView) => event.role !== "viewer" && event.status !== "archived";
+export const canAddTo = (event: EventView) => event.role !== "viewer" && event.status !== "archived";
 
 // The geocoder asks for one lookup at a time, spaced out.
 const LOOKUP_GAP_MS = 1100;
@@ -191,54 +189,5 @@ export function QuickAddButton({
         }}
       />
     </>
-  );
-}
-
-// "What happened?": a moment with only a note, stamped now. Enter or the button saves it.
-export function QuickNote({ event }: { event: EventView }) {
-  const createMoment = useMutation(api.moments.create);
-  const enrich = useAction(api.ai.enrich.enrich);
-  const [text, setText] = useState("");
-  const [saving, setSaving] = useState(false);
-  if (!canAddTo(event)) return null;
-  const note = text.trim();
-
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    if (!note || saving) return;
-    setSaving(true);
-    try {
-      const momentId = await createMoment({
-        eventId: event._id,
-        startsAt: Date.now(),
-        tzOffsetMinutes: -new Date().getTimezoneOffset(),
-        blocks: [{ type: "note", text: note }],
-      });
-      setText("");
-      enrichMoment(enrich, momentId, []);
-      toast.success("Moment added");
-    } catch (error) {
-      // The note stays in the box, so it can be sent again.
-      toast.error(errorMessage(error));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form onSubmit={(e) => void save(e)} className="flex items-center gap-2" aria-label="Add a note">
-      <Input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="What happened?"
-        aria-label="What happened?"
-        maxLength={MAX_TEXT_LENGTH}
-        disabled={saving}
-        className="min-w-0 flex-1"
-      />
-      <Button type="submit" size="sm" variant="outline" disabled={!note || saving}>
-        <PlusIcon /> Add
-      </Button>
-    </form>
   );
 }

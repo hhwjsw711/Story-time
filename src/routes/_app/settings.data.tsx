@@ -18,6 +18,12 @@ function DataSettings() {
               Anthropic to draft the first note and labels; the copies aren't kept.
             </li>
             <li>
+              When you type in the box above the itinerary, your words go through the same gateway. TypeSafe's Jev model
+              reads them to tell a new moment from a change or a removal. For a change, Anthropic's Haiku model also gets
+              your experience's title and each moment's time, place, labels and the start of its first note. Working out how
+              you travelled between two stops sends their places and times to Jev. Nothing is kept.
+            </li>
+            <li>
               Place search and the names of photo locations use OpenStreetMap data from photon.komoot.io; your typed text
               or the photo's coordinates are sent to it.
             </li>
