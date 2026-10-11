@@ -160,7 +160,7 @@ export const TOOLS: ReadonlyArray<{
   {
     name: "add_moment",
     description:
-      "Add a moment to an experience. Call list_experiences first for the experienceId. Everything added this way is labelled as written by the assistant, for the person it works for. A moment needs a note or a link, on the first stop or a later one. Photos and videos can't be added this way; people add those in the app. Example: {\"experienceId\": \"jd7b4z8k2q1m5n9p\", \"when\": \"2026-06-01T14:30\", \"place\": \"Alfama, Lisbon\", \"note\": \"We rode the tram up and got lost in the lanes\", \"mood\": \"😊\", \"transport\": \"walk\"}.",
+      "Add a moment to an experience. Call list_experiences first for the experienceId. Everything added this way is labelled as written by the assistant, for the person it works for. A moment needs something to show: a note or a link on the first stop, or a note on any later stop. Photos and videos can't be added this way; people add those in the app. Example: {\"experienceId\": \"jd7b4z8k2q1m5n9p\", \"when\": \"2026-06-01T14:30\", \"place\": \"Alfama, Lisbon\", \"note\": \"We rode the tram up and got lost in the lanes\", \"mood\": \"😊\", \"transport\": \"walk\"}.",
     input: addMomentInput,
     readOnly: false,
   },
