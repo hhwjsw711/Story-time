@@ -9,7 +9,7 @@ import {
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { appOrigin } from "./lib/appUrl";
 import { recordChange } from "./lib/changes";
-import { decryptText, encryptText, shareKeyFor } from "./lib/crypto";
+import { decryptText, encryptText, readText, shareKeyFor } from "./lib/crypto";
 import { listForEvent, vMomentView } from "./moments";
 
 // "Anyone with the link can watch". The link carries a random token in its
@@ -175,7 +175,7 @@ export const get = query({
       event: {
         _id: event._id,
         title: event.title,
-        description: event.description,
+        description: await readText(event._id, event.description),
         startsAt: event.startsAt,
         endsAt: event.endsAt,
         momentCount: event.momentCount,

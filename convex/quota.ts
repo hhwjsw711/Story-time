@@ -1,7 +1,8 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { recordChange } from "./lib/changes";
+import { encryptText, readText } from "./lib/crypto";
 import { MAX_MOMENT_LIMIT } from "./lib/limits";
 
 const vStatus = v.union(
@@ -62,7 +63,7 @@ export const request = mutation({
       eventId: args.eventId,
       requestedBy: userId,
       extra: args.extra,
-      reason: args.reason,
+      reason: args.reason === undefined ? undefined : await encryptText(args.eventId, event.keyVersion, args.reason),
       status: "pending",
     });
     await recordChange(ctx, {
@@ -114,6 +115,18 @@ export const listForEvent = query({
       extra: r.extra,
       status: r.status,
     }));
+  },
+});
+
+// Operator: a request's reason, which is stored encrypted.
+// `npx convex run quota:reasonOf '{"requestId":"..."}'`
+export const reasonOf = internalQuery({
+  args: { requestId: v.id("quotaRequests") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get("quotaRequests", args.requestId);
+    if (request === null) return null;
+    return (await readText(request.eventId, request.reason)) ?? null;
   },
 });
 

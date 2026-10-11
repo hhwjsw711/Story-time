@@ -15,7 +15,7 @@ import {
   type EventRole,
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
-import { decryptGeo } from "./lib/crypto";
+import { decryptGeo, encryptText, readText } from "./lib/crypto";
 import { DEFAULT_MOMENT_LIMIT, MAX_EVENTS_PER_USER } from "./lib/limits";
 import { vGeo } from "./schema";
 
@@ -52,7 +52,7 @@ const vEventView = v.object({
 });
 
 // The home grid's card: the event plus a photo to show on it.
-const vEventCard = vEventView.extend({
+const vEventCard = vEventView.omit("description").extend({
   coverMediaId: v.optional(v.id("media")),
   // With no photo to show, the shape of the trip: its first stops on the map,
   // rounded, for a drawn cover. Absent with fewer than two places.
@@ -85,12 +85,13 @@ async function sketchFor(ctx: QueryCtx, event: Doc<"events">) {
   return points.length >= 2 ? points : undefined;
 }
 
-function toView(event: Doc<"events">, role: EventRole) {
+// The experience as a home card shows it. No description: the cards never
+// show one, so there's nothing to decrypt for them.
+function summaryOf(event: Doc<"events">, role: EventRole) {
   return {
     _id: event._id,
     _creationTime: event._creationTime,
     title: event.title,
-    description: event.description,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     status: event.status,
@@ -99,6 +100,10 @@ function toView(event: Doc<"events">, role: EventRole) {
     momentCount: event.momentCount,
     role,
   };
+}
+
+async function toView(event: Doc<"events">, role: EventRole) {
+  return { ...summaryOf(event, role), description: await readText(event._id, event.description) };
 }
 
 // The chosen cover, else the first photo (not video) of the earliest few
@@ -213,6 +218,9 @@ export const update = mutation({
       if (next === undefined || next === (event[key] ?? null)) return;
       (patch as Record<string, unknown>)[key] = next ?? undefined;
       fields.push(key);
+      // The title is free text, like the description: log that it changed,
+      // never its words.
+      if (key === "title") return;
       before[key] = event[key] ?? null;
       after[key] = next;
     };
@@ -230,8 +238,8 @@ export const update = mutation({
     // Free text is user content: log that it changed, never its value.
     if (args.description !== undefined) {
       const next = args.description.trim() === "" ? undefined : args.description;
-      if (next !== event.description) {
-        patch.description = next;
+      if (next !== (await readText(event._id, event.description))) {
+        patch.description = next === undefined ? undefined : await encryptText(event._id, event.keyVersion, next);
         fields.push("description");
       }
     }
@@ -261,7 +269,7 @@ export const get = query({
     const eventId = ctx.db.normalizeId("events", args.eventId);
     if (eventId === null) return null;
     const access = await getEventAccess(ctx, eventId);
-    return access === null ? null : toView(access.event, access.role);
+    return access === null ? null : await toView(access.event, access.role);
   },
 });
 
@@ -283,7 +291,7 @@ export const listMine = query({
     const card = async (event: Doc<"events">, role: EventRole) => {
       const coverMediaId = await coverFor(ctx, event);
       return {
-        ...toView(event, role),
+        ...summaryOf(event, role),
         coverMediaId,
         sketch: coverMediaId === undefined ? await sketchFor(ctx, event) : undefined,
       };

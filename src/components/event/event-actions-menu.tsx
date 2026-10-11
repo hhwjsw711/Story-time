@@ -38,7 +38,8 @@ export function EventActionsMenu({
   onAddFromPhotos,
   compact = false,
 }: {
-  event: EventView;
+  // Home cards carry no description, and the menu never needs one.
+  event: Omit<EventView, "description">;
   onEditDetails?: () => void;
   onAddMoment?: () => void;
   onAddFromPhotos?: () => void;

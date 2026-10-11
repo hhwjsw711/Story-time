@@ -35,6 +35,7 @@ import type * as lib_rateLimit from "../lib/rateLimit.js";
 import type * as mcp from "../mcp.js";
 import type * as mcpTools from "../mcpTools.js";
 import type * as media from "../media.js";
+import type * as migrations from "../migrations.js";
 import type * as moments from "../moments.js";
 import type * as quota from "../quota.js";
 import type * as sessions from "../sessions.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   mcp: typeof mcp;
   mcpTools: typeof mcpTools;
   media: typeof media;
+  migrations: typeof migrations;
   moments: typeof moments;
   quota: typeof quota;
   sessions: typeof sessions;

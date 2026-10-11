@@ -167,14 +167,44 @@ describe("change tracking", () => {
       eventId,
       description: "secret-description",
     });
+    await owner.mutation(api.events.update, { eventId, title: "secret-title" });
     await addMoment(owner, eventId, "secret-note");
     const rows = await t.run((ctx) => ctx.db.query("changes").collect());
     const dump = JSON.stringify(rows);
     expect(dump).not.toContain("secret-description");
+    expect(dump).not.toContain("secret-title");
     expect(dump).not.toContain("secret-note");
 
     const moments = await t.run((ctx) => ctx.db.query("moments").collect());
     expect(JSON.stringify(moments)).not.toContain("secret-note");
+
+    // The description itself is stored encrypted, and reads back as written.
+    const event = await t.run((ctx) => ctx.db.get("events", eventId));
+    expect(JSON.stringify(event)).not.toContain("secret-description");
+    expect((await owner.query(api.events.get, { eventId }))?.description).toBe("secret-description");
+  });
+
+  test("descriptions saved as plain text still read, and the migration encrypts them", async () => {
+    const { t, owner } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    await t.run((ctx) => ctx.db.patch("events", eventId, { description: "from before" }));
+    expect((await owner.query(api.events.get, { eventId }))?.description).toBe("from before");
+
+    // Run on one page: the events are done, and it moves on to quota reasons.
+    expect(await t.mutation(internal.migrations.encryptPlainText, {})).toBe(1);
+    const event = await t.run((ctx) => ctx.db.get("events", eventId));
+    expect(typeof event?.description).toBe("object");
+    expect((await owner.query(api.events.get, { eventId }))?.description).toBe("from before");
+    expect(await t.mutation(internal.migrations.encryptPlainText, {})).toBe(0);
+  });
+
+  test("a quota request's reason is stored encrypted, for the operator to read", async () => {
+    const { t, owner } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    const requestId = await owner.mutation(api.quota.request, { eventId, extra: 5, reason: "secret-reason" });
+    const row = await t.run((ctx) => ctx.db.get("quotaRequests", requestId));
+    expect(JSON.stringify(row)).not.toContain("secret-reason");
+    expect(await t.query(internal.quota.reasonOf, { requestId })).toBe("secret-reason");
   });
 });
 
