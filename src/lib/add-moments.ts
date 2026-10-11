@@ -167,7 +167,7 @@ export function samplePhotos<T extends { file: File }>(photos: T[]): T[] {
   return photos.filter((p) => p.file.type.startsWith("image/")).slice(0, THUMBS_PER_MOMENT);
 }
 
-type Enrich = (args: { momentId: Id<"moments">; thumbs: Thumb[] }) => Promise<unknown>;
+export type Enrich = (args: { momentId: Id<"moments">; thumbs: Thumb[]; hint?: string }) => Promise<unknown>;
 
 // Once the server says this hour's AI fill-ins are used up, new moments skip
 // the thumbnails and the request for a while, from any form on the page: the
@@ -183,6 +183,8 @@ export function enrichMoment(
   enrich: Enrich,
   momentId: Id<"moments">,
   photos: Array<{ mediaId: Id<"media">; file: File }>,
+  // What the person said the photos are, to guide the note.
+  hint?: string,
 ): void {
   if (Date.now() < pausedUntil) return;
   void Promise.all(
@@ -191,7 +193,7 @@ export function enrichMoment(
       return jpeg ? [{ mediaId, jpeg }] : [];
     }),
   )
-    .then((made) => enrich({ momentId, thumbs: made.flat() }))
+    .then((made) => enrich({ momentId, thumbs: made.flat(), hint }))
     .then((admitted) => {
       if (admitted !== false || Date.now() < pausedUntil) return;
       pausedUntil = Date.now() + PAUSE_MS;
