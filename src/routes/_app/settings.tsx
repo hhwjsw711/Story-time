@@ -13,7 +13,9 @@ function SettingsLayout() {
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
       </header>
 
-      <div className="grid flex-1 border-t md:grid-cols-[14rem_1fr] md:grid-rows-1">
+      {/* Narrow screens stack the tabs over the page; the page row takes the
+          spare height, or the grid would stretch the tabs row too. */}
+      <div className="grid flex-1 grid-rows-[auto_1fr] border-t md:grid-cols-[14rem_1fr] md:grid-rows-1">
         <nav
           aria-label="Settings sections"
           className="magnetic flex gap-1 overflow-x-auto py-4 [scrollbar-width:none] md:flex-col md:border-r md:py-6 md:pr-4 [&::-webkit-scrollbar]:hidden"
