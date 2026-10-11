@@ -1,4 +1,4 @@
-import { endOfDay, startOfDay } from "date-fns";
+import { endOfDay, format, startOfDay } from "date-fns";
 import type { MomentView } from "@/components/event/types";
 
 export type BlockType = "photo" | "video" | "note" | "link" | "feeling";
@@ -31,7 +31,10 @@ export const isFiltering = (f: MomentFilters) =>
 // ponytail: filters in the browser because places and notes are encrypted at
 // rest, so Convex can't index them. Fine for the 500 moments a query returns;
 // past that, page the itinerary and search a server-side index instead.
-export function matches(m: MomentView, f: MomentFilters): boolean {
+// `dayKey` (YYYY-MM-DD) is the author's local day the itinerary groups the
+// moment under; when given, dates match on it, so a moment near midnight
+// stays under its own day. Otherwise they use the viewer's local day.
+export function matches(m: MomentView & { dayKey?: string }, f: MomentFilters): boolean {
   const q = f.search.trim().toLowerCase();
   if (q !== "" && !searchText(m).includes(q)) return false;
   if (f.places.length > 0 && !f.places.includes(m.place ?? NO_PLACE)) return false;
@@ -39,7 +42,10 @@ export function matches(m: MomentView, f: MomentFilters): boolean {
   if (f.contains.some((t) => !blocks.some((b) => b.type === t))) return false;
   if (f.labels.length > 0 && !f.labels.some((l) => m.labels.includes(l))) return false;
   if (f.authors.length > 0 && !f.authors.includes(m.authorId)) return false;
-  if (f.from !== undefined) {
+  if (f.from !== undefined && m.dayKey !== undefined) {
+    const day = (d: Date) => format(d, "yyyy-MM-dd");
+    if (m.dayKey < day(f.from) || m.dayKey > day(f.to ?? f.from)) return false;
+  } else if (f.from !== undefined) {
     if (m.startsAt < startOfDay(f.from).getTime()) return false;
     if (m.startsAt > endOfDay(f.to ?? f.from).getTime()) return false;
   }

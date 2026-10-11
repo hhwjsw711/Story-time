@@ -1,5 +1,7 @@
 import { useMutation } from "convex/react";
 import { useForm } from "@tanstack/react-form";
+import { format } from "date-fns";
+import { useId } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
@@ -22,11 +24,15 @@ const schema = z
     message: "End must be after the start",
   });
 
-const toDate = (s: string) => (s ? new Date(`${s}T00:00:00`).getTime() : undefined);
-const fromDate = (ms?: number) => (ms ? new Date(ms).toISOString().slice(0, 10) : "");
+// Dates are saved as local midnight, so read them back in local time too
+// (toISOString would shift them a day for anyone east of UTC). null clears.
+const toDate = (s: string) => (s ? new Date(`${s}T00:00:00`).getTime() : null);
+const fromDate = (ms?: number) => (ms ? format(new Date(ms), "yyyy-MM-dd") : "");
 
 export function EventDetailsForm({ event, onDone }: { event: EventView; onDone?: () => void }) {
   const update = useMutation(api.events.update);
+  // Unique ids, so labels stay tied to their inputs wherever this renders.
+  const id = useId();
   const form = useForm({
     defaultValues: {
       // A new draft starts with a placeholder title; show an empty field instead.
@@ -65,8 +71,8 @@ export function EventDetailsForm({ event, onDone }: { event: EventView; onDone?:
         <form.Field name="title">
           {(f) => (
             <Field data-invalid={f.state.meta.isTouched && f.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor="title">Title</FieldLabel>
-              <Input id="title" autoFocus placeholder="Lisbon, summer 2026" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} />
+              <FieldLabel htmlFor={`${id}-title`}>Title</FieldLabel>
+              <Input id={`${id}-title`} autoFocus placeholder="Lisbon, summer 2026" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} />
               {f.state.meta.isTouched && <FieldError errors={f.state.meta.errors} />}
             </Field>
           )}
@@ -74,8 +80,8 @@ export function EventDetailsForm({ event, onDone }: { event: EventView; onDone?:
         <form.Field name="description">
           {(f) => (
             <Field data-invalid={f.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor="description">Description</FieldLabel>
-              <Textarea id="description" rows={4} value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} />
+              <FieldLabel htmlFor={`${id}-description`}>Description</FieldLabel>
+              <Textarea id={`${id}-description`} rows={4} value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} onBlur={f.handleBlur} />
               <FieldDescription>Optional. Only people you share with see it.</FieldDescription>
               <FieldError errors={f.state.meta.errors} />
             </Field>
@@ -85,16 +91,16 @@ export function EventDetailsForm({ event, onDone }: { event: EventView; onDone?:
           <form.Field name="startsAt">
             {(f) => (
               <Field>
-                <FieldLabel htmlFor="startsAt">Starts</FieldLabel>
-                <Input id="startsAt" type="date" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
+                <FieldLabel htmlFor={`${id}-startsAt`}>Starts</FieldLabel>
+                <Input id={`${id}-startsAt`} type="date" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
               </Field>
             )}
           </form.Field>
           <form.Field name="endsAt">
             {(f) => (
               <Field data-invalid={f.state.meta.errors.length > 0}>
-                <FieldLabel htmlFor="endsAt">Ends</FieldLabel>
-                <Input id="endsAt" type="date" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
+                <FieldLabel htmlFor={`${id}-endsAt`}>Ends</FieldLabel>
+                <Input id={`${id}-endsAt`} type="date" value={f.state.value} onChange={(e) => f.handleChange(e.target.value)} />
                 <FieldError errors={f.state.meta.errors} />
               </Field>
             )}

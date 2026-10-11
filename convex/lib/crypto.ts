@@ -1,8 +1,9 @@
 import type { Infer } from "convex/values";
 import { env } from "../_generated/server";
-import { vEncrypted } from "../schema";
+import { vEncrypted, vGeo } from "../schema";
 
 export type Encrypted = Infer<typeof vEncrypted>;
+export type Geo = Infer<typeof vGeo>;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -20,27 +21,56 @@ function fromB64(s: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
+// Derivation is deterministic, so each key is derived once per isolate
+// instead of on every encrypt/decrypt. Resolved keys only (not promises), and
+// dropped if the master key changes.
+const keys = new Map<string, CryptoKey>();
+let keysFor: string | undefined;
+
+async function cached(
+  id: string,
+  derive: () => Promise<CryptoKey>,
+): Promise<CryptoKey> {
+  if (keysFor !== env.ENCRYPTION_MASTER_KEY) {
+    keys.clear();
+    keysFor = env.ENCRYPTION_MASTER_KEY;
+  }
+  let key = keys.get(id);
+  if (key === undefined) {
+    key = await derive();
+    keys.set(id, key);
+  }
+  return key;
+}
+
 async function masterKey(): Promise<CryptoKey> {
-  const raw = env.ENCRYPTION_MASTER_KEY;
-  return crypto.subtle.importKey("raw", fromB64(raw), "HKDF", false, [
-    "deriveKey",
-  ]);
+  return cached("master", () =>
+    crypto.subtle.importKey(
+      "raw",
+      fromB64(env.ENCRYPTION_MASTER_KEY),
+      "HKDF",
+      false,
+      ["deriveKey"],
+    ),
+  );
 }
 
 // One AES-GCM key per (event, key version), derived from the master key, so
 // no per-event key is ever stored. Bump `events.keyVersion` to rotate.
 async function eventKey(eventId: string, version: number): Promise<CryptoKey> {
-  return crypto.subtle.deriveKey(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: enc.encode("storytime/event"),
-      info: enc.encode(`${eventId}:${version}`),
-    },
-    await masterKey(),
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
+  return cached(`event:${eventId}:${version}`, async () =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: enc.encode("storytime/event"),
+        info: enc.encode(`${eventId}:${version}`),
+      },
+      await masterKey(),
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    ),
   );
 }
 
@@ -70,23 +100,43 @@ export async function decryptText(
   return dec.decode(pt);
 }
 
+// Coordinates are stored as "lat,lng" text under the event key, like the
+// place they pin. A malformed value reads as no pin.
+export async function encryptGeo(
+  eventId: string,
+  version: number,
+  geo: Geo,
+): Promise<Encrypted> {
+  return encryptText(eventId, version, `${geo.lat},${geo.lng}`);
+}
+
+export async function decryptGeo(
+  eventId: string,
+  value: Encrypted,
+): Promise<Geo | undefined> {
+  const [lat, lng] = (await decryptText(eventId, value)).split(",").map(Number);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : undefined;
+}
+
 // Keyed hash so equal places group together without storing the place.
 export async function placeKeyFor(
   eventId: string,
   version: number,
   place: string,
 ): Promise<string> {
-  const key = await crypto.subtle.deriveKey(
-    {
-      name: "HKDF",
-      hash: "SHA-256",
-      salt: enc.encode("storytime/place"),
-      info: enc.encode(`${eventId}:${version}`),
-    },
-    await masterKey(),
-    { name: "HMAC", hash: "SHA-256", length: 256 },
-    false,
-    ["sign"],
+  const key = await cached(`place:${eventId}:${version}`, async () =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: enc.encode("storytime/place"),
+        info: enc.encode(`${eventId}:${version}`),
+      },
+      await masterKey(),
+      { name: "HMAC", hash: "SHA-256", length: 256 },
+      false,
+      ["sign"],
+    ),
   );
   const sig = await crypto.subtle.sign(
     "HMAC",

@@ -1,13 +1,18 @@
 // Places have no coordinates (they're encrypted free text), so the map is a
 // drawn one: every stop gets a fixed spot on a 100 x 60 sheet, laid along a
-// gentle left-to-right curve so each leg reads in story order. The vertical
+// gentle left-to-right zigzag so each leg reads in story order. Held upright
+// (a phone), the sheet is 60 x 100 and the trip runs top to bottom. The
 // wobble is seeded by the label, so the same place always lands in the same
 // spot within an experience.
 
 export type MapPoint = { x: number; y: number };
+export type Orientation = "landscape" | "portrait";
 
 export const MAP_WIDTH = 100;
 export const MAP_HEIGHT = 60;
+
+export const sheetSize = (o: Orientation) =>
+  o === "portrait" ? { w: MAP_HEIGHT, h: MAP_WIDTH } : { w: MAP_WIDTH, h: MAP_HEIGHT };
 
 function hash(s: string): number {
   let h = 2166136261;
@@ -19,18 +24,21 @@ function hash(s: string): number {
 }
 
 // Positions for an ordered list of unique place labels.
-export function layoutPlaces(labels: string[]): Map<string, MapPoint> {
+export function layoutPlaces(labels: string[], orientation: Orientation = "landscape"): Map<string, MapPoint> {
   const unique = [...new Set(labels)];
   const points = new Map<string, MapPoint>();
   const n = unique.length;
   unique.forEach((label, i) => {
-    const t = n === 1 ? 0.5 : i / (n - 1);
-    const x = 10 + t * 80;
-    // Alternate above and below the midline, nudged by the label's hash so
-    // repeated trips don't all look identical.
+    const along = 10 + (n === 1 ? 0.5 : i / (n - 1)) * 80;
+    // Alternate either side of the midline, nudged by the label's hash so
+    // repeated trips don't all look identical. Upright, the zigzag is
+    // narrower so labels fit beside it.
     const side = i % 2 === 0 ? -1 : 1;
-    const y = 30 + side * (8 + hash(label) * 12);
-    points.set(label, { x: round(x), y: round(y) });
+    const p =
+      orientation === "portrait"
+        ? { x: 30 + side * (4 + hash(label) * 5), y: along }
+        : { x: along, y: 30 + side * (8 + hash(label) * 12) };
+    points.set(label, { x: round(p.x), y: round(p.y) });
   });
   return points;
 }

@@ -259,6 +259,48 @@ describe("uploads", () => {
     expect(media?.status).toBe("reserved");
   });
 
+  test("deleted uploads don't count toward the upload cap", async () => {
+    const { t, owner, ownerId } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    const fill = (status: "ready" | "deleted", n: number) =>
+      t.run(async (ctx) => {
+        for (let i = 0; i < n; i++) {
+          await ctx.db.insert("media", {
+            eventId,
+            uploaderId: ownerId,
+            r2Key: `events/${eventId}/${status}${i}`,
+            size: 100,
+            mime: "image/png",
+            keyVersion: 1,
+            status,
+          });
+        }
+      });
+    const reserve = () =>
+      owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime: "image/png" });
+    // The default 10-moment limit allows 50 live uploads.
+    await fill("deleted", 60);
+    await fill("ready", 49);
+    await reserve();
+    await expect(reserve()).rejects.toThrow(/MEDIA_LIMIT/);
+  });
+
+  test("a deleted upload can't be confirmed back to life", async () => {
+    const { t, owner } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    const { mediaId } = await owner.mutation(api.media.reserveUpload, {
+      eventId,
+      size: 100,
+      mime: "image/png",
+    });
+    await owner.mutation(api.media.markDeleted, { mediaId });
+    await expect(
+      owner.mutation(api.media.confirmUpload, { mediaId }),
+    ).rejects.toThrow();
+    const media = await t.run((ctx) => ctx.db.get("media", mediaId));
+    expect(media?.status).toBe("deleted");
+  });
+
   test("unattached photos are visible to their uploader only", async () => {
     const { t, owner, friend, friendId, ownerId } = await setup();
     const eventId = await owner.mutation(api.events.createDraft, {});

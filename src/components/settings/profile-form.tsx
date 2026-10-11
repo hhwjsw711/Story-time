@@ -1,5 +1,6 @@
 import { useMutation } from "convex/react";
 import { useForm } from "@tanstack/react-form";
+import { useId } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
@@ -24,6 +25,8 @@ export function ProfileForm({
   user: { displayName?: string; username?: string; email?: string };
 }) {
   const update = useMutation(api.users.updateSettings);
+  // Unique ids, so labels stay tied to their inputs wherever this renders.
+  const id = useId();
   const form = useForm({
     defaultValues: {
       displayName: user.displayName ?? "",
@@ -56,8 +59,8 @@ export function ProfileForm({
         <form.Field name="displayName">
           {(field) => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor="displayName">Display name (optional)</FieldLabel>
-              <Input id="displayName" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
+              <FieldLabel htmlFor={`${id}-displayName`}>Display name (optional)</FieldLabel>
+              <Input id={`${id}-displayName`} value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
               <FieldDescription>Only shown to people you share with. Leave empty to stay anonymous.</FieldDescription>
               <FieldError errors={field.state.meta.errors} />
             </Field>
@@ -66,8 +69,8 @@ export function ProfileForm({
         <form.Field name="username">
           {(field) => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor="username">Username (optional)</FieldLabel>
-              <Input id="username" autoComplete="username" placeholder="sara_01" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
+              <FieldLabel htmlFor={`${id}-username`}>Username (optional)</FieldLabel>
+              <Input id={`${id}-username`} autoComplete="username" placeholder="sara_01" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
               <FieldDescription>Unique. Lowercase letters, numbers and underscores, 3 to 20 characters.</FieldDescription>
               <FieldError errors={field.state.meta.errors} />
             </Field>
@@ -76,8 +79,8 @@ export function ProfileForm({
         <form.Field name="email">
           {(field) => (
             <Field data-invalid={field.state.meta.errors.length > 0}>
-              <FieldLabel htmlFor="email">Email (optional)</FieldLabel>
-              <Input id="email" type="email" autoComplete="email" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
+              <FieldLabel htmlFor={`${id}-email`}>Email (optional)</FieldLabel>
+              <Input id={`${id}-email`} type="email" autoComplete="email" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} />
               <FieldDescription>Not verified and never used to sign you in. Leave empty to share nothing.</FieldDescription>
               <FieldError errors={field.state.meta.errors} />
             </Field>

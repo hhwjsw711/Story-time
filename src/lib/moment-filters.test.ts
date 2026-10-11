@@ -49,3 +49,13 @@ test("search, place, contains, author and date filters", () => {
   expect(matches(hanover, { ...noFilters, from: feb5 })).toBe(false);
   expect(matches(hanover, { ...noFilters, from: new Date(2025, 1, 1), to: feb4 })).toBe(true);
 });
+
+test("dates match the author's day when the itinerary knows it", () => {
+  // 23:30 on Feb 4 for the viewer, but logged on Feb 5 where the author was.
+  const late = { ...moment({ startsAt: new Date(2025, 1, 4, 23, 30).getTime() }), dayKey: "2025-02-05" };
+  const feb4 = new Date(2025, 1, 4);
+  const feb5 = new Date(2025, 1, 5);
+  expect(matches(late, { ...noFilters, from: feb5 })).toBe(true);
+  expect(matches(late, { ...noFilters, from: feb4 })).toBe(false);
+  expect(matches(late, { ...noFilters, from: feb4, to: feb5 })).toBe(true);
+});

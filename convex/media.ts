@@ -55,13 +55,20 @@ export const reserveUpload = mutation({
         maxBytes,
       });
     }
-    // Stops one contributor reserving unlimited objects.
+    // Stops one contributor reserving unlimited objects. Deleted uploads
+    // don't count, so removing photos frees room.
     const cap = event.momentLimit * 5;
-    const existing = await ctx.db
-      .query("media")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .take(cap + 1);
-    if (existing.length >= cap) {
+    let live = 0;
+    for (const status of ["reserved", "ready"] as const) {
+      const rows = await ctx.db
+        .query("media")
+        .withIndex("by_event_and_status", (q) =>
+          q.eq("eventId", args.eventId).eq("status", status),
+        )
+        .take(cap);
+      live += rows.length;
+    }
+    if (live >= cap) {
       throw new ConvexError({
         code: "MEDIA_LIMIT",
         message: "This experience has reached its upload limit",
@@ -98,7 +105,12 @@ export const confirmUpload = mutation({
   handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
     const media = await ctx.db.get("media", args.mediaId);
-    if (media === null || media.uploaderId !== userId) {
+    // A deleted upload stays deleted: only a reserved row can become ready.
+    if (
+      media === null ||
+      media.uploaderId !== userId ||
+      media.status === "deleted"
+    ) {
       throw new Error("Upload not found");
     }
     if (media.purpose === "avatar") {
@@ -269,7 +281,8 @@ export const clearAvatar = mutation({
 
 // Who may permanently delete a stored object. Profile images: the owner,
 // once it's no longer their current image. Experience photos: once no
-// moment uses them, the uploader or the experience owner.
+// moment uses them, the uploader, whoever took it off a moment, or the
+// experience owner.
 async function deletableBy(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
@@ -282,7 +295,7 @@ async function deletableBy(
     return user?.imageMediaId !== media._id;
   }
   if (media.momentId !== undefined || media.eventId === undefined) return false;
-  if (media.uploaderId === userId) return true;
+  if (media.uploaderId === userId || media.detachedBy === userId) return true;
   const event = await ctx.db.get("events", media.eventId);
   return event?.ownerId === userId;
 }
@@ -323,7 +336,7 @@ export const listKeysForEvent = query({
     await requireEventAccess(ctx, args.eventId, "owner");
     const rows = await ctx.db
       .query("media")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .withIndex("by_event_and_status", (q) => q.eq("eventId", args.eventId))
       .take(5000);
     return rows.filter((m) => m.status !== "deleted").map((m) => m.r2Key);
   },

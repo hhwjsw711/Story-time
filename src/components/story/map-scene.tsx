@@ -1,6 +1,6 @@
-import { useId } from "react";
+import { useId, useSyncExternalStore } from "react";
 import { transportOf } from "@/components/event/transport";
-import { MAP_HEIGHT, MAP_WIDTH, layoutPlaces, legDuration, legPath, type MapPoint } from "@/lib/story-map";
+import { layoutPlaces, legDuration, legPath, sheetSize, type MapPoint, type Orientation } from "@/lib/story-map";
 import type { StoryStep } from "@/lib/story-steps";
 
 type Leg = Extract<StoryStep, { kind: "travel" }>;
@@ -9,22 +9,42 @@ const INK = "#5b4a3a";
 const ACCENT = "#c2410c";
 const PAPER = "#f3e9d6";
 
+const PORTRAIT = "(orientation: portrait)";
+// A phone held upright gets a tall sheet, so the map fills its screen.
+function useOrientation(): Orientation {
+  const portrait = useSyncExternalStore(
+    (onChange) => {
+      const m = window.matchMedia(PORTRAIT);
+      m.addEventListener("change", onChange);
+      return () => m.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(PORTRAIT).matches,
+    () => false,
+  );
+  return portrait ? "portrait" : "landscape";
+}
+
 // A drawn map of the trip. Every place sits at a fixed spot; legs already
 // travelled are faint, and the current one draws itself while its transport
-// crosses it.
+// crosses it. `idle` is the scene waiting further down the page: nothing
+// travelled yet, the transport parked at the start.
 export function MapScene({
   places,
   legs,
   current,
   animate,
+  idle = false,
 }: {
   places: string[];
   legs: Leg[];
   current: number;
   animate: boolean;
+  idle?: boolean;
 }) {
   const leg = legs[current];
-  const points = layoutPlaces(places);
+  const orientation = useOrientation();
+  const { w, h } = sheetSize(orientation);
+  const points = layoutPlaces(places, orientation);
   const uid = useId().replace(/:/g, "");
   if (!leg) return null;
   const from = points.get(leg.from);
@@ -44,7 +64,7 @@ export function MapScene({
   }
 
   return (
-    <section aria-label={`${transport?.phrase ?? "Travelling"} from ${leg.from} to ${leg.to}`} className="flex flex-1 flex-col items-center justify-center gap-4 px-4 animate-in fade-in duration-700">
+    <section aria-label={`${transport?.phrase ?? "Travelling"} from ${leg.from} to ${leg.to}`} className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
       <p className="text-xs tracking-[0.25em] text-amber-200/80 uppercase">
         {Icon && <Icon aria-hidden className="mr-1.5 inline size-3.5 align-[-2px]" />}
         {transport?.phrase}
@@ -52,9 +72,11 @@ export function MapScene({
       <h2 className="font-serif text-2xl font-semibold tracking-tight text-balance text-center sm:text-3xl">
         {leg.from} <span aria-hidden className="text-white/40">→</span> {leg.to}
       </h2>
+      {/* As wide as fits, but never taller than 60% of the screen. */}
       <svg
-        viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
-        className="max-h-[60svh] w-full max-w-4xl rounded-md shadow-2xl"
+        viewBox={`0 0 ${w} ${h}`}
+        className="w-full rounded-md shadow-2xl"
+        style={{ maxWidth: `min(56rem, ${(60 * w) / h}svh)` }}
         role="img"
         aria-hidden
       >
@@ -71,10 +93,10 @@ export function MapScene({
             <feBlend in="SourceGraphic" in2="faint" mode="multiply" />
           </filter>
         </defs>
-        <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill={PAPER} filter={`url(#paper-${uid})`} />
-        <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill={`url(#grid-${uid})`} />
-        <rect x="1" y="1" width={MAP_WIDTH - 2} height={MAP_HEIGHT - 2} fill="none" stroke={INK} strokeOpacity="0.4" strokeWidth="0.3" />
-        <Compass x={MAP_WIDTH - 7} y={7} />
+        <rect width={w} height={h} fill={PAPER} filter={`url(#paper-${uid})`} />
+        <rect width={w} height={h} fill={`url(#grid-${uid})`} />
+        <rect x="1" y="1" width={w - 2} height={h - 2} fill="none" stroke={INK} strokeOpacity="0.4" strokeWidth="0.3" />
+        <Compass x={w - 7} y={7} />
 
         {legs.slice(0, current).map((l, i) => {
           const a = points.get(l.from);
@@ -93,7 +115,7 @@ export function MapScene({
           strokeWidth="0.7"
           strokeLinecap="round"
           strokeDasharray="1"
-          strokeDashoffset={animate ? 1 : 0}
+          strokeDashoffset={animate || idle ? 1 : 0}
         >
           {animate && (
             <animate attributeName="stroke-dashoffset" from="1" to="0" dur={`${seconds}s`} fill="freeze" calcMode="spline" keySplines="0.4 0 0.2 1" />
@@ -101,7 +123,16 @@ export function MapScene({
         </path>
 
         {[...points.entries()].map(([label, p]) => (
-          <Place key={label} label={label} p={p} visited={visited.has(label)} active={label === leg.to} origin={label === places[0]} />
+          <Place
+            key={label}
+            label={label}
+            p={p}
+            sheet={w}
+            portrait={orientation === "portrait"}
+            visited={visited.has(label)}
+            active={label === leg.to}
+            origin={label === places[0]}
+          />
         ))}
 
         {Icon && (
@@ -109,7 +140,7 @@ export function MapScene({
             {animate ? (
               <animateMotion dur={`${seconds}s`} fill="freeze" path={d} calcMode="spline" keySplines="0.4 0 0.2 1" keyTimes="0;1" keyPoints="0;1" />
             ) : (
-              <animateMotion dur="0.01s" fill="freeze" path={d} keyPoints="1;1" keyTimes="0;1" />
+              <animateMotion dur="0.01s" fill="freeze" path={d} keyPoints={idle ? "0;0" : "1;1"} keyTimes="0;1" />
             )}
             <circle r="3.2" fill={PAPER} stroke={ACCENT} strokeWidth="0.4" />
             <Icon x={-2} y={-2} width={4} height={4} color={ACCENT} strokeWidth={2.2} />
@@ -152,13 +183,33 @@ function LegPath({ d, transport, faint = false }: { d: string; transport: string
   }
 }
 
-function Place({ label, p, visited, active, origin }: { label: string; p: MapPoint; visited: boolean; active: boolean; origin: boolean }) {
-  // Legs run left to right, so a label beside its place stays clear of
-  // them: on the right, or on the left near the sheet's right edge.
-  const left = p.x > MAP_WIDTH * 0.7;
-  const short = label.length > 22 ? `${label.slice(0, 21)}…` : label;
+function Place({
+  label,
+  p,
+  sheet,
+  portrait,
+  visited,
+  active,
+  origin,
+}: {
+  label: string;
+  p: MapPoint;
+  sheet: number;
+  portrait: boolean;
+  visited: boolean;
+  active: boolean;
+  origin: boolean;
+}) {
+  // A label beside its place stays clear of the legs: across, they run left
+  // to right, so it sits on the right (on the left near the right edge);
+  // upright, they zigzag down the middle, so it sits on the outer side.
+  const left = portrait ? p.x < sheet / 2 : p.x > sheet * 0.7;
   // The travelling icon parks on the active place, so its label moves out.
   const gap = active ? 4.4 : 2.6;
+  // Cut to the room left before the sheet's edge, about 1.3 units a letter.
+  const room = left ? p.x - gap - 1.5 : sheet - 1.5 - p.x - gap;
+  const max = Math.max(4, Math.min(22, Math.floor(room / 1.3)));
+  const short = label.length > max ? `${label.slice(0, max - 1)}…` : label;
   return (
     <g>
       {active && <circle cx={p.x} cy={p.y} r="2.2" fill={ACCENT} fillOpacity="0.15" />}

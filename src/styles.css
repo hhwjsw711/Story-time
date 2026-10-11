@@ -1,9 +1,13 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,400..600&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @theme {
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  /* One serif everywhere: the site's display type, the app's titles and
+     story mode's captions. */
+  --font-display: "Newsreader", ui-serif, Georgia, serif;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
 }
 
 /* shadcn/ui theme tokens (neutral) */
@@ -107,6 +111,24 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
+  }
+  .maplibregl-popup-content {
+    @apply bg-transparent! shadow-none! p-0! rounded-none!;
+  }
+  .maplibregl-popup-tip {
+    @apply hidden!;
+  }
+  .maplibregl-ctrl-attrib {
+    @apply bg-background! text-muted-foreground! border-border! rounded-md! border! shadow-sm!;
+  }
+  .maplibregl-ctrl-attrib a {
+    @apply text-muted-foreground!;
+  }
+  .maplibregl-ctrl-attrib a:hover {
+    @apply text-foreground!;
+  }
+  .maplibregl-ctrl-attrib-button {
+    @apply bg-transparent! dark:invert;
   }
 }
 

@@ -1,13 +1,18 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-// Sensitive fields (place, notes, links) are stored as AES-GCM ciphertext.
+// Sensitive fields (place, coordinates, notes, links) are stored as AES-GCM
+// ciphertext.
 // `v` is the event key version used, so keys can be rotated later.
 export const vEncrypted = v.object({
   iv: v.string(),
   ct: v.string(),
   v: v.number(),
 });
+
+// A point on the map, as clients send and receive it. Stored encrypted, like
+// the place it pins.
+export const vGeo = v.object({ lat: v.number(), lng: v.number() });
 
 export const vRegion = v.union(
   v.literal("us"),
@@ -50,6 +55,7 @@ export const vTransport = v.union(
 export const vStop = v.object({
   startsAt: v.optional(v.number()),
   place: v.optional(vEncrypted),
+  geo: v.optional(vEncrypted), // "lat,lng"; only set alongside a place
   transport: v.optional(vTransport),
   blocks: v.array(vBlock),
 });
@@ -119,6 +125,7 @@ export default defineSchema({
     authorId: v.id("users"),
     startsAt: v.number(),
     place: v.optional(vEncrypted),
+    geo: v.optional(vEncrypted), // "lat,lng"; only set alongside a place
     blocks: v.array(vBlock),
     // How they got to the first stop.
     transport: v.optional(vTransport),
@@ -159,9 +166,17 @@ export default defineSchema({
       v.literal("ready"),
       v.literal("deleted"),
     ),
+    // Who last took it off a moment, so they may delete it even if someone
+    // else uploaded it. Only read while it is unattached.
+    detachedBy: v.optional(v.id("users")),
   })
-    .index("by_event", ["eventId"])
+    .index("by_event_and_status", ["eventId", "status"])
     .index("by_moment", ["momentId"]),
+
+  // One row per invite email sent, for the daily cap. No address is kept.
+  inviteEmails: defineTable({ userId: v.id("users") }).index("by_user", [
+    "userId",
+  ]),
 
   // "Credits": owners/contributors ask for a higher moment limit.
   quotaRequests: defineTable({

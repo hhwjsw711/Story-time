@@ -234,6 +234,22 @@ describe("deleting experience photos", () => {
     await expect(owner.mutation(api.media.markDeleted, { mediaId: photo })).rejects.toThrow();
   });
 
+  test("whoever takes a photo off their moment can delete it", async () => {
+    const { owner, helper, eventId } = await setup();
+    const momentId = await addMoment(helper, eventId);
+    const photo = await readyPhoto(owner, eventId);
+    await owner.mutation(api.moments.update, {
+      momentId,
+      blocks: [{ type: "note", text: "first" }, { type: "photo", mediaId: photo }],
+    });
+    const { removedMediaIds } = await helper.mutation(api.moments.update, {
+      momentId,
+      blocks: [{ type: "note", text: "first" }],
+    });
+    expect(removedMediaIds).toEqual([photo]);
+    expect(await helper.query(api.media.getForDelete, { mediaId: photo })).not.toBeNull();
+  });
+
   test("after markDeleted the photo is gone for everyone", async () => {
     const { owner, helper, viewer, eventId } = await setup();
     const photo = await readyPhoto(helper, eventId);
@@ -323,5 +339,96 @@ describe("journeys: stops, labels, transport and video", () => {
       startsAt: JUNE_1,
       blocks: [{ type: "video", mediaId: video }],
     });
+  });
+});
+
+describe("map coordinates", () => {
+  const LISBON = { lat: 38.7223, lng: -9.1393 };
+  const SINTRA = { lat: 38.8029, lng: -9.3817 };
+
+  function addPinned(who: Caller, eventId: Id<"events">) {
+    return who.mutation(api.moments.create, {
+      eventId,
+      startsAt: JUNE_1,
+      place: "Lisbon",
+      geo: LISBON,
+      blocks: [{ type: "note", text: "landed" }],
+      stops: [{ place: "Sintra", geo: SINTRA, blocks: [] }],
+    });
+  }
+
+  test("each stop's coordinates round-trip, encrypted at rest and in the log", async () => {
+    const { t, owner, eventId } = await setup();
+    const momentId = await addPinned(owner, eventId);
+    const [m] = await owner.query(api.moments.list, { eventId });
+    expect(m?.geo).toEqual(LISBON);
+    expect(m?.stops.map((s) => s.geo)).toEqual([SINTRA]);
+
+    const raw = await t.run((ctx) => ctx.db.get("moments", momentId));
+    expect(raw?.geo).toMatchObject({ iv: expect.any(String), ct: expect.any(String) });
+    expect(raw?.stops?.[0]?.geo).toMatchObject({ ct: expect.any(String) });
+    const changes = await t.run((ctx) => ctx.db.query("changes").collect());
+    for (const dump of [JSON.stringify(raw), JSON.stringify(changes)]) {
+      expect(dump).not.toMatch(/38\.7223|9\.1393|38\.8029|9\.3817/);
+    }
+    expect(changes.find((r) => r.entity === "moment")?.fields).toContain("geo");
+  });
+
+  test("a new place without coordinates clears them; other edits keep them", async () => {
+    const { owner, eventId } = await setup();
+    const momentId = await addPinned(owner, eventId);
+
+    // `geo` without `place` is ignored.
+    await owner.mutation(api.moments.update, { momentId, startsAt: JUNE_3, geo: SINTRA });
+    let [m] = await owner.query(api.moments.list, { eventId });
+    expect(m?.geo).toEqual(LISBON);
+
+    await owner.mutation(api.moments.update, { momentId, place: "Porto", geo: SINTRA });
+    [m] = await owner.query(api.moments.list, { eventId });
+    expect(m?.geo).toEqual(SINTRA);
+
+    await owner.mutation(api.moments.update, { momentId, place: "Somewhere else" });
+    [m] = await owner.query(api.moments.list, { eventId });
+    expect(m).toMatchObject({ place: "Somewhere else" });
+    expect(m?.geo).toBeUndefined();
+    expect(m?.stops[0]?.geo).toEqual(SINTRA);
+
+    // Stops are replaced wholesale, coordinates and all.
+    await owner.mutation(api.moments.update, { momentId, stops: [{ place: "Sintra", blocks: [] }] });
+    [m] = await owner.query(api.moments.list, { eventId });
+    expect(m?.stops[0]?.geo).toBeUndefined();
+  });
+
+  test("coordinates must be on the map and come with a place", async () => {
+    const { owner, eventId } = await setup();
+    const create = (geo: { lat: number; lng: number }, place?: string) =>
+      owner.mutation(api.moments.create, {
+        eventId,
+        startsAt: JUNE_1,
+        place,
+        geo,
+        blocks: [{ type: "note", text: "x" }],
+      });
+    await expect(create({ lat: 91, lng: 0 }, "Pole")).rejects.toThrow(/"field":"geo"/);
+    await expect(create({ lat: 0, lng: -180.5 }, "Dateline")).rejects.toThrow(/"field":"geo"/);
+    await expect(create({ lat: NaN, lng: 0 }, "Nowhere")).rejects.toThrow(/"field":"geo"/);
+    await expect(create(LISBON)).rejects.toThrow(/"field":"geo"/);
+    await expect(create(LISBON, "  ")).rejects.toThrow(/"field":"geo"/);
+    await expect(
+      owner.mutation(api.moments.create, {
+        eventId,
+        startsAt: JUNE_1,
+        blocks: [{ type: "note", text: "x" }],
+        stops: [{ place: "Sintra", geo: { lat: -90.01, lng: 0 }, blocks: [] }],
+      }),
+    ).rejects.toThrow(/"field":"stops\.0\.geo"/);
+
+    const momentId = await create({ lat: -90, lng: 180 }, "Edge of the world");
+    await expect(
+      owner.mutation(api.moments.update, { momentId, place: "Porto", geo: { lat: 100, lng: 0 } }),
+    ).rejects.toThrow(/"field":"geo"/);
+    await expect(
+      owner.mutation(api.moments.update, { momentId, place: "", geo: LISBON }),
+    ).rejects.toThrow(/"field":"geo"/);
   });
 });

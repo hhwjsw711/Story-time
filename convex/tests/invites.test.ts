@@ -85,7 +85,7 @@ describe("invites", () => {
     await expect(
       guest.mutation(api.invites.accept, { token: tokenOf(link) }),
     ).rejects.toThrow(/INVITE_INVALID/);
-    // The attempt above deleted it; the cron finds nothing left.
+    // Its purge timer removed it; the cron finds nothing left.
     expect(await t.mutation(internal.invites.sweepExpired, {})).toBe(0);
   });
 
@@ -110,6 +110,71 @@ describe("invites", () => {
     const second = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
     await guest.mutation(api.invites.accept, { token: tokenOf(second.link) });
     expect((await guest.query(api.events.get, { eventId }))?.role).toBe("viewer");
+  });
+
+  test("a link opened before access was revoked can't restore it", async () => {
+    const { owner, guest, eventId } = await setup();
+    const first = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    await guest.mutation(api.invites.accept, { token: tokenOf(first.link) });
+    // A second link in the group chat: the guest opens it while still a viewer.
+    const { link } = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    await guest.mutation(api.invites.accept, { token: tokenOf(link) });
+    vi.advanceTimersByTime(1000);
+    const [session] = await owner.query(api.sessions.listForEvent, { eventId });
+    await owner.mutation(api.sessions.revoke, { sessionId: session!._id });
+
+    await expect(guest.mutation(api.invites.accept, { token: tokenOf(link) })).rejects.toThrow(
+      /expired or was already used/,
+    );
+    expect(await guest.query(api.events.get, { eventId })).toBeNull();
+  });
+
+  test("the owner, or a guest with as much access, doesn't use a link up", async () => {
+    const { owner, guest, eventId } = await setup();
+    const contributor = await owner.mutation(api.invites.create, {
+      eventId,
+      role: "contributor",
+    });
+    await guest.mutation(api.invites.accept, { token: tokenOf(contributor.link) });
+
+    const { link } = await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+    await owner.mutation(api.invites.accept, { token: tokenOf(link) });
+    await guest.mutation(api.invites.accept, { token: tokenOf(link) });
+
+    // No downgrade, and the viewer link is still pending.
+    expect((await guest.query(api.events.get, { eventId }))?.role).toBe("contributor");
+    expect(await owner.query(api.invites.listForEvent, { eventId })).toHaveLength(1);
+  });
+
+  test("invite emails are validated, only sent when configured, and capped daily", async () => {
+    const { t, owner, eventId } = await setup();
+    const send = (sendTo: string) =>
+      owner.mutation(api.invites.create, { eventId, role: "viewer", sendTo });
+    await expect(send("not-an-email")).rejects.toThrow(/Enter a valid email/);
+    expect((await send("friend@example.com")).emailed).toBe(false);
+
+    const cf = { CF_ACCOUNT_ID: "acct", CF_EMAIL_TOKEN: "token", EMAIL_FROM: "a@example.com" };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ result: {} })));
+    // eslint-disable-next-line @convex-dev/no-process-env -- test setup
+    Object.assign(process.env, cf);
+    try {
+      for (let i = 0; i < 20; i++) {
+        expect((await send(`friend${i}@example.com`)).emailed).toBe(true);
+      }
+      await expect(send("one-more@example.com")).rejects.toThrow(/RATE_LIMITED/);
+      // A link without an email is still fine.
+      await owner.mutation(api.invites.create, { eventId, role: "viewer" });
+
+      // A day later there's room again, and the old rows are cleared.
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1);
+      expect((await send("tomorrow@example.com")).emailed).toBe(true);
+      const rows = await t.run((ctx) => ctx.db.query("inviteEmails").collect());
+      expect(rows).toHaveLength(1);
+    } finally {
+      // eslint-disable-next-line @convex-dev/no-process-env -- test setup
+      for (const key of Object.keys(cf)) delete process.env[key];
+      vi.unstubAllGlobals();
+    }
   });
 
   test("archived experiences can't create new invites", async () => {

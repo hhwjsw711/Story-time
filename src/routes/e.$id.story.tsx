@@ -1,16 +1,18 @@
-import { createFileRoute, Link, Navigate, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useConvexAuth, useQuery } from "convex/react";
-import { useEffect } from "react";
+import { useCallback } from "react";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { SignInScreen } from "@/components/sign-in-screen";
 import { StoryPlayer } from "@/components/story/story-player";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useDocumentTitle } from "@/hooks/use-document-title";
 import { buildStorySteps, stepForMoment } from "@/lib/story-steps";
 
 const search = z.object({
-  // Which scene is showing; each one is a URL of its own.
+  // The scene in view, kept up to date as the story scrolls.
   step: z.number().int().min(0).default(0).catch(0),
   // Start at this moment's first scene, then drop out of the URL.
   momentId: z.string().optional().catch(undefined),
@@ -31,15 +33,17 @@ function StoryPage() {
   const event = useQuery(api.events.get, isAuthenticated ? { eventId } : "skip");
   const moments = useQuery(api.moments.list, event ? { eventId } : "skip");
   const me = useQuery(api.users.getCurrentUser, isAuthenticated ? {} : "skip");
-
-  useEffect(() => {
-    if (!momentId || !event || !moments) return;
-    const steps = buildStorySteps(event.title, moments);
-    void navigate({ search: { step: stepForMoment(steps, momentId) }, replace: true });
-  }, [momentId, event, moments, navigate]);
+  useDocumentTitle(event ? `${event.title} · Story-time` : undefined);
+  // The URL follows the scroll without adding history; stable, so the
+  // player's effects don't rerun on unrelated renders. It also drops momentId.
+  const onStep = useCallback(
+    (next: number) => void navigate({ search: { step: next }, replace: true, resetScroll: false }),
+    [navigate],
+  );
 
   if (isLoading) return <Skeleton className="h-svh w-full rounded-none" />;
-  if (!isAuthenticated) return <Navigate to="/" />;
+  // Signing in here keeps the shared link: OAuth comes back to this URL.
+  if (!isAuthenticated) return <SignInScreen />;
   if (event === undefined || (event !== null && moments === undefined)) {
     return <Skeleton className="h-svh w-full rounded-none" />;
   }
@@ -59,8 +63,8 @@ function StoryPage() {
       event={event}
       moments={moments ?? []}
       meId={me?.id}
-      step={step}
-      onStep={(next, mode) => void navigate({ search: { step: next }, replace: mode === "replace" })}
+      step={momentId ? stepForMoment(buildStorySteps(event.title, moments ?? []), momentId) : step}
+      onStep={onStep}
     />
   );
 }

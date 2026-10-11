@@ -23,7 +23,7 @@ function Profile() {
           <SettingsBlock title="Photo" description="Shown next to your name.">
             <AvatarField
               mediaId={user.imageMediaId}
-              initial={(user.displayName?.trim() || user.username || "?")[0]!.toUpperCase()}
+              name={user.displayName?.trim() || user.username}
             />
           </SettingsBlock>
           <hr />

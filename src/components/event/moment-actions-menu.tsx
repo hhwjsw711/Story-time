@@ -35,7 +35,8 @@ export function MomentActionsMenu({
   const [confirming, setConfirming] = useState(false);
 
   async function copyLink() {
-    const url = `${window.location.origin}/e/${eventId}?panel=moment&momentId=${moment._id}`;
+    // Opens the moment, not its editor: anyone with access can follow it.
+    const url = `${window.location.origin}/e/${eventId}?momentId=${moment._id}`;
     await navigator.clipboard.writeText(url);
     toast.success("Link copied");
   }

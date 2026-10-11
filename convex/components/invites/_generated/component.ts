@@ -65,6 +65,19 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         }>,
         Name
       >;
+      lookup: FunctionReference<
+        "query",
+        "internal",
+        { token: string },
+        null | {
+          createdAt: number;
+          eventId: string;
+          expiresAt: number;
+          invitedBy: string;
+          role: "viewer" | "contributor";
+        },
+        Name
+      >;
       removeForEvent: FunctionReference<
         "mutation",
         "internal",

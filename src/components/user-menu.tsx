@@ -24,11 +24,10 @@ export function UserMenu() {
 
   const name = user?.displayName?.trim() || user?.username || "Anonymous";
   const detail = user?.username ? `@${user.username}` : (user?.email ?? "");
-  const initial = (user?.displayName?.trim() || user?.username || "?")[0]!.toUpperCase();
 
   const identity = (
     <>
-      <UserAvatar mediaId={user?.imageMediaId} initial={initial} className="size-8" />
+      <UserAvatar mediaId={user?.imageMediaId} name={user?.displayName?.trim() || user?.username} className="size-8" />
       <div className="grid flex-1 text-left leading-tight">
         <span className="truncate text-sm font-medium">{name}</span>
         {detail && (

@@ -8,11 +8,13 @@ import { cn } from "@/lib/utils";
 
 export type Region = "us" | "eu" | "au" | "ca";
 
+// A preference only: there's one deployment and one bucket today, so the
+// hints mustn't promise where data lives.
 const REGIONS: Array<{ value: Region; label: string; hint: string }> = [
-  { value: "us", label: "United States", hint: "Closest for the Americas. The default." },
-  { value: "eu", label: "Europe", hint: "Ireland. Closest for Europe, the Middle East and Africa." },
-  { value: "au", label: "Australia", hint: "Sydney. Closest for Australia and Oceania." },
-  { value: "ca", label: "Canada", hint: "Central. Keeps data in Canada." },
+  { value: "us", label: "United States", hint: "For the Americas. The default." },
+  { value: "eu", label: "Europe", hint: "For Europe, the Middle East and Africa." },
+  { value: "au", label: "Australia", hint: "For Australia and Oceania." },
+  { value: "ca", label: "Canada", hint: "For Canada." },
 ];
 
 export function RegionForm({ region }: { region: Region }) {
@@ -38,7 +40,7 @@ export function RegionForm({ region }: { region: Region }) {
   return (
     <div className="max-w-lg space-y-6">
       <fieldset className="space-y-3">
-        <legend className="sr-only">Data region</legend>
+        <legend className="sr-only">Preferred region</legend>
         <div className="grid gap-3 sm:grid-cols-2">
           {REGIONS.map((r) => (
             <label key={r.value} className="cursor-pointer">
@@ -63,7 +65,8 @@ export function RegionForm({ region }: { region: Region }) {
           ))}
         </div>
         <p className="text-sm text-muted-foreground">
-          Where new experiences are stored. Existing ones stay where they were created.
+          Saved with each new experience you start. For now we store everything in one place,
+          whichever you pick.
         </p>
       </fieldset>
       <div className="flex items-center gap-3">
