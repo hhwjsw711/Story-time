@@ -167,7 +167,7 @@ export const TOOLS: ReadonlyArray<{
   {
     name: "update_moment",
     description:
-      "Change a moment: its when, place (\"\" clears it), lat and lng (together, with a place), transport (null clears it), labels (replaces them all; [] clears them) or addNote (adds a note to the first stop, keeping its text and photos). Call list_moments first for the momentId. You can change your own moments, and any moment in an experience you own. Nothing is ever deleted. Example: {\"momentId\": \"k17y3w6r0t8e2u4i\", \"addNote\": \"Found the bakery again on the way back\"}.",
+      "Change a moment: its when, place (\"\" clears it; a new place without lat and lng drops the old pin), lat and lng (together, with a place), transport (null clears it), labels (replaces them all; [] clears them) or addNote (adds a note to the first stop, keeping its text and photos). Call list_moments first for the momentId. You can change your own moments, and any moment in an experience you own. Nothing is ever deleted. Example: {\"momentId\": \"k17y3w6r0t8e2u4i\", \"addNote\": \"Found the bakery again on the way back\"}.",
     input: updateMomentInput,
     readOnly: false,
   },

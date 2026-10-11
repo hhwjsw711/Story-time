@@ -115,8 +115,13 @@ function tooLarge(): Response {
   );
 }
 
+// A call to a real tool. Only these check the token inside the tool's own
+// transaction; anything else checks it before it is answered.
 function isToolCall(message: unknown): boolean {
-  return isRecord(message) && message.method === "tools/call";
+  const parsed = rpcMessage.safeParse(message);
+  if (!parsed.success || parsed.data.method !== "tools/call") return false;
+  const params = parsed.data.params;
+  return isRecord(params) && TOOLS.some((tool) => tool.name === params.name);
 }
 
 function toolReply(value: unknown): object {
@@ -153,29 +158,38 @@ function descriptorOf(tool: (typeof TOOLS)[number]) {
   };
 }
 
-// Checks the arguments against the tool's own schema, then runs the tool as one
-// internal mutation. Each tool checks the token itself, in that transaction.
+// Checks the arguments against the tool's own schema. Bad arguments are answered
+// only for a live token, so a bad token is a 401 whatever the arguments are.
+async function argumentsFor<T>(
+  ctx: ActionCtx,
+  token: string,
+  schema: z.ZodType<T>,
+  raw: unknown,
+): Promise<T> {
+  const parsed = schema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  await ctx.runMutation(internal.mcp.ping, { token });
+  throw new BadArguments(describeProblem(parsed.error));
+}
+
+// Runs the tool as one internal mutation. Each tool checks the token itself, in
+// that transaction.
 async function runTool(ctx: ActionCtx, token: string, name: ToolName, raw: unknown): Promise<unknown> {
   switch (name) {
-    case "list_experiences": {
-      const args = listExperiencesInput.safeParse(raw);
-      if (!args.success) throw new BadArguments(describeProblem(args.error));
+    case "list_experiences":
+      await argumentsFor(ctx, token, listExperiencesInput, raw);
       return ctx.runMutation(internal.mcp.list_experiences, { token });
-    }
     case "list_moments": {
-      const args = listMomentsInput.safeParse(raw);
-      if (!args.success) throw new BadArguments(describeProblem(args.error));
-      return ctx.runMutation(internal.mcp.list_moments, { token, ...args.data });
+      const args = await argumentsFor(ctx, token, listMomentsInput, raw);
+      return ctx.runMutation(internal.mcp.list_moments, { token, ...args });
     }
     case "add_moment": {
-      const args = addMomentInput.safeParse(raw);
-      if (!args.success) throw new BadArguments(describeProblem(args.error));
-      return ctx.runMutation(internal.mcp.add_moment, { token, ...args.data });
+      const args = await argumentsFor(ctx, token, addMomentInput, raw);
+      return ctx.runMutation(internal.mcp.add_moment, { token, ...args });
     }
     case "update_moment": {
-      const args = updateMomentInput.safeParse(raw);
-      if (!args.success) throw new BadArguments(describeProblem(args.error));
-      return ctx.runMutation(internal.mcp.update_moment, { token, ...args.data });
+      const args = await argumentsFor(ctx, token, updateMomentInput, raw);
+      return ctx.runMutation(internal.mcp.update_moment, { token, ...args });
     }
   }
 }

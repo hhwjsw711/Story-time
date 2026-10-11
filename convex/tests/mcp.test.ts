@@ -254,6 +254,25 @@ describe("a connection's token", () => {
     expect(r.status).toBe(401);
   });
 
+  test("a bad token is a 401 even when the tool name or its arguments are wrong", async () => {
+    const { t } = await setup();
+    const bad = `stk_${"C".repeat(43)}`;
+    const unknownTool = await post(t, bad, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "delete_everything" },
+    });
+    expect(unknownTool.status).toBe(401);
+    const badArguments = await post(t, bad, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "list_moments", arguments: {} },
+    });
+    expect(badArguments.status).toBe(401);
+  });
+
   test("the rate limit allows 60 requests in a minute and refuses the 61st", async () => {
     const { t, owner, eventId } = await setup();
     const token = await connect(owner, eventId);
