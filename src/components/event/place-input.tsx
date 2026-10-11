@@ -59,6 +59,18 @@ export async function reversePlace(geo: Geo): Promise<string | undefined> {
   }
 }
 
+// The best match for a place someone named in words, with where it is, or
+// undefined. `near` biases the search toward the trip.
+export async function findPlace(q: string, near?: Geo): Promise<{ label: string; geo: Geo } | undefined> {
+  try {
+    const res = await fetch(photonUrl("api", { q, near, limit: 5 }));
+    const best = res.ok ? toSuggestions(await res.json())[0] : undefined;
+    return best && { label: best.label, geo: best.geo };
+  } catch {
+    return undefined;
+  }
+}
+
 // A concise label ("Belém, Lisboa"), never the full address: the name, plus
 // the city when it adds something. The context line is city and country.
 function toSuggestions(json: unknown): Suggestion[] {
