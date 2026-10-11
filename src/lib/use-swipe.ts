@@ -39,10 +39,12 @@ export type SwipeHandlers = {
   onTap?(point: { x: number; y: number }): void;
 };
 
-export type SwipeOptions = { axes?: "both" | "x"; enabled?: boolean };
+// `touchOnly` leaves mouse drags alone, so selecting text is not a swipe.
+export type SwipeOptions = { axes?: "both" | "x"; enabled?: boolean; touchOnly?: boolean };
 
-// Controls keep their own pointer, and so does anything marked out of the surface.
-const OWN_POINTER = "button, a, input, textarea, select, summary, [data-no-swipe]";
+// Controls keep their own pointer, a video's native controls among them, and so
+// does anything marked out of the surface.
+const OWN_POINTER = "button, a, input, textarea, select, summary, video, [data-no-swipe]";
 
 type Gesture = {
   id: number;
@@ -73,7 +75,7 @@ export function useSwipeSurface(
   handlers: SwipeHandlers,
   options: SwipeOptions = {},
 ) {
-  const { axes = "both", enabled = true } = options;
+  const { axes = "both", enabled = true, touchOnly = false } = options;
   // Read at each event, so the handlers can change without re-attaching.
   const latest = useRef(handlers);
   useLayoutEffect(() => {
@@ -104,6 +106,7 @@ export function useSwipeSurface(
 
     const onDown = (e: PointerEvent) => {
       if (gesture || e.button !== 0 || !e.isPrimary || ownsPointer(e.target, el)) return;
+      if (touchOnly && e.pointerType === "mouse") return;
       gesture = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, dx: 0, dy: 0, axis: null, locked: false };
     };
 
@@ -171,5 +174,5 @@ export function useSwipeSurface(
       window.removeEventListener("pointercancel", onAbort);
       cancelAnimationFrame(frame);
     };
-  }, [ref, axes, enabled]);
+  }, [ref, axes, enabled, touchOnly]);
 }

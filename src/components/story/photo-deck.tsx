@@ -267,8 +267,7 @@ export const PhotoDeck = forwardRef<
                 >
                   <div className="h-full overflow-hidden rounded-sm bg-stone-800 [&>*]:h-full [&>*]:w-full [&>*]:rounded-none [&_img]:pointer-events-none [&_img]:aspect-auto [&_img]:h-full [&_img]:object-cover [&_video]:aspect-auto [&_video]:h-full">
                     {(live || leaving) && pic?.type === "video" && (
-                      // A video keeps its own controls, so a gesture that starts on it is not the deck's.
-                      <div data-no-swipe className="h-full w-full">
+                      <div className="h-full w-full">
                         <AuthVideo mediaId={pic.mediaId} label={`Video ${i + 1}`} />
                       </div>
                     )}
