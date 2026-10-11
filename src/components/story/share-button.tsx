@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import type { StoryEvent } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/errors";
 
 // Safari only lets a click write the clipboard before its first await, so
@@ -18,7 +19,7 @@ function copyLater(text: Promise<string>): Promise<void> {
 // Owners switch the story's link on and copy it: anyone with it can watch.
 // Everyone else copies the story's own address. On a shared story, which has
 // no role, the address on screen is the link.
-export function ShareButton({ event, label }: { event: StoryEvent; label?: string }) {
+export function ShareButton({ event, label, className }: { event: StoryEvent; label?: string; className?: string }) {
   const enableLink = useMutation(api.share.enable);
   const [busy, setBusy] = useState(false);
   const shared = event.role === undefined;
@@ -69,7 +70,7 @@ export function ShareButton({ event, label }: { event: StoryEvent; label?: strin
       aria-label={canShareLink ? "Share with a link" : "Copy link"}
       onClick={() => void share()}
       disabled={busy}
-      className="text-white hover:bg-white/10 hover:text-white"
+      className={cn("text-white hover:bg-white/10 hover:text-white", className)}
     >
       <Share2Icon />
     </Button>

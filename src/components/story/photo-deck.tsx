@@ -44,8 +44,10 @@ export const PhotoDeck = forwardRef<
     onEdge(direction: "forward" | "back"): void;
     // Any touch or click on the deck stops autoplay.
     onInteract(): void;
+    // The picture now on top, so the scene can wash itself in its colours.
+    onIndexChange?(index: number): void;
   }
->(function PhotoDeck({ stop, active, autoplayMs, reduced, onEdge, onInteract }, ref) {
+>(function PhotoDeck({ stop, active, autoplayMs, reduced, onEdge, onInteract, onIndexChange }, ref) {
   const media = useMemo(() => picturesOf(stop), [stop]);
   const count = media.length;
   const root = useRef<HTMLDivElement>(null);
@@ -59,6 +61,12 @@ export const PhotoDeck = forwardRef<
   const before = useRef<Map<number, Pose> | null>(null);
   const entering = useRef<Flight | null>(null);
   const dragging = useRef(false);
+
+  const told = useRef(onIndexChange);
+  told.current = onIndexChange;
+  useEffect(() => {
+    told.current?.(index);
+  }, [index]);
 
   // A stop with fewer pictures keeps the view on one that is still there.
   useEffect(() => {
@@ -239,12 +247,17 @@ export const PhotoDeck = forwardRef<
       className="relative flex h-full w-full touch-none select-none flex-col items-center justify-center gap-4 p-4"
     >
       {count === 0 ? (
-        <div className="aspect-[4/3] w-full max-w-sm rotate-[-2deg] rounded-sm bg-[#f3e9d6] p-3 pb-10 shadow-2xl">
+        <div className="aspect-[4/3] w-full max-w-md rotate-[-2deg] rounded-sm bg-[#f3e9d6] p-3 pb-10 shadow-2xl">
           <div className="grid h-full place-items-center rounded-sm bg-[#e8dcc4] text-sm text-stone-500">No pictures at this stop</div>
         </div>
       ) : (
         <>
-          <div className="relative aspect-[4/3] w-full max-w-2xl" onDragStart={(e) => e.preventDefault()}>
+          {/* As big as the screen allows: the full width, or the height left
+              after the header, the dots and the caption. */}
+          <div
+            className="relative aspect-[4/3] w-full max-w-[min(100%,calc((100svh-20rem)*4/3))]"
+            onDragStart={(e) => e.preventDefault()}
+          >
             {shown.map((i) => {
               const offset = i - index;
               const leaving = offset < 0 ? flying.find((f) => f.index === i) : undefined;
@@ -258,7 +271,7 @@ export const PhotoDeck = forwardRef<
                     else cards.current.delete(i);
                   }}
                   aria-hidden={offset !== 0}
-                  className="absolute inset-0 rounded-sm bg-[#f3e9d6] p-2 pb-8 shadow-2xl"
+                  className="absolute inset-0 rounded-sm bg-[#f3e9d6] p-2 pb-8 shadow-[0_30px_60px_-15px_rgb(0_0_0/0.7),0_10px_20px_-10px_rgb(0_0_0/0.5)] sm:p-3 sm:pb-12"
                   style={{
                     transform: leaving ? FLY[leaving.dir] : restPose(offset, tiltOf(i), reduced),
                     zIndex: leaving ? 40 : Math.max(10, 30 - Math.max(offset, 0) * 10),

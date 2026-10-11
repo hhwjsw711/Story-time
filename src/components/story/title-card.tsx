@@ -89,15 +89,27 @@ export function TitleCard({
   );
 
   return (
-    <section aria-label="Title" className="flex flex-1 items-center justify-center px-4 py-6">
+    <section aria-label="Title" className="flex flex-1 items-center justify-center px-6 py-10 sm:px-12 lg:px-20">
+      {/* The page is the screen: paper from edge to edge, a little darker at
+          its edges like a sheet under a lamp. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-[#f3e9d6] bg-[radial-gradient(ellipse_at_50%_42%,transparent_50%,rgb(91_74_58/0.18)_100%)]"
+      />
       <div
         style={TYPEWRITER}
-        className="w-full max-w-2xl -rotate-[0.4deg] bg-[#f3e9d6] px-8 py-10 text-stone-900 shadow-2xl [text-shadow:0_0_1px_rgb(28_25_23/0.4)] sm:px-14 sm:py-16"
+        className="relative w-full max-w-5xl text-stone-900 [text-shadow:0_0_1px_rgb(28_25_23/0.35)]"
       >
-        {lines[0] && <p className="text-sm text-stone-600">{line(0)}</p>}
-        <h1 className="mt-6 text-3xl leading-tight font-bold text-balance sm:text-4xl">{line(1)}</h1>
-        {lines[2] && <p className="mt-6 text-base leading-relaxed whitespace-pre-wrap">{line(2)}</p>}
-        <p className="mt-8 text-sm text-stone-600">{line(3)}</p>
+        {lines[0] && <p className="text-sm tracking-wide text-stone-600 sm:text-base">{line(0)}</p>}
+        <h1 className="mt-6 text-[clamp(2.25rem,6.5vw,5.75rem)] leading-[1.04] font-bold tracking-tight text-balance sm:mt-10">
+          {line(1)}
+        </h1>
+        {lines[2] && (
+          <p className="mt-6 max-w-[62ch] text-base leading-relaxed whitespace-pre-wrap sm:mt-10 sm:text-xl sm:leading-relaxed">
+            {line(2)}
+          </p>
+        )}
+        <p className="mt-8 text-sm text-stone-600 sm:mt-14 sm:text-base">{line(3)}</p>
       </div>
     </section>
   );
