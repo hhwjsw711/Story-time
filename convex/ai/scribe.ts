@@ -106,7 +106,7 @@ function zoneLabel(offset: number | undefined): string {
   return `UTC${offset < 0 ? "-" : "+"}${hours}:${minutes}`;
 }
 
-function promptFor(c: ScribeContext): string {
+export function promptFor(c: ScribeContext, hint?: string): string {
   // The clock where it happened, in the zone it happened in.
   const when = new Date(c.startsAt + (c.tzOffsetMinutes ?? 0) * 60_000).toISOString().slice(0, 16).replace("T", " ");
   const lines: Array<string | undefined> = [
@@ -119,6 +119,8 @@ function promptFor(c: ScribeContext): string {
     c.labels.length > 0 ? `Labels here: ${c.labels.join(", ")}` : undefined,
     c.experienceLabels.length > 0 ? `Labels this experience uses: ${c.experienceLabels.join(", ")}` : undefined,
     c.notes.length > 0 ? `Already written, don't repeat it: ${c.notes.join(" / ")}` : undefined,
+    // What the person said the photos are, when they said: their own words.
+    hint ? `The person says the photos are: ${hint}` : undefined,
     "The photos are this moment.",
   ];
   return lines.filter((line): line is string => line !== undefined).join("\n");
@@ -139,7 +141,7 @@ function writeCaption(ctx: ActionCtx, threadId: string, messages: ModelMessage[]
 // worth it across runtimes.
 export async function captionMoment(
   ctx: ActionCtx,
-  args: { momentId: Id<"moments">; thumbs: Array<{ mediaId: Id<"media">; jpeg: string }> },
+  args: { momentId: Id<"moments">; thumbs: Array<{ mediaId: Id<"media">; jpeg: string }>; hint?: string },
 ): Promise<void> {
   const found: ScribeContext = await ctx.runQuery(internal.ai.scribe.context, { momentId: args.momentId });
   // Nothing left to fill, so no model call.
@@ -153,7 +155,7 @@ export async function captionMoment(
       data: Uint8Array.from(atob(thumb.jpeg), (c) => c.charCodeAt(0)),
       mediaType: "image/jpeg",
     }));
-    const text: TextPart = { type: "text", text: promptFor(found) };
+    const text: TextPart = { type: "text", text: promptFor(found, args.hint) };
     const messages: ModelMessage[] = [{ role: "user", content: [...images, text] }];
     draft = await writeCaption(ctx, threadId, messages);
   } catch (error) {
@@ -173,7 +175,7 @@ export async function captionMoment(
 }
 
 export const caption = internalAction({
-  args: { momentId: v.id("moments"), thumbs: v.array(vThumb) },
+  args: { momentId: v.id("moments"), thumbs: v.array(vThumb), hint: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     await captionMoment(ctx, args);

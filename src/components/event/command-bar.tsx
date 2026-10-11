@@ -1,19 +1,22 @@
 import { useAuthToken } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { SparklesIcon, Trash2Icon } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, useId, useRef, useState } from "react";
+import { ImagePlusIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { MAX_COMMAND_CHARS } from "../../../convex/lib/limits";
 import { findPlace, type Geo } from "@/components/event/place-input";
 import { canAddTo } from "@/components/event/quick-add";
+import { VoiceButton } from "@/components/event/voice-button";
 import type { EventView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { deletePhotos } from "@/lib/actions";
-import { enrichMoment } from "@/lib/add-moments";
+import { enrichMoment, plural } from "@/lib/add-moments";
+import { addPhotos } from "@/lib/add-photos";
 import { describeOp, placesToFind, withPins, type PlanOp } from "@/lib/command-plan";
 import { errorMessage } from "@/lib/errors";
+import { MEDIA_ACCEPT } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 // The geocoder asks for one lookup at a time, spaced out.
@@ -35,7 +38,9 @@ async function pin(ops: PlanOp[], near: Geo | undefined): Promise<PlanOp[]> {
 // One box above the itinerary for everything: say what happened and it becomes
 // a moment, as before; say what to change ("move this to Friday", "add Hanover
 // as a stop by plane", "delete the second stop") and it shows the changes to
-// approve first. Applying is one step, and all of it lands together.
+// approve first. Applying is one step, and all of it lands together. Words can
+// be spoken (the mic) and photos can be attached: with photos, the words are
+// what they are, and the photos become moments, as the Add button makes them.
 export function CommandBar({ event, openMomentId }: { event: EventView; openMomentId?: string }) {
   const token = useAuthToken();
   const moments = useQuery(api.moments.list, { eventId: event._id });
@@ -48,7 +53,24 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
   const [plan, setPlan] = useState<Plan | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const hint = useId();
+  const [files, setFiles] = useState<File[]>([]);
+  // Read at each call: tokens are short-lived and a batch can run for minutes.
+  const latestToken = useRef(token);
+  useEffect(() => {
+    latestToken.current = token;
+  }, [token]);
+  // Small previews of the first few attached files, let go of when they change.
+  const [previews, setPreviews] = useState<Array<{ name: string; url: string | null }>>([]);
+  useEffect(() => {
+    const made = files.slice(0, 4).map((file) => ({
+      name: file.name,
+      url: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    setPreviews(made);
+    return () => made.forEach((m) => m.url && URL.revokeObjectURL(m.url));
+  }, [files]);
 
   if (!canAddTo(event)) return null;
   const said = text.trim();
@@ -78,11 +100,28 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!said || busy) return;
+    if ((!said && files.length === 0) || busy) return;
     setProblem(null);
     setPlan(null);
     setPhase("reading");
     try {
+      // Photos attached: they become moments, and the words say what they are.
+      // Nothing to read or approve, so no plan.
+      if (files.length > 0) {
+        const made = await addPhotos({
+          event,
+          files,
+          note: said,
+          token: () => latestToken.current ?? undefined,
+          createMoment,
+          enrich,
+        });
+        if (made) {
+          setFiles([]);
+          setText("");
+        }
+        return;
+      }
       const out = await propose({
         eventId: event._id,
         text: said,
@@ -152,13 +191,60 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
           disabled={busy}
           className="min-w-0 flex-1"
         />
-        <Button type="submit" size="sm" variant="outline" disabled={!said || busy}>
-          <SparklesIcon /> {phase === "reading" ? "Reading…" : "Go"}
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          disabled={busy || !token}
+          aria-label="Attach photos or videos"
+          title="Attach photos or videos"
+          onClick={() => picker.current?.click()}
+        >
+          <ImagePlusIcon aria-hidden />
+        </Button>
+        {/* The words are spliced onto what is already there. */}
+        <VoiceButton disabled={busy} onText={(spoken) => setText((now) => (now.trim() ? `${now.trim()} ${spoken}` : spoken))} />
+        <Button type="submit" size="sm" variant="outline" disabled={(!said && files.length === 0) || busy}>
+          <SparklesIcon /> {phase === "reading" ? (files.length > 0 ? "Adding…" : "Reading…") : "Go"}
         </Button>
       </form>
+      <input
+        ref={picker}
+        type="file"
+        accept={MEDIA_ACCEPT}
+        multiple
+        tabIndex={-1}
+        // Visually hidden rather than display:none: some browsers won't click those.
+        className="sr-only"
+        onChange={(e) => {
+          const picked = Array.from(e.target.files ?? []);
+          setFiles((now) => [...now, ...picked]);
+          setPlan(null);
+          // Cleared, so picking the same files again still fires.
+          e.target.value = "";
+        }}
+      />
+
+      {files.length > 0 && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="Attached files">
+          <ul className="flex -space-x-1.5">
+            {previews.map(({ name, url }, i) => (
+              <li key={`${name}-${i}`} className="size-8 overflow-hidden rounded-md border bg-muted ring-2 ring-background">
+                {url ? <img src={url} alt="" className="size-full object-cover" /> : <ImagePlusIcon aria-hidden className="m-2 size-4" />}
+              </li>
+            ))}
+          </ul>
+          <span>
+            {plural(files.length, "file")} · {said ? "they'll be moments, with your words as the note" : "they'll be added as moments"}
+          </span>
+          <Button type="button" size="icon-xs" variant="ghost" aria-label="Remove the attached files" disabled={busy} onClick={() => setFiles([])}>
+            <XIcon aria-hidden />
+          </Button>
+        </div>
+      )}
 
       <p id={hint} className={cn("text-xs text-muted-foreground", (plan !== null || said !== "") && "sr-only")}>
-        Say what happened, or what to change: “move this to Friday”, “add Hanover as a stop by plane”, “delete the second stop”.
+        Say what happened, or what to change: “move this to Friday”, “add Hanover as a stop by plane”, “delete the second stop”. Speak with the mic, or attach photos and say what they are.
       </p>
 
       <p role="status" className="sr-only">

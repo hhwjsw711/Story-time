@@ -4,6 +4,7 @@ import { components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, internalQuery } from "../_generated/server";
 import { assertNotArchived, requireEventAccess } from "../lib/access";
+import { MAX_COMMAND_CHARS } from "../lib/limits";
 import { rateLimiter } from "../lib/rateLimit";
 import { captionMoment, vThumb } from "./scribe";
 
@@ -47,6 +48,8 @@ export const enrich = action({
   args: {
     momentId: v.id("moments"),
     thumbs: v.optional(v.array(vThumb)),
+    // What the person said the photos are, to guide the note.
+    hint: v.optional(v.string()),
   },
   returns: v.boolean(),
   handler: async (ctx, args): Promise<boolean> => {
@@ -54,7 +57,11 @@ export const enrich = action({
     const { ok } = await rateLimiter.limit(ctx, "enrich", { key: userId });
     if (!ok) return false;
     if (args.thumbs !== undefined && args.thumbs.length > 0) {
-      await captionMoment(ctx, { momentId: args.momentId, thumbs: args.thumbs });
+      await captionMoment(ctx, {
+        momentId: args.momentId,
+        thumbs: args.thumbs,
+        hint: args.hint?.trim().slice(0, MAX_COMMAND_CHARS) || undefined,
+      });
     }
     await start(ctx, internal.ai.enrich.enrichMoment, { momentId: args.momentId });
     return true;

@@ -17,6 +17,7 @@ import type * as ai_generate from "../ai/generate.js";
 import type * as ai_models from "../ai/models.js";
 import type * as ai_scribe from "../ai/scribe.js";
 import type * as ai_unfurl from "../ai/unfurl.js";
+import type * as ai_voice from "../ai/voice.js";
 import type * as auth from "../auth.js";
 import type * as changes from "../changes.js";
 import type * as crons from "../crons.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   "ai/models": typeof ai_models;
   "ai/scribe": typeof ai_scribe;
   "ai/unfurl": typeof ai_unfurl;
+  "ai/voice": typeof ai_voice;
   auth: typeof auth;
   changes: typeof changes;
   crons: typeof crons;

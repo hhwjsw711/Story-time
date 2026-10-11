@@ -10,4 +10,6 @@ export const rateLimiter = new RateLimiter(components.rateLimiter, {
   // Typed requests to change moments ("move this to Friday"): each reads the
   // sentence with two models, so fewer than fill-ins.
   command: { kind: "token bucket", rate: 60, period: HOUR },
+  // Spoken requests turned into text; each is paid for by the project.
+  voice: { kind: "token bucket", rate: 40, period: HOUR },
 });

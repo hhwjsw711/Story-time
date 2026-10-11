@@ -27,3 +27,7 @@ export const MAX_LIVE_UPLOAD_BYTES = 2 * 1024 ** 3;
 // What one typed request may do: how long it is, and how many things it may change.
 export const MAX_COMMAND_CHARS = 600;
 export const MAX_COMMAND_OPS = 8;
+// A spoken request: at most this long, and (at the recorder's 32 kbit/s) well
+// inside the 1 MiB a Convex value may hold.
+export const MAX_VOICE_SECONDS = 60;
+export const MAX_VOICE_BYTES = 900_000;
