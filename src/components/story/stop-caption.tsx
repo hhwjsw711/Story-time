@@ -1,11 +1,13 @@
 import { transportOf } from "@/components/event/transport";
 import { authorByline } from "@/lib/actors";
+import { formatDateTime } from "@/lib/local-time";
 import type { StoryStep } from "@/lib/story-steps";
 
 type StopScene = Extract<StoryStep, { kind: "stop" }>;
 
-const when = (ms: number) =>
-  new Date(ms).toLocaleString(undefined, {
+// On the clock where the stop happened.
+const when = (ms: number, offset?: number) =>
+  formatDateTime(ms, offset, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -25,7 +27,7 @@ export function StopCaption({ scene, meId }: { scene: StopScene; meId: string | 
     pictured ? b.type !== "photo" && b.type !== "video" : b.type === "link",
   );
   // A stop without a place is headed by its time, or its number in the story.
-  const time = stop.startsAt === undefined ? undefined : when(stop.startsAt);
+  const time = stop.startsAt === undefined ? undefined : when(stop.startsAt, scene.tzOffsetMinutes);
   const heading = stop.place || time || scene.place;
   const showTime = time !== undefined && heading !== time;
 

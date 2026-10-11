@@ -79,6 +79,13 @@ test("stop scenes carry the author and labels of their moment", () => {
   expect(steps[1]).toMatchObject({ kind: "stop", authorName: "Sara", labels: ["food"] });
 });
 
+test("stop scenes carry their moment's zone, so every stop's time reads where it happened", () => {
+  const trip = moment({ startsAt: 1, tzOffsetMinutes: 540, stops: [{ startsAt: 2, place: "Nara", blocks: [] }] });
+  const steps = buildStorySteps("Trip", [trip]);
+  expect(steps[1]).toMatchObject({ kind: "stop", tzOffsetMinutes: 540 });
+  expect(steps[2]).toMatchObject({ kind: "stop", tzOffsetMinutes: 540 });
+});
+
 test("stop scenes carry the agent that added their moment", () => {
   const steps = buildStorySteps("Trip", [moment({ authorName: "Sara", authorAgent: "Claude" })]);
   expect(steps[1]).toMatchObject({ kind: "stop", authorName: "Sara", authorAgent: "Claude" });

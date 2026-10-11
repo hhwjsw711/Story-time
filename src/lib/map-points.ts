@@ -11,6 +11,8 @@ export type MapPoint = {
   lng: number;
   place?: string;
   startsAt?: number;
+  // The zone the stop's time reads in: its moment's.
+  tzOffsetMinutes?: number;
   transport?: Transport;
 };
 
@@ -29,6 +31,7 @@ export function mapPoints(moments: StoryMoment[]): MapPoint[] {
             lng: stop.geo.lng,
             place: stop.place,
             startsAt: stop.startsAt,
+            tzOffsetMinutes: moment.tzOffsetMinutes,
             transport: stop.transport,
           },
         ];

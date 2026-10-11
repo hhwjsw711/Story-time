@@ -22,6 +22,8 @@ export type StoryStep =
       momentId: string;
       stopIndex: number;
       stop: Stop;
+      // The zone the stop happened in, which is its moment's: its time reads there.
+      tzOffsetMinutes?: number;
       // The first stop of the whole story: the camera opens on it.
       first: boolean;
       // Absent in a shared story, which names no one.
@@ -75,6 +77,7 @@ export function buildStorySteps(title: string, moments: StoryMoment[]): StorySte
         momentId: moment._id,
         stopIndex,
         stop,
+        tzOffsetMinutes: moment.tzOffsetMinutes,
         first: n === 0,
         authorId: moment.authorId,
         authorName: moment.authorName,

@@ -1,3 +1,4 @@
+import { formatDay } from "./local-time";
 import { dayKey } from "./photo-groups";
 import type { StoryStep } from "./story-steps";
 
@@ -5,7 +6,7 @@ type StopScene = Extract<StoryStep, { kind: "stop" }>;
 type TravelScene = Extract<StoryStep, { kind: "travel" }>;
 
 export type StoryDay = {
-  // The viewer's local date, YYYY-MM-DD.
+  // The day the stops happened on, in the zone they happened in: YYYY-MM-DD.
   day: string;
   // The same date to read: "Wed, Feb 5".
   label: string;
@@ -29,10 +30,11 @@ export function storyDays(steps: StoryStep[]): StoryDay[] {
     const at = scene.stop.startsAt ?? momentAt;
     const before = steps[step - 1];
     const entry = { step, scene, leg: before?.kind === "travel" ? before : undefined };
-    const day = dayKey(at);
+    // A stop's zone is its moment's, so its day is the one it had there.
+    const day = dayKey(at, scene.tzOffsetMinutes);
     const last = days.at(-1);
     if (last?.day === day) last.stops.push(entry);
-    else days.push({ day, label: new Date(at).toLocaleDateString(undefined, DATE), index: days.length + 1, stops: [entry] });
+    else days.push({ day, label: formatDay(at, scene.tzOffsetMinutes, DATE), index: days.length + 1, stops: [entry] });
   });
   return days;
 }

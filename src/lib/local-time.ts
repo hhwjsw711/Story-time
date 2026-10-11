@@ -21,3 +21,20 @@ export function formatDay(ms: number, offset?: number, opts?: Intl.DateTimeForma
 export function formatDateTime(ms: number, offset?: number, opts?: Intl.DateTimeFormatOptions): string {
   return localParts(ms, offset).toLocaleString(undefined, { ...opts, timeZone: "UTC" });
 }
+
+// The day a moment fell on, as a local date for a calendar to show.
+export function calendarDay(ms: number, offset?: number): Date {
+  const at = localParts(ms, offset);
+  return new Date(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
+}
+
+// The clock as a <input type="datetime-local"> value, YYYY-MM-DDTHH:mm.
+export function toInput(ms: number, offset?: number): string {
+  return localParts(ms, offset).toISOString().slice(0, 16);
+}
+
+// The instant a <input type="datetime-local"> value names, read in the zone
+// it was shown in: the moment's, or the viewer's when it has none.
+export function fromInput(value: string, offset?: number): number {
+  return offset === undefined ? new Date(value).getTime() : Date.parse(`${value}Z`) - offset * 60_000;
+}

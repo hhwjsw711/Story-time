@@ -4,11 +4,11 @@ import { transportOf } from "@/components/event/transport";
 import { Near } from "@/components/story/memoir/near";
 import { Button } from "@/components/ui/button";
 import { authorByline } from "@/lib/actors";
+import { formatTime } from "@/lib/local-time";
 import type { StoryStep } from "@/lib/story-steps";
 
 type StopScene = Extract<StoryStep, { kind: "stop" }>;
 
-const time = (ms: number) => new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 // One stop as a card: where and when, how they got there, what they wrote and
@@ -29,7 +29,8 @@ export function StopCard({
   onPlayFilm: (step: number) => void;
 }) {
   const { stop } = scene;
-  const at = stop.startsAt === undefined ? undefined : time(stop.startsAt);
+  // On the clock where the stop happened.
+  const at = stop.startsAt === undefined ? undefined : formatTime(stop.startsAt, scene.tzOffsetMinutes);
   // Headed by the place; without one, by its time, else its number in the story.
   const heading = stop.place || at || scene.place;
   const transport = transportOf(stop.transport);

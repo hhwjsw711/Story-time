@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatDateTime, formatDay, formatTime, localParts } from "./local-time";
+import { calendarDay, formatDateTime, formatDay, formatTime, fromInput, localParts, toInput } from "./local-time";
 
 // 22:15 UTC on 8 November: 7:15 on the 9th in Japan (UTC+9), 5:15 pm on the 8th
 // in New York (UTC-5). The same moment reads differently depending on the zone.
@@ -45,5 +45,31 @@ describe("formatters", () => {
 
   test("the zone is always UTC, even if a caller passes another", () => {
     expect(formatDateTime(KYOTO, 540, { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })).toBe("7:15 AM");
+  });
+});
+
+describe("calendar and form values", () => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  test("calendarDay is the moment's own day, as a local date", () => {
+    const japan = calendarDay(KYOTO, 540);
+    expect([japan.getFullYear(), japan.getMonth(), japan.getDate()]).toEqual([2025, 10, 9]);
+    const local = new Date(KYOTO);
+    expect(calendarDay(KYOTO)).toEqual(new Date(local.getFullYear(), local.getMonth(), local.getDate()));
+  });
+
+  test("toInput shows the wall clock in the moment's zone, else the viewer's", () => {
+    expect(toInput(KYOTO, 540)).toBe("2025-11-09T07:15");
+    expect(toInput(KYOTO, -300)).toBe("2025-11-08T17:15");
+    const local = new Date(KYOTO);
+    expect(toInput(KYOTO)).toBe(
+      `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}T${pad(local.getHours())}:${pad(local.getMinutes())}`,
+    );
+  });
+
+  test("fromInput reads a value in the moment's zone, and the viewer's when there is none", () => {
+    expect(fromInput("2025-11-09T07:15", 540)).toBe(KYOTO);
+    expect(fromInput(toInput(KYOTO, -300), -300)).toBe(KYOTO);
+    expect(fromInput("2025-11-09T07:15")).toBe(new Date(2025, 10, 9, 7, 15).getTime());
   });
 });

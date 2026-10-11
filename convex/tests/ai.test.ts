@@ -298,3 +298,20 @@ describe("enrich: who may ask", () => {
     ).rejects.toThrow(/Event not found/);
   });
 });
+
+describe("scribe: what it is told about a moment", () => {
+  test("its context carries the zone the moment happened in, for the clock time", async () => {
+    const { t, owner, eventId } = await setup();
+    // 22:15 UTC on 8 November: 07:15 on the 9th in Japan.
+    const startsAt = Date.UTC(2025, 10, 8, 22, 15);
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt,
+      tzOffsetMinutes: 540,
+      place: "Kyoto",
+      blocks: [{ type: "note", text: "Fushimi Inari" }],
+    });
+    const context = await t.query(internal.ai.scribe.context, { momentId });
+    expect(context).toMatchObject({ startsAt, tzOffsetMinutes: 540 });
+  });
+});
