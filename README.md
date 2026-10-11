@@ -37,6 +37,47 @@ Place search and the names of photo locations use OpenStreetMap data from photon
 
 On the client, `VITE_APP_URL` (the site's origin, set at build time) makes the link-preview image URL absolute. Crawlers ignore relative `og:image` URLs.
 
+## Connect an assistant (MCP)
+
+Claude Code, Claude Desktop and other [MCP](https://modelcontextprotocol.io) clients can read an experience's moments, and add or update moments for you. Make a connection on Settings, then Agents: name it, choose whether it may use all your experiences or one of them, and paste the setup the page shows. The token is shown once. If you lose it, disconnect that connection and make a new one. Tokens are stored only as a keyed hash.
+
+The endpoint is your Convex site address with `/mcp` on the end:
+
+```
+https://<deployment>.convex.site/mcp
+```
+
+Claude Code:
+
+```bash
+claude mcp add --transport http story-time https://<deployment>.convex.site/mcp --header "Authorization: Bearer <token>"
+```
+
+Any other client that takes an HTTP MCP server:
+
+```json
+{
+  "mcpServers": {
+    "story-time": {
+      "type": "http",
+      "url": "https://<deployment>.convex.site/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+The Agents page works the address out from `VITE_CONVEX_URL`. If that isn't a `.convex.cloud` address, such as a local deployment, the page asks for the site address instead.
+
+| Tool | What it does |
+| --- | --- |
+| `list_experiences` | Lists the experiences the assistant can add to. Call it first. |
+| `list_moments` | Reads the most recent moments of one experience, newest first. |
+| `add_moment` | Adds a moment: when, where, a note or feeling, links, labels and up to nine more stops. Photos and videos are added in the app. |
+| `update_moment` | Changes a moment's time, place, transport or labels, or adds a note to it. Nothing is deleted. |
+
+An assistant acts for you, so it can do only what you could do. It can add to the experiences you own or help with, and change moments you added yourself, or any moment in an experience you own. Viewers can't add or change anything. Everything it adds or changes is labelled with its name, so you can always tell it from your own writing, and you can edit or remove any of it in the app. A connection can be limited to one experience, can make 60 requests a minute, and you can hold up to 10 connections at once.
+
 ## Scripts
 
 | Command | Does |
