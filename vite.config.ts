@@ -15,6 +15,9 @@ const config = defineConfig(({ command, mode }) => {
   }
   return {
     resolve: { tsconfigPaths: true },
+    // Fonts stay separate files, fetched only for the scripts a page uses;
+    // inlined, a small subset would ride along in every page's CSS.
+    build: { assetsInlineLimit: (file: string) => (file.endsWith(".woff2") ? false : undefined) },
     plugins: lazyPlugins(() => [
       devtools(),
       cloudflare({ viteEnvironment: { name: "ssr" } }),

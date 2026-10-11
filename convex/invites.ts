@@ -104,7 +104,8 @@ export const create = mutation({
         ttlMs: ttlDays * DAY_MS,
       },
     );
-    const link = `${appOrigin()}/invite/${token}`;
+    // After "#", so the token never reaches a server log or a Referer header.
+    const link = `${appOrigin()}/invite#${token}`;
 
     if (emailed) {
       await ctx.runMutation(components.email.lib.send, {

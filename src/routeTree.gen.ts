@@ -15,6 +15,7 @@ import { Route as SRouteImport } from './routes/s'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as ApiUploadRouteImport } from './routes/api/upload'
+import { Route as InviteIndexRouteImport } from './routes/invite.index'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings.index'
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings.account'
@@ -54,6 +55,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
 const ApiUploadRoute = ApiUploadRouteImport.update({
   id: '/api/upload',
   path: '/api/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteIndexRoute = InviteIndexRouteImport.update({
+  id: '/invite/',
+  path: '/invite/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InviteTokenRoute = InviteTokenRouteImport.update({
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRouteWithChildren
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/invite/': typeof InviteIndexRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/agents': typeof AppSettingsAgentsRoute
   '/settings/data': typeof AppSettingsDataRoute
@@ -136,6 +143,7 @@ export interface FileRoutesByTo {
   '/home': typeof AppHomeRoute
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/invite': typeof InviteIndexRoute
   '/settings/account': typeof AppSettingsAccountRoute
   '/settings/agents': typeof AppSettingsAgentsRoute
   '/settings/data': typeof AppSettingsDataRoute
@@ -156,6 +164,7 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
+  '/invite/': typeof InviteIndexRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
   '/_app/settings/agents': typeof AppSettingsAgentsRoute
   '/_app/settings/data': typeof AppSettingsDataRoute
@@ -176,6 +185,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/api/upload'
     | '/invite/$token'
+    | '/invite/'
     | '/settings/account'
     | '/settings/agents'
     | '/settings/data'
@@ -193,6 +203,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/api/upload'
     | '/invite/$token'
+    | '/invite'
     | '/settings/account'
     | '/settings/agents'
     | '/settings/data'
@@ -212,6 +223,7 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/api/upload'
     | '/invite/$token'
+    | '/invite/'
     | '/_app/settings/account'
     | '/_app/settings/agents'
     | '/_app/settings/data'
@@ -230,6 +242,7 @@ export interface RootRouteChildren {
   SRoute: typeof SRoute
   ApiUploadRoute: typeof ApiUploadRoute
   InviteTokenRoute: typeof InviteTokenRoute
+  InviteIndexRoute: typeof InviteIndexRoute
   ApiEventsIdRoute: typeof ApiEventsIdRoute
   ApiMediaIdRoute: typeof ApiMediaIdRoute
   EIdStoryRoute: typeof EIdStoryRoute
@@ -277,6 +290,13 @@ declare module '@tanstack/react-router' {
       path: '/api/upload'
       fullPath: '/api/upload'
       preLoaderRoute: typeof ApiUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite/': {
+      id: '/invite/'
+      path: '/invite'
+      fullPath: '/invite/'
+      preLoaderRoute: typeof InviteIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/invite/$token': {
@@ -401,6 +421,7 @@ const rootRouteChildren: RootRouteChildren = {
   SRoute: SRoute,
   ApiUploadRoute: ApiUploadRoute,
   InviteTokenRoute: InviteTokenRoute,
+  InviteIndexRoute: InviteIndexRoute,
   ApiEventsIdRoute: ApiEventsIdRoute,
   ApiMediaIdRoute: ApiMediaIdRoute,
   EIdStoryRoute: EIdStoryRoute,

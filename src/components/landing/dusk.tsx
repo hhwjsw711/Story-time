@@ -181,7 +181,7 @@ export function DuskScene() {
           <g key={s.name}>
             <circle cx={s.x} cy={s.y} r="16" fill={`url(#${id("halo")})`} />
             <circle cx={s.x} cy={s.y} r="4.5" fill="#fde68a" stroke="#141210" strokeWidth="2" />
-            <text x={s.x} y={s.y - 16} textAnchor="middle" fontFamily="Newsreader, ui-serif, Georgia, serif" fontSize="16" fill="#fff" fillOpacity="0.78">
+            <text x={s.x} y={s.y - 16} textAnchor="middle" className="font-serif" fontSize="16" fill="#fff" fillOpacity="0.78">
               {s.name}
             </text>
           </g>

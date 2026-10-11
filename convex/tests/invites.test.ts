@@ -38,7 +38,7 @@ async function setup() {
   return { t, owner, guest: as(guestId), guestId, eventId };
 }
 
-const tokenOf = (link: string) => link.split("/invite/")[1]!;
+const tokenOf = (link: string) => link.split("/invite#")[1]!;
 const firstPage = { numItems: 25, cursor: null };
 
 describe("invites", () => {
