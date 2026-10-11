@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, test, vi } from "vitest";
-import { transportFromSpeed } from "../ai/decide";
+import { readDecisions, transportFromSpeed, withDistance } from "../ai/decide";
 import { titleFromHtml } from "../ai/unfurl";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -143,6 +143,44 @@ describe("decide: the speed fallback", () => {
   });
 });
 
+describe("decide: long legs are flights", () => {
+  test("a road or foot guess over 1,000 km becomes a plane; trains, boats, other and short legs keep theirs", () => {
+    // Amman to Hanover, photos a day apart: 130 km/h reads as a drive.
+    expect(withDistance(transportFromSpeed(130), 3124.7)).toBe("plane");
+    expect(withDistance("bus", 1200)).toBe("plane");
+    expect(withDistance("walk", 1001)).toBe("plane");
+    expect(withDistance("car", 1000)).toBe("car");
+    expect(withDistance("car", 400)).toBe("car");
+    expect(withDistance("train", 1500)).toBe("train");
+    expect(withDistance("boat", 1400)).toBe("boat");
+    expect(withDistance("other", 1400)).toBe("other");
+    expect(withDistance("car", undefined)).toBe("car");
+  });
+
+  test("a long leg Jev is unsure about is still a flight", () => {
+    const found = {
+      eventId: "e" as Id<"events">,
+      route: ["Queen Alia International Airport", "Hanover"],
+      labels: [],
+      legs: [
+        { id: "1", stopIndex: 1, km: 3124.7, minutes: 1443, kmh: 130 },
+        { id: "2", stopIndex: 2, km: 12, minutes: 60, kmh: 12 },
+      ],
+    };
+    const unsure = { type: "choice" as const, choice: "car", probabilities: { car: 0.45, plane: 0.4 } };
+    const decided = readDecisions(found, { transport_1: unsure, transport_2: unsure });
+    expect(decided.transports).toEqual({ "1": "plane" });
+  });
+
+  test("a walk or ride over 80 km becomes a drive: the speed included the stay", () => {
+    // Hanover to Berlin, photos 12 hours apart: 21 km/h reads as a bike ride.
+    expect(withDistance(transportFromSpeed(21), 250)).toBe("car");
+    expect(withDistance("walk", 81)).toBe("car");
+    expect(withDistance("walk", 80)).toBe("walk");
+    expect(withDistance("bike", 40)).toBe("bike");
+  });
+});
+
 describe("decideTransport: without Jev, speed decides", () => {
   test("a stop's transport comes from its speed, and the decision is saved", async () => {
     const { t, owner, eventId } = await setup();
@@ -169,6 +207,24 @@ describe("decideTransport: without Jev, speed decides", () => {
     expect(m?.stops[1]?.transport).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith("Jev skipped the transport decision:", expect.any(String));
+    warn.mockRestore();
+  });
+
+  test("a day between an airport and a city 3,000 km away is a flight, not a drive", async () => {
+    const { t, owner, eventId } = await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: T0,
+      tzOffsetMinutes: 0,
+      place: "Queen Alia International Airport",
+      geo: { lat: 31.7226, lng: 35.9932 },
+      blocks: [{ type: "note", text: "boarding" }],
+      stops: [{ place: "Hanover", geo: { lat: 52.3759, lng: 9.732 }, startsAt: T0 + 24 * HOUR, blocks: [] }],
+    });
+
+    const decided = await t.action(internal.ai.decide.decideTransport, { momentId });
+    expect(decided).toEqual({ transports: { "1": "plane" } });
     warn.mockRestore();
   });
 });

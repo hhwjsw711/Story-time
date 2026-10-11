@@ -18,13 +18,22 @@ type Transport = Infer<typeof vTransport>;
 
 const TRANSPORTS: Transport[] = ["walk", "bike", "car", "bus", "train", "plane", "boat", "other"];
 
+// Past this a leg on the road or on foot is really a flight: photos taken a
+// day apart make a flight's average speed look like a drive (Amman to Hanover,
+// 3,125 km in 24 hours, is 130 km/h). Trains and boats can go this far.
+const FLIGHT_KM = 1000;
+// Past this nobody walked or cycled it between two photos.
+const ROAD_KM = 80;
+
+// The times between stops are between their first photos, so they include the
+// stay at the earlier stop: every speed is a lower bound.
 const TRANSPORT_CRITERIA: Record<Transport, string> = {
-  walk: "Short distance, under about 6 km/h.",
-  bike: "Up to about 25 km/h.",
-  car: "Road speeds, door to door.",
+  walk: `Short distance, under about 6 km/h, and under ${ROAD_KM} km.`,
+  bike: `Up to about 25 km/h, and under ${ROAD_KM} km.`,
+  car: `Road speeds, door to door, and under about ${FLIGHT_KM} km.`,
   bus: "Road speeds between stops in town.",
   train: "Station names, or 60 to 250 km/h between towns.",
-  plane: "Over 300 km, or over 400 km/h.",
+  plane: `Over 300 km, or over 400 km/h. Almost anything over ${FLIGHT_KM} km.`,
   boat: "Water: ferry or harbour names.",
   other: "None of these.",
 };
@@ -144,6 +153,17 @@ function isTransport(value: string): value is Transport {
   return TRANSPORTS.some((t) => t === value);
 }
 
+// Raises a guess that the distance rules out, since speeds only ever read low:
+// a road or foot leg over FLIGHT_KM is a flight, a walk or ride over ROAD_KM a
+// drive. Trains, boats, planes and "other" stand as they are.
+export function withDistance(transport: Transport, km: number | undefined): Transport {
+  if (km === undefined) return transport;
+  const ground = transport === "walk" || transport === "bike" || transport === "car" || transport === "bus";
+  if (ground && km > FLIGHT_KM) return "plane";
+  if ((transport === "walk" || transport === "bike") && km > ROAD_KM) return "car";
+  return transport;
+}
+
 // ponytail: speed alone is a rough guess (it can't tell a bus from a car), so this
 // only answers when Jev can't.
 export function transportFromSpeed(kmh: number): Transport {
@@ -156,7 +176,10 @@ export function transportFromSpeed(kmh: number): Transport {
 function heuristic(legs: Leg[]): Decided {
   const transports: Record<string, Transport> = {};
   for (const leg of legs) {
-    if (leg.kmh !== undefined) transports[String(leg.stopIndex)] = transportFromSpeed(leg.kmh);
+    const key = String(leg.stopIndex);
+    if (leg.kmh !== undefined) transports[key] = withDistance(transportFromSpeed(leg.kmh), leg.km);
+    // No time between the stops: only a distance this long says anything.
+    else if (leg.km !== undefined && leg.km > FLIGHT_KM) transports[key] = "plane";
   }
   return { transports };
 }
@@ -182,14 +205,17 @@ function choiceOf(
   return (answer.probabilities?.[answer.choice] ?? 0) >= 0.5 ? answer.choice : undefined;
 }
 
-function readDecisions(
+export function readDecisions(
   found: LegsOf,
   answers: Record<string, Experimental_DecisionAnswer<Experimental_DecisionQuestion>>,
 ): Decided {
   const transports: Record<string, Transport> = {};
   for (const leg of found.legs) {
     const choice = choiceOf(answers[`transport_${leg.id}`]);
-    if (choice !== undefined && isTransport(choice)) transports[String(leg.stopIndex)] = choice;
+    if (choice !== undefined && isTransport(choice)) transports[String(leg.stopIndex)] = withDistance(choice, leg.km);
+    // Unsure, Jev says nothing; a leg this long is a flight all the same, as
+    // the fallback would say.
+    else if (leg.km !== undefined && leg.km > FLIGHT_KM) transports[String(leg.stopIndex)] = "plane";
   }
   const label = choiceOf(answers.label);
   return {
@@ -249,6 +275,8 @@ export const decideTransport = internalAction({
         labels: decided.label === undefined ? undefined : [decided.label],
       });
     }
-    return decided;
+    // The workflow keeps each step's result, so the label (decrypted, and saved
+    // above) stays out of it: transports aren't anyone's words.
+    return { transports: decided.transports };
   },
 });
