@@ -1,3 +1,4 @@
+import { MoveHorizontalIcon } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AuthImage, AuthVideo } from "@/components/auth-image";
 import { atEdge, clampIndex, nextIndex, picturesOf, tapDelta, tiltOf, wordsOf } from "@/components/story/photo-deck-math";
@@ -5,6 +6,9 @@ import type { Stop } from "@/lib/story-steps";
 import { isForward, SWIPE_PX, type SwipeDirection, useSwipeSurface } from "@/lib/use-swipe";
 import { cn } from "@/lib/utils";
 
+// Remembered once the gesture hint has been shown on this device.
+const HINT_KEY = "storytime:deck-hint";
+const HINT_MS = 4000;
 const TYPEWRITER = { fontFamily: '"Courier New", Courier, monospace' };
 
 const FLIGHT_MS = 280;
@@ -49,7 +53,7 @@ export const PhotoDeck = forwardRef<
     // The picture now on top, so the scene can wash itself in its colours.
     onIndexChange?(index: number): void;
   }
->(function PhotoDeck({ stop, active, autoplayMs, reduced, onEdge, onInteract, onIndexChange }, ref) {
+>(function PhotoDeck({ stop, active, autoplayMs, reduced, onEdge, onInteract: interacted, onIndexChange }, ref) {
   const media = useMemo(() => picturesOf(stop), [stop]);
   const words = useMemo(() => wordsOf(stop), [stop]);
   // A line or two is set large, so a short note fills its page; a long one smaller.
@@ -67,6 +71,28 @@ export const PhotoDeck = forwardRef<
   const before = useRef<Map<number, Pose> | null>(null);
   const entering = useRef<Flight | null>(null);
   const dragging = useRef(false);
+
+  // The first deck of pictures someone meets says how to turn them, once per
+  // device, and goes as soon as they touch it.
+  const [hint, setHint] = useState(false);
+  useEffect(() => {
+    if (!active || media.length < 2) return;
+    let seen = false;
+    try {
+      seen = localStorage.getItem(HINT_KEY) === "1";
+      localStorage.setItem(HINT_KEY, "1");
+    } catch {
+      // Storage refused (a private window): the hint shows each time, which is fine.
+    }
+    if (seen) return;
+    setHint(true);
+    const t = setTimeout(() => setHint(false), HINT_MS);
+    return () => clearTimeout(t);
+  }, [active, media.length]);
+  const onInteract = () => {
+    setHint(false);
+    interacted();
+  };
 
   const told = useRef(onIndexChange);
   told.current = onIndexChange;
@@ -313,6 +339,13 @@ export const PhotoDeck = forwardRef<
               );
             })}
           </div>
+          {hint && (
+            <p className="pointer-events-none absolute bottom-16 z-50 flex items-center gap-2 rounded-full bg-black/65 px-3.5 py-1.5 text-xs text-white shadow-lg backdrop-blur-sm animate-in fade-in slide-in-from-bottom-1 duration-500 sm:bottom-20">
+              <MoveHorizontalIcon aria-hidden className="size-4" />
+              <span className="pointer-coarse:hidden">Drag a picture aside, or press ← →</span>
+              <span className="hidden pointer-coarse:inline">Swipe the picture to see the next</span>
+            </p>
+          )}
           <p className="sr-only" aria-live="polite">
             Picture {index + 1} of {count}
           </p>
