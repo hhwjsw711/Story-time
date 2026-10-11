@@ -144,7 +144,7 @@ describe("decide: the speed fallback", () => {
 });
 
 describe("decide: long legs are flights", () => {
-  test("a road or foot guess over 1,000 km becomes a plane; trains, boats and short legs keep theirs", () => {
+  test("a road or foot guess over 1,000 km becomes a plane; trains, boats, other and short legs keep theirs", () => {
     // Amman to Hanover, photos a day apart: 130 km/h reads as a drive.
     expect(withDistance(transportFromSpeed(130), 3124.7)).toBe("plane");
     expect(withDistance("bus", 1200)).toBe("plane");
@@ -153,7 +153,16 @@ describe("decide: long legs are flights", () => {
     expect(withDistance("car", 400)).toBe("car");
     expect(withDistance("train", 1500)).toBe("train");
     expect(withDistance("boat", 1400)).toBe("boat");
+    expect(withDistance("other", 1400)).toBe("other");
     expect(withDistance("car", undefined)).toBe("car");
+  });
+
+  test("a walk or ride over 80 km becomes a drive: the speed included the stay", () => {
+    // Hanover to Berlin, photos 12 hours apart: 21 km/h reads as a bike ride.
+    expect(withDistance(transportFromSpeed(21), 250)).toBe("car");
+    expect(withDistance("walk", 81)).toBe("car");
+    expect(withDistance("walk", 80)).toBe("walk");
+    expect(withDistance("bike", 40)).toBe("bike");
   });
 });
 
