@@ -1,5 +1,6 @@
 import { useQuery } from "convex/react";
 import {
+  BotIcon,
   CalendarDaysIcon,
   CalendarIcon,
   ChevronDownIcon,
@@ -59,7 +60,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { initials } from "@/components/user-avatar";
-import { authorOf, editorOf } from "@/lib/actors";
+import { authorOf, describeActor, editorOf } from "@/lib/actors";
 import {
   allBlocks,
   type AgentFilter,
@@ -265,15 +266,22 @@ const columns = helper.columns([
       const m = row.original;
       const mine = m.authorId === table.options.meta?.meId;
       const name = m.authorName ?? "Anonymous";
+      // An agent's moment shows a robot, not the initials of the person it acts
+      // for, so it can be told apart where the Who column has folded away.
+      const agent = m.authorAgent !== undefined;
+      const who = agent ? describeActor(authorOf(m)) : mine ? "You" : name;
       return (
         <>
-          <span className="sr-only">By {mine ? "you" : name}</span>
+          <span className="sr-only">By {agent ? who : mine ? "you" : name}</span>
           <span
             aria-hidden
-            title={mine ? "You" : name}
-            className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground ring-2 ring-card"
+            title={who}
+            className={cn(
+              "flex size-5 items-center justify-center rounded-full text-[9px] font-semibold ring-2 ring-card",
+              agent ? "bg-violet-100 text-violet-900 dark:bg-violet-500/20 dark:text-violet-200" : "bg-muted text-muted-foreground",
+            )}
           >
-            {initials(m.authorName) || <UserIcon className="size-3" />}
+            {agent ? <BotIcon className="size-3" /> : initials(m.authorName) || <UserIcon className="size-3" />}
           </span>
         </>
       );
@@ -623,7 +631,7 @@ export function ItineraryTab({
     body = (
       <div className="grid gap-4 p-1.5 sm:grid-cols-2 xl:grid-cols-3">
         {leaves.map((r) => (
-          <MomentCard key={r.id} moment={r.original} />
+          <MomentCard key={r.id} moment={r.original} meId={meId} />
         ))}
       </div>
     );

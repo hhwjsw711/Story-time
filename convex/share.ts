@@ -74,6 +74,7 @@ const vSharedMoment = vMomentView.omit(
   "authorName",
   "authorAgent",
   "editedAt",
+  "editedById",
   "editedByName",
   "editedByAgent",
 );

@@ -58,6 +58,9 @@ export const vMomentView = v.object({
   // Present once the moment has been edited: when, by which person (for an
   // agent's edit, the person it acts for) and by which agent, if one did.
   editedAt: v.optional(v.number()),
+  // The person's id (an agent's edit: the one it acts for; Scribe's: none), so
+  // someone with no display name is still known to be a person.
+  editedById: v.optional(v.id("users")),
   editedByName: v.optional(v.string()),
   editedByAgent: v.optional(v.string()),
   startsAt: v.number(),
@@ -112,6 +115,7 @@ export async function viewMoment(
     authorName: author?.displayName,
     authorAgent: moment.authorAgent,
     editedAt: edit?.at,
+    editedById: edit?.userId,
     editedByName: editor?.displayName,
     editedByAgent: edit?.agent,
     startsAt: moment.startsAt,

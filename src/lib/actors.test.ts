@@ -22,7 +22,7 @@ describe("editorOf", () => {
   });
 
   test("a person, an agent, or the system", () => {
-    expect(editorOf({ editedAt: 1, editedByName: "Noor" })).toEqual({ kind: "human", name: "Noor" });
+    expect(editorOf({ editedAt: 1, editedById: "u2", editedByName: "Noor" })).toEqual({ kind: "human", name: "Noor" });
     expect(editorOf({ editedAt: 1, editedByAgent: "Scribe" })).toEqual({
       kind: "agent",
       name: "Scribe",
@@ -30,30 +30,44 @@ describe("editorOf", () => {
     });
     expect(editorOf({ editedAt: 1 })).toEqual({ kind: "system" });
   });
+
+  test("a person with no display name is still a person, not the system", () => {
+    expect(editorOf({ editedAt: 1, editedById: "u2" })).toEqual({ kind: "human", name: undefined });
+  });
 });
 
 describe("editNoticeOf", () => {
   test("nothing for a moment that was never edited", () => {
-    expect(editNoticeOf({ authorName: "Sara" })).toBeUndefined();
+    expect(editNoticeOf({ authorId: "u1" })).toBeUndefined();
   });
 
   test("an agent's edit is news, even on the author's own moment", () => {
-    expect(editNoticeOf({ authorName: "Sara", editedAt: 5, editedByAgent: "Scribe" })).toEqual({
+    expect(editNoticeOf({ authorId: "u1", editedAt: 5, editedByAgent: "Scribe" })).toEqual({
       at: 5,
       by: { kind: "agent", name: "Scribe", onBehalfOf: undefined },
     });
   });
 
   test("another person's edit is news; the author's own edit is not", () => {
-    expect(editNoticeOf({ authorName: "Sara", editedAt: 5, editedByName: "Noor" })).toEqual({
+    expect(editNoticeOf({ authorId: "u1", editedAt: 5, editedById: "u2", editedByName: "Noor" })).toEqual({
       at: 5,
       by: { kind: "human", name: "Noor" },
     });
-    expect(editNoticeOf({ authorName: "Sara", editedAt: 5, editedByName: "Sara" })).toBeUndefined();
+    expect(editNoticeOf({ authorId: "u1", editedAt: 5, editedById: "u1", editedByName: "Sara" })).toBeUndefined();
   });
 
-  test("an edit with no name on it is not named", () => {
-    expect(editNoticeOf({ authorName: "Sara", editedAt: 5 })).toBeUndefined();
+  test("a different person with the author's exact name is still a different person", () => {
+    expect(editNoticeOf({ authorId: "u1", editedAt: 5, editedById: "u2", editedByName: "Sara" })).toEqual({
+      at: 5,
+      by: { kind: "human", name: "Sara" },
+    });
+  });
+
+  test("someone with no display name who isn't the author is named as anonymous, not hidden", () => {
+    expect(editNoticeOf({ authorId: "u1", editedAt: 5, editedById: "u2" })).toEqual({
+      at: 5,
+      by: { kind: "human", name: undefined },
+    });
   });
 });
 

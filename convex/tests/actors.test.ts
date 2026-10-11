@@ -57,6 +57,7 @@ describe("people are people", () => {
 
     await owner.mutation(api.moments.update, { momentId, place: "Lisbon, Alfama" });
     [m] = await owner.query(api.moments.list, { eventId });
+    expect(m?.editedById).toBe(ownerId);
     expect(m?.editedByName).toBe("Sara");
     expect(m?.editedByAgent).toBeUndefined();
     expect(m?.editedAt).toBeGreaterThan(0);
@@ -81,6 +82,7 @@ describe("agents are labelled", () => {
 
     const [m] = await owner.query(api.moments.list, { eventId });
     expect(m?.editedByAgent).toBe("Scribe");
+    expect(m?.editedById).toBeUndefined();
     expect(m?.editedByName).toBeUndefined();
     // The moment is still the person's.
     expect(m?.authorAgent).toBeUndefined();
@@ -132,7 +134,7 @@ describe("agents are labelled", () => {
     const shared = await t.query(api.share.get, { token });
     expect(shared?.moments).toHaveLength(1);
     const keys = Object.keys(shared?.moments[0] ?? {});
-    for (const hidden of ["authorId", "authorName", "authorAgent", "editedAt", "editedByName", "editedByAgent"]) {
+    for (const hidden of ["authorId", "authorName", "authorAgent", "editedAt", "editedById", "editedByName", "editedByAgent"]) {
       expect(keys).not.toContain(hidden);
     }
   });
