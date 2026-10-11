@@ -184,13 +184,19 @@ function Sidebar({
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
-          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+          className="w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground outline-none [&>button]:hidden"
           style={
             {
               "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
             } as React.CSSProperties
           }
           side={side}
+          // Radix skips links when it picks what to focus, so opening the menu
+          // landed on the theme switch. Focus the panel itself instead.
+          onOpenAutoFocus={(e) => {
+            e.preventDefault()
+            if (e.currentTarget instanceof HTMLElement) e.currentTarget.focus()
+          }}
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
