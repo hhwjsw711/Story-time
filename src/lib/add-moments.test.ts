@@ -115,6 +115,27 @@ describe("enrichMoment", () => {
     expect(enrich).toHaveBeenCalledWith({ momentId: "m1", thumbs: [] });
   });
 
+  test("after a refusal, moments skip the request for a while, then ask again", async () => {
+    vi.useFakeTimers();
+    try {
+      const enrich = vi.fn(async () => false);
+      enrichMoment(enrich, "m1" as Id<"moments">, []);
+      await vi.runAllTimersAsync();
+      expect(enrich).toHaveBeenCalledOnce();
+
+      enrichMoment(enrich, "m2" as Id<"moments">, []);
+      await vi.runAllTimersAsync();
+      expect(enrich).toHaveBeenCalledOnce();
+
+      vi.advanceTimersByTime(10 * 60_000);
+      enrichMoment(enrich, "m3" as Id<"moments">, []);
+      await vi.runAllTimersAsync();
+      expect(enrich).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test("a failed request is logged, not thrown", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 

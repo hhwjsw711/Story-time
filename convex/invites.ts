@@ -68,6 +68,15 @@ export const create = mutation({
       "owner",
     );
     assertNotArchived(event);
+    // Before any email is charged. Used and expired invites are deleted, so
+    // the list holds only the ones still waiting.
+    const waiting = await ctx.runQuery(components.invites.lib.listForEvent, { eventId: args.eventId });
+    if (waiting.length >= MAX_WAITING_INVITES) {
+      throw new ConvexError({
+        code: "LIMIT",
+        message: `This experience has ${MAX_WAITING_INVITES} invites waiting to be opened. Cancel some first.`,
+      });
+    }
     const sendTo = args.sendTo?.trim() ?? "";
     if (
       sendTo !== "" &&
@@ -85,14 +94,6 @@ export const create = mutation({
     );
     const emailed = sendTo !== "" && canEmail;
     if (emailed) await chargeInviteEmail(ctx, userId);
-    // Every listed invite is still waiting: used and expired ones are deleted.
-    const waiting = await ctx.runQuery(components.invites.lib.listForEvent, { eventId: args.eventId });
-    if (waiting.length >= MAX_WAITING_INVITES) {
-      throw new ConvexError({
-        code: "LIMIT",
-        message: `This experience has ${MAX_WAITING_INVITES} invites nobody has opened yet. Cancel some first.`,
-      });
-    }
     const ttlDays = Math.min(Math.max(args.ttlDays ?? 7, 1), 14);
     const { token, expiresAt, inviteId } = await ctx.runMutation(
       components.invites.lib.create,

@@ -3,6 +3,8 @@ import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { transportFromSpeed } from "../ai/decide";
 import { titleFromHtml } from "../ai/unfurl";
+import { rateLimiter } from "../lib/rateLimit";
+import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
@@ -174,25 +176,19 @@ describe("decideTransport: without Jev, speed decides", () => {
 });
 
 describe("enrich: an hourly allowance per person", () => {
-  test("the 121st fill-in in an hour is refused, and the next hour starts fresh", async () => {
+  test("120 fill-ins at once, then a refusal, then it refills over the hour", async () => {
     vi.useFakeTimers();
     try {
-      const { owner, eventId } = await setup();
-      const momentId = await owner.mutation(api.moments.create, {
-        eventId,
-        startsAt: T0,
-        tzOffsetMinutes: 0,
-        place: "Lisbon",
-        geo: LISBON,
-        blocks: [{ type: "note", text: "one" }],
-      });
-      for (let i = 0; i < 120; i++) {
-        expect(await owner.mutation(internal.ai.enrich.admit, { momentId })).toBe(true);
-      }
-      expect(await owner.mutation(internal.ai.enrich.admit, { momentId })).toBe(false);
-
-      vi.advanceTimersByTime(HOUR);
-      expect(await owner.mutation(internal.ai.enrich.admit, { momentId })).toBe(true);
+      const t = convexTest(schema, modules);
+      rateLimiterTest.register(t);
+      const take = (key: string) => t.run((ctx) => rateLimiter.limit(ctx, "enrich", { key }));
+      for (let i = 0; i < 120; i++) expect((await take("sara")).ok).toBe(true);
+      expect((await take("sara")).ok).toBe(false);
+      // Someone else's allowance is their own.
+      expect((await take("sam")).ok).toBe(true);
+      // Half an hour refills about half.
+      vi.advanceTimersByTime(HOUR / 2);
+      expect((await take("sara")).ok).toBe(true);
     } finally {
       vi.useRealTimers();
     }

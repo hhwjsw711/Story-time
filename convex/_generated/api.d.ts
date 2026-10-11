@@ -117,4 +117,5 @@ export declare const components: {
   invites: import("../components/invites/_generated/component.js").ComponentApi<"invites">;
   agent: import("@convex-dev/agent/_generated/component.js").ComponentApi<"agent">;
   workflow: import("@convex-dev/workflow/_generated/component.js").ComponentApi<"workflow">;
+  rateLimiter: import("@convex-dev/rate-limiter/_generated/component.js").ComponentApi<"rateLimiter">;
 };

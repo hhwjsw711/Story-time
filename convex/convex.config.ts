@@ -7,6 +7,7 @@ import oauth from "@convex-dev/auth/providers/oauth/convex.config.js";
 import authAnonymous from "@convex-dev/auth/providers/anonymous/convex.config.js";
 import agent from "@convex-dev/agent/convex.config";
 import workflow from "@convex-dev/workflow/convex.config";
+import rateLimiter from "@convex-dev/rate-limiter/convex.config";
 
 const app = defineApp({
   env: {
@@ -67,5 +68,7 @@ app.use(invites);
 // Haiku captions through the Convex AI Gateway, and durable enrichment steps.
 app.use(agent);
 app.use(workflow);
+// Per-person allowances (convex/lib/rateLimit.ts).
+app.use(rateLimiter);
 
 export default app;

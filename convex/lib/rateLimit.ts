@@ -1,22 +1,10 @@
-import type { MutationCtx } from "../_generated/server";
+import { HOUR, RateLimiter } from "@convex-dev/rate-limiter";
+import { components } from "../_generated/api";
 
-// Counts one use of `key`: at most `limit` in each fixed window of `windowMs`.
-// False when the window is full; that attempt isn't counted.
-export async function takeOne(ctx: MutationCtx, key: string, limit: number, windowMs: number): Promise<boolean> {
-  const now = Date.now();
-  const row = await ctx.db
-    .query("limits")
-    .withIndex("by_key", (q) => q.eq("key", key))
-    .unique();
-  if (row === null) {
-    await ctx.db.insert("limits", { key, windowStart: now, count: 1 });
-    return true;
-  }
-  if (now - row.windowStart >= windowMs) {
-    await ctx.db.patch("limits", row._id, { windowStart: now, count: 1 });
-    return true;
-  }
-  if (row.count >= limit) return false;
-  await ctx.db.patch("limits", row._id, { count: row.count + 1 });
-  return true;
-}
+// Per-person allowances. Token buckets refill steadily, so a burst at the end
+// of one hour can't add up with the start of the next.
+export const rateLimiter = new RateLimiter(components.rateLimiter, {
+  // AI fill-ins (Haiku notes, Jev transports), one per enrich call: enough for
+  // a big import, not for a runaway client.
+  enrich: { kind: "token bucket", rate: 120, period: HOUR },
+});

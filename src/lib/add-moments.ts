@@ -1,4 +1,5 @@
 import type { FunctionArgs } from "convex/server";
+import { toast } from "sonner";
 import type { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { IMAGE_MIME_TYPES } from "../../convex/lib/limits";
@@ -166,14 +167,23 @@ export function samplePhotos<T extends { file: File }>(photos: T[]): T[] {
   return photos.filter((p) => p.file.type.startsWith("image/")).slice(0, THUMBS_PER_MOMENT);
 }
 
+type Enrich = (args: { momentId: Id<"moments">; thumbs: Thumb[] }) => Promise<unknown>;
+
+// Once the server says this hour's AI fill-ins are used up, new moments skip
+// the thumbnails and the request for a while. The allowance refills steadily:
+// ten minutes brings back about 20.
+const PAUSE_MS = 10 * 60_000;
+const pausedUntil = new WeakMap<Enrich, number>();
+
 // Asks the server to draft a saved moment's note, labels, transport and link
 // titles, from small copies of its photos. The moment is already saved, so a
 // failure here is only logged.
 export function enrichMoment(
-  enrich: (args: { momentId: Id<"moments">; thumbs: Thumb[] }) => Promise<unknown>,
+  enrich: Enrich,
   momentId: Id<"moments">,
   photos: Array<{ mediaId: Id<"media">; file: File }>,
 ): void {
+  if (Date.now() < (pausedUntil.get(enrich) ?? 0)) return;
   void Promise.all(
     samplePhotos(photos).map(async ({ mediaId, file }) => {
       const jpeg = await thumbnail(file);
@@ -181,5 +191,12 @@ export function enrichMoment(
     }),
   )
     .then((made) => enrich({ momentId, thumbs: made.flat() }))
+    .then((admitted) => {
+      if (admitted !== false || Date.now() < (pausedUntil.get(enrich) ?? 0)) return;
+      pausedUntil.set(enrich, Date.now() + PAUSE_MS);
+      toast.info("Notes paused for a few minutes", {
+        description: "You've used this hour's AI fill-ins. New moments are saved without drafted notes until it refills.",
+      });
+    })
     .catch((error: unknown) => console.warn("Couldn't draft the moment's notes:", error));
 }

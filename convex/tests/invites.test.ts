@@ -48,7 +48,7 @@ describe("invites", () => {
       await owner.mutation(api.invites.create, { eventId, role: "viewer" });
     }
     await expect(owner.mutation(api.invites.create, { eventId, role: "viewer" })).rejects.toThrow(
-      /nobody has opened yet/,
+      /invites waiting to be opened/,
     );
 
     const waiting = await owner.query(api.invites.listForEvent, { eventId });

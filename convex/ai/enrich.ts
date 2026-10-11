@@ -1,9 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { WorkflowManager, start } from "@convex-dev/workflow";
 import { components, internal } from "../_generated/api";
-import { action, internalMutation } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { action, internalQuery } from "../_generated/server";
 import { assertNotArchived, requireEventAccess } from "../lib/access";
-import { takeOne } from "../lib/rateLimit";
+import { rateLimiter } from "../lib/rateLimit";
 import { captionMoment, vThumb } from "./scribe";
 
 export const workflow = new WorkflowManager(components.workflow);
@@ -18,17 +19,12 @@ export const enrichMoment = workflow.define({
   },
 });
 
-// AI fill-ins per person per hour: a big import still gets its notes, and a
-// runaway client can't run up the AI bill.
-const ENRICH_PER_HOUR = 120;
-const HOUR_MS = 60 * 60_000;
-
 // Only the moment's author (or the owner) may have it enriched, the same rule
-// as editing it. False once they've used this hour's fill-ins.
-export const admit = internalMutation({
+// as editing it. Returns who asks, whose allowance it comes out of.
+export const authorize = internalQuery({
   args: { momentId: v.id("moments") },
-  returns: v.boolean(),
-  handler: async (ctx, args): Promise<boolean> => {
+  returns: v.id("users"),
+  handler: async (ctx, args): Promise<Id<"users">> => {
     const moment = await ctx.db.get("moments", args.momentId);
     if (moment === null) throw new Error("Moment not found");
     const { userId, event, role } = await requireEventAccess(ctx, moment.eventId, "contributor");
@@ -39,28 +35,28 @@ export const admit = internalMutation({
       });
     }
     assertNotArchived(event);
-    return await takeOne(ctx, `enrich:${userId}`, ENRICH_PER_HOUR, HOUR_MS);
+    return userId;
   },
 });
 
 // Called right after a moment is saved. Photos (as 512px JPEGs) go to Scribe
-// first, when the caller sends them; then the workflow runs.
+// first, when the caller sends them; then the workflow runs. False when this
+// hour's fill-ins are used up: the moment stays as saved, and the client stops
+// sending photos for a while.
 export const enrich = action({
   args: {
     momentId: v.id("moments"),
     thumbs: v.optional(v.array(vThumb)),
   },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    // Over the limit the moment stays as it was saved, just without fill-ins.
-    if (!(await ctx.runMutation(internal.ai.enrich.admit, { momentId: args.momentId }))) {
-      console.warn("Enrichment skipped: the hourly limit is used up");
-      return null;
-    }
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    const userId: Id<"users"> = await ctx.runQuery(internal.ai.enrich.authorize, { momentId: args.momentId });
+    const { ok } = await rateLimiter.limit(ctx, "enrich", { key: userId });
+    if (!ok) return false;
     if (args.thumbs !== undefined && args.thumbs.length > 0) {
       await captionMoment(ctx, { momentId: args.momentId, thumbs: args.thumbs });
     }
     await start(ctx, internal.ai.enrich.enrichMoment, { momentId: args.momentId });
-    return null;
+    return true;
   },
 });
