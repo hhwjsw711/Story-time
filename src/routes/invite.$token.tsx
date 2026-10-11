@@ -20,7 +20,7 @@ function Invite() {
 
   useEffect(() => {
     if (!isAuthenticated || started.current) return;
-    started.current = true; // an invite works once, so never retry
+    started.current = true; // an invite works for the first person who opens it, so never retry
     accept({ token })
       .then((r) => navigate({ to: "/e/$id", params: { id: r.eventId } }))
       .catch((e) => setError(errorMessage(e)));
@@ -34,7 +34,7 @@ function Invite() {
             <h1 className="font-display text-3xl tracking-tight">This invite didn't open</h1>
             <p>{error}</p>
             <p className="text-sm text-stone-600 dark:text-stone-400">
-              Each invite link works once, and only for a limited time. Ask whoever sent it for a new one.
+              Each invite link works for the first person who opens it, and only for a limited time. Ask whoever sent it for a new one.
             </p>
             <Button variant="outline" asChild>
               {isAuthenticated ? <Link to="/home">Go to your experiences</Link> : <Link to="/">Go to Story-time</Link>}

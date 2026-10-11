@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { errorMessage } from "@/lib/errors";
 
 export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archived: boolean }) {
-  const sessions = useQuery(api.sessions.listForEvent, { eventId });
+  const people = usePaginatedQuery(api.sessions.listForEvent, { eventId }, { initialNumItems: 25 });
   const invites = useQuery(api.invites.listForEvent, { eventId });
   // The switched-on link, or null. Undefined while it loads.
   const publicLink = useQuery(api.share.link, { eventId });
@@ -142,7 +142,7 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
             <Button size="sm" variant="outline" onClick={() => void navigator.clipboard.writeText(link).then(() => toast.success("Copied"))}>
               Copy
             </Button>
-            <span className="text-muted-foreground">Works once. Shown only now.</span>
+            <span className="text-muted-foreground">Works for the first person who opens it. Shown only now.</span>
           </div>
         )}
         {invites && invites.length > 0 && (
@@ -163,41 +163,52 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
 
       <section className="space-y-3">
         <h2 className="font-semibold">People with access</h2>
-        {sessions && sessions.length === 0 ? (
+        {people.status !== "LoadingFirstPage" && people.results.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nobody yet. Only you can see this.</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Person</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Since</TableHead>
-                <TableHead className="text-right">Access</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sessions?.map((s) => (
-                <TableRow key={s._id}>
-                  <TableCell>{s.displayName ?? "Anonymous"}</TableCell>
-                  <TableCell className="capitalize">{s.role}</TableCell>
-                  <TableCell>{new Date(s.grantedAt).toLocaleDateString()}</TableCell>
-                  <TableCell className="text-right">
-                    {s.revokedAt ? (
-                      <Badge variant="secondary">Revoked</Badge>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => void revoke({ sessionId: s._id }).then(() => toast.success("Access revoked"))}
-                      >
-                        Revoke access
-                      </Button>
-                    )}
-                  </TableCell>
+          <div className="space-y-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Person</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Since</TableHead>
+                  <TableHead className="text-right">Access</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {people.results.map((s) => (
+                  <TableRow key={s._id}>
+                    <TableCell>{s.displayName ?? "Anonymous"}</TableCell>
+                    <TableCell className="capitalize">{s.role}</TableCell>
+                    <TableCell>{new Date(s.grantedAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-right">
+                      {s.revokedAt ? (
+                        <Badge variant="secondary">Revoked</Badge>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() =>
+                            void revoke({ sessionId: s._id })
+                              .then(() => toast.success("Access revoked"))
+                              .catch((e) => toast.error(errorMessage(e)))
+                          }
+                        >
+                          Revoke access
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {people.status === "CanLoadMore" && (
+              <Button variant="outline" onClick={() => people.loadMore(25)}>
+                Load more
+              </Button>
+            )}
+          </div>
         )}
       </section>
     </div>

@@ -274,6 +274,17 @@ export const update = mutation({
   },
 });
 
+// Takes a photo off a moment. Its uploader may delete it afterwards, so they're
+// recorded as the detacher. Anyone else's photo stays for its uploader and the
+// experience owner to delete: someone who merely edits a moment gets no rights.
+async function detachMedia(ctx: MutationCtx, mediaId: Id<"media">, userId: Id<"users">) {
+  const media = await ctx.db.get("media", mediaId);
+  await ctx.db.patch("media", mediaId, {
+    momentId: undefined,
+    detachedBy: media?.uploaderId === userId ? userId : undefined,
+  });
+}
+
 // The write behind `update`, shared with the AI enrichment. Encodes the edit,
 // moves media on and off the moment, keeps the itinerary in step and logs the
 // change. Access checks stay with the caller.
@@ -364,7 +375,7 @@ export async function writeMomentUpdate(
     const kept = new Set(mediaIdsOf(after));
     removedMediaIds = before.filter((id) => !kept.has(id));
     for (const id of removedMediaIds) {
-      await ctx.db.patch("media", id, { momentId: undefined, detachedBy: userId });
+      await detachMedia(ctx, id, userId);
     }
     for (const id of kept) {
       if (!before.includes(id)) {
@@ -433,7 +444,7 @@ export const remove = mutation({
 
     const removedMediaIds = mediaIdsOf(moment);
     for (const id of removedMediaIds) {
-      await ctx.db.patch("media", id, { momentId: undefined, detachedBy: userId });
+      await detachMedia(ctx, id, userId);
     }
     const row = await ctx.db
       .query("itinerary")

@@ -120,6 +120,39 @@ describe("media.listKeysForEvent", () => {
     expect(await owner.query(api.media.listKeysForEvent, { eventId })).toEqual([key]);
     await expect(friend.query(api.media.listKeysForEvent, { eventId })).rejects.toThrow();
   });
+
+  test("live objects are listed even behind thousands of deleted uploads", async () => {
+    const { t, owner, ownerId, eventId } = await setup();
+    const live = await fill(owner, eventId);
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5050; i++) {
+        await ctx.db.insert("media", {
+          eventId,
+          uploaderId: ownerId,
+          r2Key: `gone/${i}`,
+          size: 1,
+          mime: "image/png",
+          keyVersion: 1,
+          status: "deleted",
+        });
+      }
+    });
+    const keys = await owner.query(api.media.listKeysForEvent, { eventId });
+    expect(keys).toContain(live);
+    // Deleted objects are listed too, since they may not be gone from R2 yet.
+    expect(keys).toHaveLength(5051);
+  });
+});
+
+describe("events.createDraft", () => {
+  test("an owner can have 20 experiences; deleting one frees its slot", async () => {
+    const { t, owner, eventId } = await setup();
+    for (let i = 1; i < 20; i++) await owner.mutation(api.events.createDraft, {});
+    await expect(owner.mutation(api.events.createDraft, {})).rejects.toThrow(/EVENT_LIMIT/);
+    await owner.mutation(api.events.remove, { eventId });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await expect(owner.mutation(api.events.createDraft, {})).resolves.toBeTruthy();
+  });
 });
 
 describe("events.listMine, get and update", () => {

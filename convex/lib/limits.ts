@@ -19,3 +19,8 @@ export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 export const VIDEO_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 export const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 export const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
+// Experiences one person may own. Checked when one is created.
+export const MAX_EVENTS_PER_USER = 20;
+// Bytes one person may hold in live uploads (reserved or ready) across all
+// their experiences. Deleted uploads don't count.
+export const MAX_LIVE_UPLOAD_BYTES = 2 * 1024 ** 3;

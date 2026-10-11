@@ -185,7 +185,9 @@ export default defineSchema({
     .index("by_event_and_status", ["eventId", "status"])
     .index("by_moment", ["momentId"])
     // The reserved-upload sweep finds stale rows across experiences.
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    // One person's live uploads, summed for their upload budget.
+    .index("by_uploader_and_status", ["uploaderId", "status"]),
 
   // One row per invite email sent, for the daily cap. No address is kept.
   inviteEmails: defineTable({ userId: v.id("users") }).index("by_user", [

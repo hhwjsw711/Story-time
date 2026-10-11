@@ -98,7 +98,7 @@ export async function uploadAll(
   };
   await Promise.all(Array.from({ length: UPLOADS_AT_ONCE }, worker));
   if (full && done < items.length) {
-    failures.push(`${plural(items.length - done, "more file")} weren't uploaded: this experience has reached its upload limit`);
+    failures.push(`${plural(items.length - done, "more file")} weren't uploaded: the upload limit has been reached`);
   }
   return { uploaded, failures, full };
 }

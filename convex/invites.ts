@@ -98,8 +98,8 @@ export const create = mutation({
       await ctx.runMutation(components.email.lib.send, {
         to: sendTo,
         subject: `You're invited to "${event.title}"`,
-        html: `<p>You've been invited to a shared experience on Story-time.</p><p><a href="${link}">Open the invite</a></p><p>The link works once and expires on ${new Date(expiresAt).toUTCString()}.</p>`,
-        text: `You've been invited to "${event.title}" on Story-time.\n${link}\nThe link works once and expires on ${new Date(expiresAt).toUTCString()}.`,
+        html: `<p>You've been invited to a shared experience on Story-time.</p><p><a href="${link}">Open the invite</a></p><p>The link works for the first person who opens it and expires on ${new Date(expiresAt).toUTCString()}.</p>`,
+        text: `You've been invited to "${event.title}" on Story-time.\n${link}\nThe link works for the first person who opens it and expires on ${new Date(expiresAt).toUTCString()}.`,
       });
     }
 
@@ -164,9 +164,19 @@ export const accept = mutation({
     ) {
       return { eventId: event._id };
     }
-    await ctx.runMutation(components.invites.lib.consume, {
+    // Archived experiences take no new people; the link stays unused.
+    assertNotArchived(event);
+    const consumed = await ctx.runMutation(components.invites.lib.consume, {
       token: args.token,
     });
+    // Taken between the lookup and here: refuse, and the throw rolls back the
+    // whole accept, so nothing is granted on a spent link.
+    if (consumed === null) {
+      throw new ConvexError({
+        code: "INVITE_INVALID",
+        message: "This invite has expired or was already used",
+      });
+    }
     const grantedBy = ctx.db.normalizeId("users", invite.invitedBy) ?? event.ownerId;
     let sessionId;
     if (existing === null) {

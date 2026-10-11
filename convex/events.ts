@@ -15,7 +15,7 @@ import {
   type EventRole,
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
-import { DEFAULT_MOMENT_LIMIT } from "./lib/limits";
+import { DEFAULT_MOMENT_LIMIT, MAX_EVENTS_PER_USER } from "./lib/limits";
 import { vRegion } from "./schema";
 
 const vStatus = v.union(
@@ -101,6 +101,17 @@ export const createDraft = mutation({
   returns: v.id("events"),
   handler: async (ctx) => {
     const userId = await requireUserId(ctx);
+    // Bounded: the count only needs to reach the cap. Deleting one frees a slot.
+    const owned = await ctx.db
+      .query("events")
+      .withIndex("by_owner", (q) => q.eq("ownerId", userId))
+      .take(MAX_EVENTS_PER_USER);
+    if (owned.length >= MAX_EVENTS_PER_USER) {
+      throw new ConvexError({
+        code: "EVENT_LIMIT",
+        message: `You can have up to ${MAX_EVENTS_PER_USER} experiences. Delete one to make another.`,
+      });
+    }
     const user = await ctx.db.get("users", userId);
     const eventId = await ctx.db.insert("events", {
       ownerId: userId,
