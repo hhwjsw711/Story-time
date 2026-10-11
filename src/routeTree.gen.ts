@@ -18,6 +18,7 @@ import { Route as ApiUploadRouteImport } from './routes/api/upload'
 import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings.index'
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings.account'
+import { Route as AppSettingsAgentsRouteImport } from './routes/_app/settings.agents'
 import { Route as AppSettingsDataRouteImport } from './routes/_app/settings.data'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings.profile'
 import { Route as ApiEventsIdRouteImport } from './routes/api/events.$id'
@@ -70,6 +71,11 @@ const AppSettingsAccountRoute = AppSettingsAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => AppSettingsRoute,
 } as any)
+const AppSettingsAgentsRoute = AppSettingsAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => AppSettingsRoute,
+} as any)
 const AppSettingsDataRoute = AppSettingsDataRouteImport.update({
   id: '/data',
   path: '/data',
@@ -114,6 +120,7 @@ export interface FileRoutesByFullPath {
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
   '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/agents': typeof AppSettingsAgentsRoute
   '/settings/data': typeof AppSettingsDataRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/api/events/$id': typeof ApiEventsIdRoute
@@ -130,6 +137,7 @@ export interface FileRoutesByTo {
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
   '/settings/account': typeof AppSettingsAccountRoute
+  '/settings/agents': typeof AppSettingsAgentsRoute
   '/settings/data': typeof AppSettingsDataRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/api/events/$id': typeof ApiEventsIdRoute
@@ -149,6 +157,7 @@ export interface FileRoutesById {
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
+  '/_app/settings/agents': typeof AppSettingsAgentsRoute
   '/_app/settings/data': typeof AppSettingsDataRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/api/events/$id': typeof ApiEventsIdRoute
@@ -168,6 +177,7 @@ export interface FileRouteTypes {
     | '/api/upload'
     | '/invite/$token'
     | '/settings/account'
+    | '/settings/agents'
     | '/settings/data'
     | '/settings/profile'
     | '/api/events/$id'
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/api/upload'
     | '/invite/$token'
     | '/settings/account'
+    | '/settings/agents'
     | '/settings/data'
     | '/settings/profile'
     | '/api/events/$id'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '/api/upload'
     | '/invite/$token'
     | '/_app/settings/account'
+    | '/_app/settings/agents'
     | '/_app/settings/data'
     | '/_app/settings/profile'
     | '/api/events/$id'
@@ -288,6 +300,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAccountRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/agents': {
+      id: '/_app/settings/agents'
+      path: '/agents'
+      fullPath: '/settings/agents'
+      preLoaderRoute: typeof AppSettingsAgentsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/data': {
       id: '/_app/settings/data'
       path: '/data'
@@ -342,6 +361,7 @@ declare module '@tanstack/react-router' {
 
 interface AppSettingsRouteChildren {
   AppSettingsAccountRoute: typeof AppSettingsAccountRoute
+  AppSettingsAgentsRoute: typeof AppSettingsAgentsRoute
   AppSettingsDataRoute: typeof AppSettingsDataRoute
   AppSettingsProfileRoute: typeof AppSettingsProfileRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
@@ -349,6 +369,7 @@ interface AppSettingsRouteChildren {
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsAccountRoute: AppSettingsAccountRoute,
+  AppSettingsAgentsRoute: AppSettingsAgentsRoute,
   AppSettingsDataRoute: AppSettingsDataRoute,
   AppSettingsProfileRoute: AppSettingsProfileRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
