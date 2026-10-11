@@ -205,7 +205,7 @@ function choiceOf(
   return (answer.probabilities?.[answer.choice] ?? 0) >= 0.5 ? answer.choice : undefined;
 }
 
-function readDecisions(
+export function readDecisions(
   found: LegsOf,
   answers: Record<string, Experimental_DecisionAnswer<Experimental_DecisionQuestion>>,
 ): Decided {
@@ -213,6 +213,9 @@ function readDecisions(
   for (const leg of found.legs) {
     const choice = choiceOf(answers[`transport_${leg.id}`]);
     if (choice !== undefined && isTransport(choice)) transports[String(leg.stopIndex)] = withDistance(choice, leg.km);
+    // Unsure, Jev says nothing; a leg this long is a flight all the same, as
+    // the fallback would say.
+    else if (leg.km !== undefined && leg.km > FLIGHT_KM) transports[String(leg.stopIndex)] = "plane";
   }
   const label = choiceOf(answers.label);
   return {

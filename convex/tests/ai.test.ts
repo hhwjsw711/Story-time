@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, test, vi } from "vitest";
-import { transportFromSpeed, withDistance } from "../ai/decide";
+import { readDecisions, transportFromSpeed, withDistance } from "../ai/decide";
 import { titleFromHtml } from "../ai/unfurl";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -155,6 +155,21 @@ describe("decide: long legs are flights", () => {
     expect(withDistance("boat", 1400)).toBe("boat");
     expect(withDistance("other", 1400)).toBe("other");
     expect(withDistance("car", undefined)).toBe("car");
+  });
+
+  test("a long leg Jev is unsure about is still a flight", () => {
+    const found = {
+      eventId: "e" as Id<"events">,
+      route: ["Queen Alia International Airport", "Hanover"],
+      labels: [],
+      legs: [
+        { id: "1", stopIndex: 1, km: 3124.7, minutes: 1443, kmh: 130 },
+        { id: "2", stopIndex: 2, km: 12, minutes: 60, kmh: 12 },
+      ],
+    };
+    const unsure = { type: "choice" as const, choice: "car", probabilities: { car: 0.45, plane: 0.4 } };
+    const decided = readDecisions(found, { transport_1: unsure, transport_2: unsure });
+    expect(decided.transports).toEqual({ "1": "plane" });
   });
 
   test("a walk or ride over 80 km becomes a drive: the speed included the stay", () => {
