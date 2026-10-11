@@ -1,4 +1,5 @@
-import { LngLatBounds } from "maplibre-gl";
+import { LngLatBounds, type Map as MapLibre } from "maplibre-gl";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { transportOf } from "@/components/event/transport";
 import {
@@ -24,10 +25,16 @@ const lngLat = (g: LatLng): Point => [g.lng, g.lat];
 // How long a leg in view waits for the basemap before showing the drawn map.
 const LOAD_TIMEOUT_MS = 6000;
 const PAST = { "line-color": "#e7e5e4", "line-opacity": 0.3, "line-width": 1.5, "line-dasharray": [2, 2] };
+// Where an arrival comes to rest, close enough to read the streets.
+const ARRIVE_ZOOM = 12.5;
+// Where an arrival opens when it is the only place on the map.
+const LONE_ZOOM = 5;
 
 // A leg on a real map, live-tracker style: the camera starts on where they
 // left from and pulls back to show both ends while the route draws itself
 // and the transport crosses it, over the same time the drawn map takes.
+// A leg with no spot to set off from arrives instead: the camera opens wide
+// on every place and flies in on the destination, where the transport parks.
 // Earlier legs stay faint; every located place of the story is marked.
 // Mounted ahead of view, it waits on the departure until `active`.
 export function RealMapScene({
@@ -42,7 +49,8 @@ export function RealMapScene({
   fallback,
 }: {
   leg: Leg;
-  from: LatLng;
+  // Where the leg sets off from, when that place is on the map.
+  from?: LatLng;
   to: LatLng;
   legs: Leg[];
   current: number;
@@ -55,12 +63,14 @@ export function RealMapScene({
   const seconds = legDuration(leg.transport);
   const transport = transportOf(leg.transport);
   const Icon = transport?.icon;
+  const departs = from !== undefined;
   const [progress, setProgress] = useState(animate ? 0 : 1);
   const [loaded, setLoaded] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
+  // An arrival has no route: nothing to draw from.
   const route = useMemo(
-    () => curve([from.lng, from.lat], [to.lng, to.lat], bend(leg.transport)),
-    [from.lng, from.lat, to.lng, to.lat, leg.transport],
+    () => (from ? curve(lngLat(from), lngLat(to), bend(leg.transport)) : []),
+    [from?.lng, from?.lat, to.lng, to.lat, leg.transport],
   );
   const behind = useMemo(() => {
     const done = legs.slice(0, current).flatMap((l, id) =>
@@ -68,10 +78,10 @@ export function RealMapScene({
     );
     return { flown: done.filter((l) => l.plane), went: done.filter((l) => !l.plane) };
   }, [legs, current]);
-  const visited = new Set(legs.slice(0, current + 1).flatMap((l) => [l.from, l.to]));
+  const visited = useMemo(() => new Set(legs.slice(0, current + 1).flatMap((l) => [l.from, l.to])), [legs, current]);
 
   useEffect(() => {
-    if (!animate || !active) return;
+    if (!departs || !animate || !active) return;
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {
       const t = Math.min(1, (now - t0) / (seconds * 1000));
@@ -79,7 +89,7 @@ export function RealMapScene({
       if (t < 1) raf = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(raf);
-  }, [animate, active, seconds]);
+  }, [departs, animate, active, seconds]);
 
   // Timed only while in view: a scene mounted ahead may load at leisure.
   useEffect(() => {
@@ -94,9 +104,13 @@ export function RealMapScene({
     <section aria-label={`${transport?.phrase ?? "Travelling"} from ${leg.from} to ${leg.to}`} className="relative flex-1">
       {/* Full bleed, up under the header; it fades in once the basemap is drawn. */}
       <div className={cn("absolute inset-x-0 -top-12 bottom-0 transition-opacity duration-700", loaded ? "opacity-100" : "opacity-0")}>
-        <RealMap theme="dark" interactive={false} center={lngLat(from)} zoom={11}>
+        <RealMap theme="dark" interactive={false} center={lngLat(from ?? to)} zoom={11}>
           <Loaded onLoad={setLoaded} />
-          <Camera from={from} to={to} route={route} seconds={seconds} animate={animate} active={active} />
+          {from ? (
+            <Camera from={from} to={to} route={route} seconds={seconds} animate={animate} active={active} />
+          ) : (
+            <Arrival to={to} places={places} seconds={seconds} animate={animate} active={active} />
+          )}
           <MapArc id="flown" data={behind.flown} curvature={bend("plane")} paint={PAST} interactive={false} />
           <MapArc id="went" data={behind.went} curvature={bend("walk")} paint={PAST} interactive={false} />
           {places.map((p) => {
@@ -125,16 +139,22 @@ export function RealMapScene({
               </MapMarker>
             );
           })}
-          <MapRoute coordinates={route} color="#e7e5e4" opacity={0.3} width={2} dashArray={[1, 2]} progress={progress} interactive={false}>
-            <RouteProgress color="#fde68a" opacity={1} width={4} />
-            <RouteMarker at="progress">
+          {from ? (
+            <MapRoute coordinates={route} color="#e7e5e4" opacity={0.3} width={2} dashArray={[1, 2]} progress={progress} interactive={false}>
+              <RouteProgress color="#fde68a" opacity={1} width={4} />
+              <RouteMarker at="progress">
+                <MarkerContent>
+                  <Badge Icon={Icon} />
+                </MarkerContent>
+              </RouteMarker>
+            </MapRoute>
+          ) : (
+            <MapMarker longitude={to.lng} latitude={to.lat}>
               <MarkerContent>
-                <span className="grid size-9 place-items-center rounded-full border-2 border-[#c2410c] bg-[#f3e9d6] shadow-lg">
-                  {Icon && <Icon aria-hidden className="size-4 text-[#c2410c]" />}
-                </span>
+                <Badge Icon={Icon} pulse={animate} />
               </MarkerContent>
-            </RouteMarker>
-          </MapRoute>
+            </MapMarker>
+          )}
           {/* The edges fade into the stage, darkest at the top behind the
               header and caption; the attribution stays above it. */}
           <div
@@ -156,12 +176,33 @@ export function RealMapScene({
   );
 }
 
+// The transport, riding the route or parked on an arrival. Its halo pulses
+// gently while the scene plays.
+function Badge({ Icon, pulse = false }: { Icon?: LucideIcon; pulse?: boolean }) {
+  return (
+    <span className="relative grid size-9 place-items-center">
+      {pulse && <span aria-hidden className="absolute -inset-1.5 animate-pulse rounded-full border-2 border-[#c2410c]/40" />}
+      <span className="grid size-9 place-items-center rounded-full border-2 border-[#c2410c] bg-[#f3e9d6] shadow-lg">
+        {Icon && <Icon aria-hidden className="size-4 text-[#c2410c]" />}
+      </span>
+    </span>
+  );
+}
+
 function Loaded({ onLoad }: { onLoad: (loaded: boolean) => void }) {
   const { isLoaded } = useMap();
   useEffect(() => {
     if (isLoaded) onLoad(true);
   }, [isLoaded, onLoad]);
   return null;
+}
+
+// Room for the caption over the top of the map. The sides keep clear of
+// labels, which hang up to ~110px either side of a point on narrow phones.
+function framePadding(map: MapLibre) {
+  const { clientWidth: w, clientHeight: h } = map.getContainer();
+  const side = Math.max(w * 0.14, 110);
+  return { top: h * 0.3, bottom: h * 0.14, left: side, right: side };
 }
 
 // Starts close on the departure, then (once active) eases out to frame both
@@ -185,12 +226,8 @@ function Camera({
   const { map } = useMap();
   useEffect(() => {
     if (!map) return;
-    const { clientWidth: w, clientHeight: h } = map.getContainer();
     const bounds = route.reduce((b, p) => b.extend(p), new LngLatBounds(route[0], route[0]));
-    // Labels hang up to ~110px either side of a point, so the sides keep at
-    // least that much room on narrow phones.
-    const side = Math.max(w * 0.14, 110);
-    const fit = { padding: { top: h * 0.3, bottom: h * 0.14, left: side, right: side }, maxZoom: 13 };
+    const fit = { padding: framePadding(map), maxZoom: 13 };
     if (!animate) {
       map.fitBounds(bounds, { ...fit, duration: 0 });
       return;
@@ -200,5 +237,44 @@ function Camera({
     if (active) map.fitBounds(bounds, { ...fit, duration: Math.min(2500, seconds * 700), essential: true });
     // Keyed on the leg's ends, not their objects, so a data refresh doesn't restart it.
   }, [map, from.lat, from.lng, to.lat, to.lng, animate, active]);
+  return null;
+}
+
+// Only the destination is known, so the camera opens wide on every place of
+// the story, then (once active) flies in on the destination over the leg's
+// time. Without motion it goes straight to the destination.
+function Arrival({
+  to,
+  places,
+  seconds,
+  animate,
+  active,
+}: {
+  to: LatLng;
+  places: Array<{ name: string; geo: LatLng }>;
+  seconds: number;
+  animate: boolean;
+  active: boolean;
+}) {
+  const { map } = useMap();
+  // Keyed on the spots, not their objects, so a data refresh doesn't restart it.
+  const spots = places.map((p) => `${p.geo.lng},${p.geo.lat}`).join(";");
+  useEffect(() => {
+    if (!map) return;
+    const destination = lngLat(to);
+    const padding = framePadding(map);
+    if (!animate) {
+      map.jumpTo({ center: destination, zoom: ARRIVE_ZOOM, padding });
+      return;
+    }
+    const points = places.map((p) => lngLat(p.geo));
+    if (points.length > 1) {
+      const box = points.reduce((b, p) => b.extend(p), new LngLatBounds(points[0], points[0]));
+      map.fitBounds(box, { padding, maxZoom: 10, duration: 0 });
+    } else {
+      map.jumpTo({ center: destination, zoom: LONE_ZOOM, padding });
+    }
+    if (active) map.flyTo({ center: destination, zoom: ARRIVE_ZOOM, padding, duration: seconds * 1000, essential: true });
+  }, [map, to.lat, to.lng, spots, seconds, animate, active]);
   return null;
 }
