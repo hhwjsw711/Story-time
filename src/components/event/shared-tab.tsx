@@ -168,8 +168,10 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
           }}
           className="grid gap-3 sm:grid-cols-[11rem_minmax(0,1fr)_auto] sm:items-end"
         >
-          <div className="space-y-2">
-            <Label htmlFor="invite-role">They</Label>
+          {/* gap, not space-y: inside a form the Select adds a hidden <select> after
+              its trigger, and space-y would push the trigger up by a margin. */}
+          <div className="grid gap-2">
+            <Label htmlFor="invite-role">Access</Label>
             <Select value={role} onValueChange={(v) => setRole(v === "contributor" ? "contributor" : "viewer")}>
               <SelectTrigger id="invite-role" className="w-full">
                 <SelectValue />
@@ -180,7 +182,7 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
               </SelectContent>
             </Select>
           </div>
-          <div className="min-w-0 space-y-2">
+          <div className="grid min-w-0 gap-2">
             <Label htmlFor="invite-email">Email them (optional)</Label>
             <Input
               id="invite-email"
