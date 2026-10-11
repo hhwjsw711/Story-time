@@ -7,24 +7,21 @@ import {
   PlayIcon,
   XIcon,
 } from "lucide-react";
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { StoryEvent, StoryMoment } from "@/components/event/types";
 import { EndCard } from "@/components/story/end-card";
+import { PhotoDeck, type PhotoDeckHandle } from "@/components/story/photo-deck";
+import { dwellMs, PHOTO_MS, picturesOf } from "@/components/story/photo-deck-math";
 import { ShareButton } from "@/components/story/share-button";
 import { StopCaption } from "@/components/story/stop-caption";
-import { StopFallback } from "@/components/story/story-fallback";
 import { TitleCard, typingMs } from "@/components/story/title-card";
 import { TravelScene } from "@/components/story/travel-scene";
 import { Button } from "@/components/ui/button";
 import { legDuration } from "@/lib/story-map";
 import { buildStorySteps, clampStep, type LatLng, type StoryStep } from "@/lib/story-steps";
 import { usePrefetchMedia } from "@/lib/use-media-url";
+import { isForward, useSwipeSurface } from "@/lib/use-swipe";
 import { cn } from "@/lib/utils";
-
-// three.js only loads when a scene needs it.
-const CameraScene = lazy(() =>
-  import("@/components/story/camera-scene").then((m) => ({ default: m.CameraScene })),
-);
 
 const NEXT_KEYS = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"];
 const PREV_KEYS = ["ArrowLeft", "ArrowUp", "PageUp"];
@@ -37,7 +34,7 @@ function sceneMs(step: StoryStep, titleTypingMs: number): number | null {
     case "title":
       return titleTypingMs + 2500;
     case "stop":
-      return 5000;
+      return dwellMs(picturesOf(step.stop).length);
     case "travel":
       return legDuration(step.transport) * 1000 + 1500;
     case "end":
@@ -95,8 +92,9 @@ export function StoryPlayer({
     if (scene.kind === "end") setPlaying(false);
   }, [scene.kind]);
   const [webgl] = useState(detectWebGL);
-  const use3d = webgl && !reduced;
   const scroller = useRef<HTMLDivElement>(null);
+  // The photo deck of the stop in view, for the arrow keys.
+  const deck = useRef<PhotoDeckHandle>(null);
   const sections = useRef<Array<HTMLElement | null>>([]);
   const fill = useRef<HTMLSpanElement>(null);
   const titleTypingMs = useMemo(() => (reduced ? 0 : typingMs(event, moments)), [reduced, event, moments]);
@@ -170,7 +168,9 @@ export function StoryPlayer({
       if (delta) {
         e.preventDefault();
         setPlaying(false);
-        go(delta);
+        // Left and right turn a stop's pictures before they turn the scenes.
+        const sideways = e.key === "ArrowLeft" || e.key === "ArrowRight";
+        if (!(sideways && deck.current?.flip(delta))) go(delta);
       } else if (e.key === "Escape") {
         exit();
       }
@@ -198,6 +198,19 @@ export function StoryPlayer({
   }, [playing, scene, go, reduced, titleTypingMs]);
   // Once the viewer scrolls, they're the one turning the pages.
   const takeOver = () => setPlaying(false);
+
+  // A sideways swipe turns the story: left on, right back. A swipe that starts
+  // on a stop's pictures is the deck's, which marks itself out of this one.
+  useSwipeSurface(
+    scroller,
+    {
+      onSwipe(direction) {
+        setPlaying(false);
+        go(isForward(direction) ? 1 : -1);
+      },
+    },
+    { axes: "x" },
+  );
 
   // The next stop's pictures load while this scene shows.
   const upcoming = steps.slice(current + 1).find((s) => s.kind === "stop");
@@ -232,8 +245,8 @@ export function StoryPlayer({
     return [...spots].map(([name, geo]) => ({ name, geo }));
   }, [steps]);
 
-  // Only the scenes around the one in view are built, with WebGL (never more
-  // than three contexts), so scrolling back shows the same map or camera
+  // Only the scenes around the one in view are built: their maps keep WebGL
+  // (never more than three contexts), so scrolling back shows the same map
   // rather than swapping to the light version; the rest are empty screens
   // until scrolled near.
   const sceneAt = (s: StoryStep, i: number) => {
@@ -262,15 +275,18 @@ export function StoryPlayer({
       case "stop":
         return (
           <>
-            <div className="relative min-h-0 flex-1" data-no-advance={use3d && near ? "" : undefined}>
-              {near &&
-                (use3d ? (
-                  <Suspense fallback={<StopFallback stop={s.stop} />}>
-                    <CameraScene stop={s.stop} opening={s.first} active={active} onBack={() => go(-1)} onNext={() => go(1)} />
-                  </Suspense>
-                ) : (
-                  <StopFallback stop={s.stop} />
-                ))}
+            <div className="relative min-h-0 flex-1">
+              {near && (
+                <PhotoDeck
+                  ref={active ? deck : undefined}
+                  stop={s.stop}
+                  active={active}
+                  autoplayMs={playing && !reduced ? PHOTO_MS : null}
+                  reduced={reduced}
+                  onEdge={(d) => go(d === "forward" ? 1 : -1)}
+                  onInteract={takeOver}
+                />
+              )}
             </div>
             <StopCaption scene={s} meId={meId} />
           </>
@@ -285,7 +301,7 @@ export function StoryPlayer({
       <div
         ref={scroller}
         role="presentation"
-        className="relative h-full cursor-pointer snap-y snap-mandatory overflow-y-auto overscroll-none [scrollbar-width:thin]"
+        className="relative h-full cursor-pointer touch-pan-y snap-y snap-mandatory overflow-y-auto overscroll-none [scrollbar-width:thin]"
         onClick={onStageClick}
         onWheel={takeOver}
         onTouchMove={takeOver}
