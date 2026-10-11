@@ -146,6 +146,9 @@ export default defineSchema({
     eventId: v.id("events"),
     authorId: v.id("users"),
     startsAt: v.number(),
+    // Minutes east of UTC where the moment happened. Absent for moments made
+    // before it was kept.
+    tzOffsetMinutes: v.optional(v.number()),
     place: v.optional(vEncrypted),
     geo: v.optional(vEncrypted), // "lat,lng"; only set alongside a place
     blocks: v.array(vBlock),
