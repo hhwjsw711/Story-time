@@ -53,17 +53,18 @@ describe("mapPoints", () => {
     ]);
   });
 
-  test("carries each stop's place, time and transport", () => {
+  test("carries each stop's place, time, zone and transport", () => {
     const trip = moment({
       startsAt: 5,
+      tzOffsetMinutes: 60,
       place: "Lisbon",
       geo: lisbon,
       transport: "train",
       stops: [{ startsAt: 9, place: "Sintra", geo: sintra, transport: "bus", blocks: [] }],
     });
     expect(mapPoints([trip])).toEqual([
-      { momentId: "m1", stopIndex: 0, lat: lisbon.lat, lng: lisbon.lng, place: "Lisbon", startsAt: 5, transport: "train" },
-      { momentId: "m1", stopIndex: 1, lat: sintra.lat, lng: sintra.lng, place: "Sintra", startsAt: 9, transport: "bus" },
+      { momentId: "m1", stopIndex: 0, lat: lisbon.lat, lng: lisbon.lng, place: "Lisbon", startsAt: 5, tzOffsetMinutes: 60, transport: "train" },
+      { momentId: "m1", stopIndex: 1, lat: sintra.lat, lng: sintra.lng, place: "Sintra", startsAt: 9, tzOffsetMinutes: 60, transport: "bus" },
     ]);
   });
 

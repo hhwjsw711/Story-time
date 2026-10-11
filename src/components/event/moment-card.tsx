@@ -5,6 +5,7 @@ import { stopsOf, transportOf } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Badge } from "@/components/ui/badge";
 import { authorOf, editNoticeOf } from "@/lib/actors";
+import { formatDateTime } from "@/lib/local-time";
 
 // Who added a moment, and who changed it since: one muted line that wraps on a
 // narrow screen. An edit is named only when it is news (see editNoticeOf).
@@ -34,7 +35,7 @@ export function MomentCard({ moment, meId }: { moment: MomentView; meId?: string
     <article className="space-y-3 rounded-xl border bg-card p-4 shadow-xs">
       <header className="space-y-1.5">
         <p className="text-xs text-muted-foreground">
-          {new Date(moment.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+          {formatDateTime(moment.startsAt, moment.tzOffsetMinutes, { dateStyle: "medium", timeStyle: "short" })}
         </p>
         <MomentAuthors moment={moment} you={moment.authorId === meId} />
         <h3 className="font-serif text-lg leading-snug font-semibold">{moment.place ?? "A moment"}</h3>

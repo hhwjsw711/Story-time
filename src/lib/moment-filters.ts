@@ -1,5 +1,6 @@
-import { endOfDay, format, startOfDay } from "date-fns";
+import { format } from "date-fns";
 import type { MomentView } from "@/components/event/types";
+import { calendarDay } from "./local-time";
 
 export type BlockType = "photo" | "video" | "note" | "link" | "feeling";
 
@@ -38,7 +39,8 @@ export const isFiltering = (f: MomentFilters) =>
 // past that, page the itinerary and search a server-side index instead.
 // `dayKey` (YYYY-MM-DD) is the author's local day the itinerary groups the
 // moment under; when given, dates match on it, so a moment near midnight
-// stays under its own day. Otherwise they use the viewer's local day.
+// stays under its own day. Otherwise they match the day in the zone the
+// moment happened in (the viewer's, when it has none).
 export function matches(m: MomentView & { dayKey?: string }, f: MomentFilters): boolean {
   const q = f.search.trim().toLowerCase();
   if (q !== "" && !searchText(m).includes(q)) return false;
@@ -49,12 +51,10 @@ export function matches(m: MomentView & { dayKey?: string }, f: MomentFilters): 
   if (f.authors.length > 0 && !f.authors.includes(m.authorId)) return false;
   if (f.agents === "only" && m.authorAgent === undefined) return false;
   if (f.agents === "hide" && m.authorAgent !== undefined) return false;
-  if (f.from !== undefined && m.dayKey !== undefined) {
+  if (f.from !== undefined) {
     const day = (d: Date) => format(d, "yyyy-MM-dd");
-    if (m.dayKey < day(f.from) || m.dayKey > day(f.to ?? f.from)) return false;
-  } else if (f.from !== undefined) {
-    if (m.startsAt < startOfDay(f.from).getTime()) return false;
-    if (m.startsAt > endOfDay(f.to ?? f.from).getTime()) return false;
+    const own = m.dayKey ?? day(calendarDay(m.startsAt, m.tzOffsetMinutes));
+    if (own < day(f.from) || own > day(f.to ?? f.from)) return false;
   }
   return true;
 }

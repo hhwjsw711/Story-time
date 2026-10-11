@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
 import type { StoryEvent, StoryMoment } from "@/components/event/types";
-import { stopsOf } from "@/lib/story-steps";
+import { formatDay } from "../../lib/local-time";
+import { stopsOf } from "../../lib/story-steps";
 
-const day = (ms: number) =>
-  new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+// A time to read as a day: a moment's carries the zone it happened in.
+type When = { at: number; offset?: number };
+const day = ({ at, offset }: When) => formatDay(at, offset, { month: "short", day: "numeric", year: "numeric" });
 
-// The date range: what the owner set, or the span of the moments.
+// The date range: what the owner set, or the span of the moments. The owner's
+// dates have no zone; each moment's day reads in the zone it happened in.
 export function dateRange(event: StoryEvent, moments: StoryMoment[]): string | null {
-  const times = moments.map((m) => m.startsAt);
-  const from = event.startsAt ?? (times.length ? Math.min(...times) : undefined);
-  const to = event.endsAt ?? (times.length ? Math.max(...times) : undefined);
+  const sorted = [...moments].sort((a, b) => a.startsAt - b.startsAt);
+  const mark = (m: StoryMoment | undefined) => m && { at: m.startsAt, offset: m.tzOffsetMinutes };
+  const from = event.startsAt !== undefined ? { at: event.startsAt } : mark(sorted[0]);
+  const to = event.endsAt !== undefined ? { at: event.endsAt } : mark(sorted.at(-1));
   if (from === undefined) return null;
   if (to === undefined || day(to) === day(from)) return day(from);
   return `${day(from)} – ${day(to)}`;

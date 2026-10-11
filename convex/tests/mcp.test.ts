@@ -441,6 +441,8 @@ describe("the tools", () => {
       transport: "walk",
       labels: ["tram", "lisbon"],
       startsAt: Date.UTC(2026, 5, 1, 12, 30),
+      // The offset the time was given with, so the moment keeps its own zone.
+      tzOffsetMinutes: 120,
     });
     expect(moment?.blocks).toEqual([
       { type: "link", url: "https://example.com/tram", title: "The route" },

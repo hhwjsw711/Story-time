@@ -60,6 +60,13 @@ test("dates match the author's day when the itinerary knows it", () => {
   expect(matches(late, { ...noFilters, from: feb4, to: feb5 })).toBe(true);
 });
 
+test("without the itinerary's day, dates match the day in the zone the moment happened in", () => {
+  // 22:15 UTC on Feb 4 is 07:15 on Feb 5 in Japan.
+  const kyoto = moment({ startsAt: Date.UTC(2025, 1, 4, 22, 15), tzOffsetMinutes: 540 });
+  expect(matches(kyoto, { ...noFilters, from: new Date(2025, 1, 5) })).toBe(true);
+  expect(matches(kyoto, { ...noFilters, from: new Date(2025, 1, 4) })).toBe(false);
+});
+
 test("agents filter keeps people's moments, agents' moments, or both", () => {
   const person = moment({ authorName: "Sara" });
   const agent = moment({ authorName: "Sara", authorAgent: "Scribe" });

@@ -43,6 +43,8 @@ const vScribeContext = v.object({
   title: v.string(),
   description: v.optional(v.string()),
   startsAt: v.number(),
+  // The zone the moment happened in, so its clock time is given there.
+  tzOffsetMinutes: v.optional(v.number()),
   place: v.optional(v.string()),
   transport: v.optional(vTransport),
   // The places in order, the moment's own first.
@@ -78,6 +80,7 @@ export const context = internalQuery({
       title: event.title,
       description: event.description,
       startsAt: mine.startsAt,
+      tzOffsetMinutes: mine.tzOffsetMinutes,
       place: mine.place,
       transport: mine.transport,
       route: places.filter((place): place is string => place !== undefined),
@@ -93,12 +96,21 @@ function writtenText(lists: PlainBlock[][]): string[] {
   return lists.flat().flatMap((b) => (b.type === "note" || b.type === "feeling" ? [b.text] : []));
 }
 
+// "UTC+09:00", or plain "UTC" when there is no offset or it is zero.
+function zoneLabel(offset: number | undefined): string {
+  if (offset === undefined || offset === 0) return "UTC";
+  const hours = String(Math.trunc(Math.abs(offset) / 60)).padStart(2, "0");
+  const minutes = String(Math.abs(offset) % 60).padStart(2, "0");
+  return `UTC${offset < 0 ? "-" : "+"}${hours}:${minutes}`;
+}
+
 function promptFor(c: ScribeContext): string {
-  const when = new Date(c.startsAt).toISOString().slice(0, 16).replace("T", " ");
+  // The clock where it happened, in the zone it happened in.
+  const when = new Date(c.startsAt + (c.tzOffsetMinutes ?? 0) * 60_000).toISOString().slice(0, 16).replace("T", " ");
   const lines: Array<string | undefined> = [
     `Experience: ${c.title}`,
     c.description ? `About it: ${c.description}` : undefined,
-    `When: ${when} UTC`,
+    `When: ${when} ${zoneLabel(c.tzOffsetMinutes)}`,
     c.place ? `Place: ${c.place}` : undefined,
     c.route.length > 1 ? `Route: ${c.route.join(" → ")}` : undefined,
     c.transport ? `Got there by: ${c.transport}` : undefined,

@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { deletePhotos } from "@/lib/actions";
 import { enrichMoment } from "@/lib/add-moments";
 import { errorMessage } from "@/lib/errors";
+import { fromInput, toInput } from "@/lib/local-time";
 import { readPhotoMeta } from "@/lib/photo-meta";
 import { isVideoFile, MEDIA_ACCEPT, uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
@@ -74,12 +75,6 @@ const emptyStop = (startsAt = ""): StopValue => ({
   mood: "",
 });
 
-// <input type="datetime-local"> wants local time without a zone.
-function toLocalInput(ms: number) {
-  const offset = new Date(ms).getTimezoneOffset();
-  return new Date(ms - offset * 60_000).toISOString().slice(0, 16);
-}
-
 function stopValuesOf(moment: MomentView): StopValue[] {
   return stopsOf(moment).map((s) => {
     const notes = s.blocks.flatMap((b) => (b.type === "note" ? [b.text] : []));
@@ -87,7 +82,8 @@ function stopValuesOf(moment: MomentView): StopValue[] {
     const feeling = s.blocks.find((b) => b.type === "feeling");
     return {
       transport: s.transport ?? "",
-      startsAt: s.startsAt === undefined ? "" : toLocalInput(s.startsAt),
+      // Shown on the clock where the moment happened, as the story shows it.
+      startsAt: s.startsAt === undefined ? "" : toInput(s.startsAt, moment.tzOffsetMinutes),
       place: s.place ?? "",
       geo: s.geo,
       media: s.blocks.flatMap((b): Media[] =>
@@ -212,12 +208,15 @@ export function MomentForm({
         toast.error(`Stop ${emptyStopAt + 2} needs a place or something to share`);
         return;
       }
-      const startsAt = new Date(first.startsAt).getTime();
-      const tzOffsetMinutes = -new Date(first.startsAt).getTimezoneOffset();
+      // An edited moment's times are read in the zone it happened in, as they
+      // show. A new moment, or one with no zone yet, reads them in the viewer's.
+      const zone = moment?.tzOffsetMinutes;
+      const startsAt = fromInput(first.startsAt, zone);
+      const tzOffsetMinutes = zone ?? -new Date(first.startsAt).getTimezoneOffset();
       // Coordinates only go with a place.
       const geoOf = (s: StopValue) => (s.place.trim() ? s.geo : undefined);
       const stops = rest.map((s, i) => ({
-        startsAt: s.startsAt ? new Date(s.startsAt).getTime() : undefined,
+        startsAt: s.startsAt ? fromInput(s.startsAt, zone) : undefined,
         place: s.place.trim() || undefined,
         geo: geoOf(s),
         transport: s.transport || undefined,
@@ -226,10 +225,10 @@ export function MomentForm({
       const labels = value.labels.split(",").map((l) => l.trim()).filter(Boolean);
       try {
         if (moment) {
-          // The time, and with it the day the moment is grouped under (the
-          // server reads it in the sender's time zone), only change when the
-          // first stop's time did. Fixing a typo keeps the author's day.
-          const timeChanged = first.startsAt !== toLocalInput(moment.startsAt);
+          // The time, and with it the zone and the day the moment is grouped
+          // under, only change when the first stop's time did. Fixing a typo
+          // keeps the author's day.
+          const timeChanged = first.startsAt !== toInput(moment.startsAt, zone);
           const { removedMediaIds } = await update({
             momentId: moment._id,
             ...(timeChanged ? { startsAt, tzOffsetMinutes } : {}),

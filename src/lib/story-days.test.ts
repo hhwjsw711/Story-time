@@ -62,6 +62,13 @@ describe("storyDays", () => {
     expect(storyDays(steps).map((d) => d.stops.map((s) => s.scene.place))).toEqual([["Dinner", "Bar"], ["Taxi"]]);
   });
 
+  test("a stop is filed under the day it happened on, in the zone it happened in", () => {
+    // 22:15 UTC on Feb 4 is 07:15 on Feb 5 in Japan, so the stop belongs to the 5th.
+    const kyoto = moment({ _id: "k" as Id<"moments">, startsAt: Date.UTC(2025, 1, 4, 22, 15), tzOffsetMinutes: 540, place: "Kyoto" });
+    const days = storyDays(buildStorySteps("Trip", [kyoto]));
+    expect(days.map((d) => [d.day, d.label])).toEqual([["2025-02-05", "Wed, Feb 5"]]);
+  });
+
   test("an empty story has no days", () => {
     expect(storyDays(buildStorySteps("Trip", []))).toEqual([]);
   });

@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { changeFields, lastEditOf, type Actor } from "./lib/actors";
 import {
+  checkOffset,
   encodeBlocks,
   encodeGeo,
   encodeLabels,
@@ -64,6 +65,8 @@ export const vMomentView = v.object({
   editedByName: v.optional(v.string()),
   editedByAgent: v.optional(v.string()),
   startsAt: v.number(),
+  // Minutes east of UTC where it happened, so its times read in that zone.
+  tzOffsetMinutes: v.optional(v.number()),
   place: v.optional(v.string()),
   geo: v.optional(vGeo),
   blocks: v.array(vPlainBlock),
@@ -119,6 +122,7 @@ export async function viewMoment(
     editedByName: editor?.displayName,
     editedByAgent: edit?.agent,
     startsAt: moment.startsAt,
+    tzOffsetMinutes: moment.tzOffsetMinutes,
     place: moment.place ? await decryptText(event._id, moment.place) : undefined,
     geo: moment.geo ? await decryptGeo(event._id, moment.geo) : undefined,
     blocks: await viewBlocks(event, moment.blocks),
@@ -179,6 +183,7 @@ export async function createMoment(
     });
   }
   if (!Number.isFinite(input.startsAt)) invalid("startsAt", "Pick a date");
+  const tzOffsetMinutes = checkOffset(input.tzOffsetMinutes);
 
   const first = await encodeBlocks(ctx, {
     event,
@@ -204,6 +209,7 @@ export async function createMoment(
     authorId: userId,
     authorAgent: actor.kind === "agent" ? actor.name : undefined,
     startsAt: input.startsAt,
+    tzOffsetMinutes,
     place,
     geo,
     blocks,
@@ -219,7 +225,7 @@ export async function createMoment(
     eventId: event._id,
     momentId,
     startsAt: input.startsAt,
-    ...localKeys(input.startsAt, input.tzOffsetMinutes ?? 0),
+    ...localKeys(input.startsAt, tzOffsetMinutes ?? 0),
     placeKey,
     position: event.momentCount,
   });
@@ -338,11 +344,17 @@ export async function writeMomentUpdate(
   const { event, moment, userId, actor, patch } = args;
 
   const docPatch: Partial<
-    Pick<Doc<"moments">, "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels" | "lastEdit">
+    Pick<
+      Doc<"moments">,
+      "startsAt" | "tzOffsetMinutes" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels" | "lastEdit"
+    >
   > = {};
   const fields: string[] = [];
   let placeKey: string | undefined | null = null; // null = unchanged
   let removedMediaIds: Id<"media">[] = [];
+  // Not a field the change log names, so an offset on its own is stored quietly.
+  const tzOffsetMinutes = checkOffset(patch.tzOffsetMinutes);
+  if (tzOffsetMinutes !== undefined) docPatch.tzOffsetMinutes = tzOffsetMinutes;
 
   if (patch.startsAt !== undefined) {
     if (!Number.isFinite(patch.startsAt)) invalid("startsAt", "Pick a date");
@@ -419,8 +431,9 @@ export async function writeMomentUpdate(
     }
   }
 
-  if (fields.length === 0) return { removedMediaIds: [] };
-  docPatch.lastEdit = lastEditOf(actor, Date.now());
+  if (fields.length === 0 && tzOffsetMinutes === undefined) return { removedMediaIds: [] };
+  // Only a real field change counts as an edit: an offset alone leaves no "edited" mark.
+  if (fields.length > 0) docPatch.lastEdit = lastEditOf(actor, Date.now());
   await ctx.db.patch("moments", moment._id, docPatch);
 
   // Keep the itinerary row in step with the moment.
@@ -432,11 +445,12 @@ export async function writeMomentUpdate(
     const rowPatch: Partial<
       Pick<Doc<"itinerary">, "startsAt" | "dayKey" | "monthKey" | "placeKey">
     > = {};
-    if (docPatch.startsAt !== undefined || patch.tzOffsetMinutes !== undefined) {
+    if (docPatch.startsAt !== undefined || tzOffsetMinutes !== undefined) {
       const startsAt = docPatch.startsAt ?? moment.startsAt;
+      // A time moved without a new offset keeps the one the moment already has.
       Object.assign(rowPatch, {
         startsAt,
-        ...localKeys(startsAt, patch.tzOffsetMinutes ?? 0),
+        ...localKeys(startsAt, tzOffsetMinutes ?? moment.tzOffsetMinutes ?? 0),
       });
     }
     if (placeKey !== null) rowPatch.placeKey = placeKey;
@@ -445,6 +459,8 @@ export async function writeMomentUpdate(
     }
   }
 
+  // The log keeps naming only the fields people changed.
+  if (fields.length === 0) return { removedMediaIds };
   await recordChange(ctx, {
     eventId: event._id,
     entity: "moment",

@@ -61,6 +61,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { initials } from "@/components/user-avatar";
 import { authorOf, describeActor, editorOf } from "@/lib/actors";
+import { calendarDay, formatDateTime, formatDay, formatTime } from "@/lib/local-time";
 import {
   allBlocks,
   type AgentFilter,
@@ -114,10 +115,10 @@ const GRID =
 
 const date = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-function whenText(ms: number, timeOnly: boolean | undefined) {
-  const when = new Date(ms);
-  const time = when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return timeOnly ? time : `${date(when)}, ${time}`;
+// The moment's own day and clock, in the zone it happened in.
+function whenText(ms: number, offset: number | undefined, timeOnly: boolean | undefined) {
+  const time = formatTime(ms, offset);
+  return timeOnly ? time : `${formatDay(ms, offset, { month: "short", day: "numeric" })}, ${time}`;
 }
 
 // Under the title while their columns are folded away: the time (narrowest
@@ -127,7 +128,7 @@ function Subtitle({ moment, title, timeOnly }: { moment: MomentView; title: stri
   return (
     <span className="block truncate text-xs text-muted-foreground @xl:hidden">
       <span className="@sm:hidden">
-        {whenText(moment.startsAt, timeOnly)}
+        {whenText(moment.startsAt, moment.tzOffsetMinutes, timeOnly)}
         {place && " · "}
       </span>
       {place}
@@ -259,7 +260,7 @@ const columns = helper.columns([
   helper.accessor("startsAt", {
     header: () => <ClockIcon aria-label="Time" className="size-4" />,
     meta: { className: "hidden truncate whitespace-nowrap text-muted-foreground @sm:block" },
-    cell: ({ getValue, table }) => whenText(getValue(), table.options.meta?.timeOnly),
+    cell: ({ row, table }) => whenText(row.original.startsAt, row.original.tzOffsetMinutes, table.options.meta?.timeOnly),
   }),
   helper.accessor((m) => m.authorName ?? "", {
     id: "author",
@@ -505,7 +506,7 @@ export function ItineraryTab({
       const m = r.original;
       const canChange = editable(m);
       const on = canChange && checked.has(m._id);
-      const when = new Date(m.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+      const when = formatDateTime(m.startsAt, m.tzOffsetMinutes, { dateStyle: "medium", timeStyle: "short" });
       const name = `${firstLine(m) ?? "Untitled moment"}, ${when}`;
       const box = (
         <SelectBox
@@ -781,7 +782,7 @@ export function ItineraryTab({
             filters={filters}
             places={places}
             labels={labels}
-            defaultMonth={data[0] ? new Date(data[0].startsAt) : undefined}
+            defaultMonth={data[0] ? calendarDay(data[0].startsAt, data[0].tzOffsetMinutes) : undefined}
             onChange={setFilters}
           />
           <DropdownMenu>

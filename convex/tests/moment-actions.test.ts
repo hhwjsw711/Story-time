@@ -465,3 +465,103 @@ describe("map coordinates", () => {
     ).rejects.toThrow(/"field":"geo"/);
   });
 });
+
+describe("the zone a moment happened in", () => {
+  // 22:15 UTC on 8 November is 07:15 on 9 November in Japan (UTC+9).
+  const KYOTO_MORNING = Date.UTC(2025, 10, 8, 22, 15);
+
+  test("is kept with the moment, and its itinerary day follows it", async () => {
+    const { owner, eventId } = await setup();
+    await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: KYOTO_MORNING,
+      tzOffsetMinutes: 540,
+      place: "Kyoto",
+      blocks: [{ type: "note", text: "Fushimi Inari" }],
+    });
+    const [moment] = await owner.query(api.moments.list, { eventId });
+    expect(moment?.tzOffsetMinutes).toBe(540);
+    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
+    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+  });
+
+  test("an edit can set a new offset; the itinerary day follows", async () => {
+    const { owner, eventId } = await setup();
+    const momentId = await addMoment(owner, eventId);
+    await owner.mutation(api.moments.update, {
+      momentId,
+      startsAt: KYOTO_MORNING,
+      tzOffsetMinutes: 540,
+    });
+    const [moment] = await owner.query(api.moments.list, { eventId });
+    expect(moment?.tzOffsetMinutes).toBe(540);
+    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
+    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+  });
+
+  test("moving a time without an offset keeps the one the moment has", async () => {
+    const { owner, eventId } = await setup();
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: KYOTO_MORNING,
+      tzOffsetMinutes: 540,
+      blocks: [{ type: "note", text: "Fushimi Inari" }],
+    });
+    // An hour earlier is 21:15 UTC on the 8th, still the 9th in Japan.
+    await owner.mutation(api.moments.update, { momentId, startsAt: KYOTO_MORNING - 3_600_000 });
+    const [moment] = await owner.query(api.moments.list, { eventId });
+    expect(moment?.tzOffsetMinutes).toBe(540);
+    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
+    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+  });
+
+  test("an offset alone is stored with no edit mark and no change log row", async () => {
+    const { t, owner, eventId } = await setup();
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: KYOTO_MORNING,
+      tzOffsetMinutes: 0,
+      blocks: [{ type: "note", text: "Fushimi Inari" }],
+    });
+    const logBefore = (await t.run((ctx) => ctx.db.query("changes").take(500))).length;
+    expect((await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" })).map((g) => g.key)).toEqual([
+      "2025-11-08",
+    ]);
+
+    await owner.mutation(api.moments.update, { momentId, startsAt: KYOTO_MORNING, tzOffsetMinutes: 540 });
+    const [moment] = await owner.query(api.moments.list, { eventId });
+    expect(moment).toMatchObject({ startsAt: KYOTO_MORNING, tzOffsetMinutes: 540 });
+    expect(moment?.editedAt).toBeUndefined();
+    const logAfter = (await t.run((ctx) => ctx.db.query("changes").take(500))).length;
+    expect(logAfter).toBe(logBefore);
+    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
+    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+  });
+
+  test("an offset outside UTC-12 to UTC+14 is a bad request", async () => {
+    const { owner, eventId } = await setup();
+    const momentId = await addMoment(owner, eventId);
+    for (const tzOffsetMinutes of [841, -721, NaN]) {
+      await expect(
+        owner.mutation(api.moments.create, {
+          eventId,
+          startsAt: JUNE_1,
+          tzOffsetMinutes,
+          blocks: [{ type: "note", text: "x" }],
+        }),
+      ).rejects.toThrow(/"field":"tzOffsetMinutes"/);
+      await expect(
+        owner.mutation(api.moments.update, { momentId, tzOffsetMinutes }),
+      ).rejects.toThrow(/"field":"tzOffsetMinutes"/);
+    }
+    // Both ends of the range are real clocks.
+    for (const tzOffsetMinutes of [840, -720]) {
+      await owner.mutation(api.moments.create, {
+        eventId,
+        startsAt: JUNE_1,
+        tzOffsetMinutes,
+        blocks: [{ type: "note", text: "x" }],
+      });
+    }
+  });
+});

@@ -185,6 +185,8 @@ export const get = query({
       moments: moments.map((m) => ({
         _id: m._id,
         startsAt: m.startsAt,
+        // Not personal: it's the zone the moment happened in.
+        tzOffsetMinutes: m.tzOffsetMinutes,
         place: m.place,
         geo: m.geo,
         blocks: m.blocks,

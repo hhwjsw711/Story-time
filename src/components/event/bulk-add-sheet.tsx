@@ -12,7 +12,8 @@ import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetT
 import { deletePhotos } from "@/lib/actions";
 import { dayLabel, enrichMoment, momentsFromPlan, plural, readPicked, uploadAll } from "@/lib/add-moments";
 import { errorMessage } from "@/lib/errors";
-import { type Geo, groupPhotos, localClock, MAX_PHOTOS_PER_STOP, type PhotoPoint, toStop } from "@/lib/photo-groups";
+import { formatTime } from "@/lib/local-time";
+import { type Geo, groupPhotos, MAX_PHOTOS_PER_STOP, type PhotoPoint, toStop } from "@/lib/photo-groups";
 import { MEDIA_ACCEPT } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -35,10 +36,6 @@ type DraftDay = { day: string; moments: DraftStop[][] };
 
 // Photon asks for about a request a second.
 const LOOKUP_GAP_MS = 1100;
-
-// On the clock where the photo was taken.
-const time = (ms: number, offsetMinutes?: number) =>
-  localClock(ms, offsetMinutes).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
 
 const allStops = (days: DraftDay[]) => days.flatMap((d) => d.moments.flat());
 
@@ -479,7 +476,8 @@ function BulkAdd({
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span className="text-sm font-medium">Stop {si + 1}</span>
                             <span className="text-xs text-muted-foreground">
-                              {time(s.startsAt, s.photos[0]!.offsetMinutes)}
+                              {/* On the clock where the photo was taken. */}
+                              {formatTime(s.startsAt, s.photos[0]!.offsetMinutes)}
                               {items.get(s.photos[0]!.id)?.guessed && " · time guessed"}
                             </span>
                             {prev && (

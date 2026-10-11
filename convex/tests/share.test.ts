@@ -73,6 +73,20 @@ describe("share links", () => {
     expect(JSON.stringify(story)).not.toContain(ownerId);
   });
 
+  test("a shared story carries each moment's offset, so its times read where it happened", async () => {
+    const { t, owner, eventId } = await setup();
+    await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: Date.UTC(2025, 10, 8, 22, 15),
+      tzOffsetMinutes: 540,
+      place: "Kyoto",
+      blocks: [{ type: "note", text: "Fushimi Inari" }],
+    });
+    const token = tokenOf(await owner.mutation(api.share.enable, { eventId }));
+    const story = await t.query(api.share.get, { token });
+    expect(story?.moments[0]?.tzOffsetMinutes).toBe(540);
+  });
+
   test("disabling the link closes it, and switching on again makes a new one", async () => {
     const { t, owner, eventId } = await setup();
     const token = tokenOf(await owner.mutation(api.share.enable, { eventId }));
