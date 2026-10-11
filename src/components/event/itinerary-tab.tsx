@@ -19,7 +19,6 @@ import {
   UserIcon,
   UsersIcon,
   VideoIcon,
-  XIcon,
 } from "lucide-react";
 import {
   columnFilteringFeature,
@@ -332,12 +331,12 @@ export function ItineraryTab({
     groupBy: grouping === "none" ? "day" : grouping,
   });
   const [filters, setFilters] = useState<MomentFilters>(noFilters);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [newestFirst, setNewestFirst] = useState(false);
   // Bulk editing: picking moments in the table, then acting on them at once.
   const [selecting, setSelecting] = useState(false);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const selectToggle = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const canSelect = canEditMoment !== undefined && view === "table";
   const selectionOn = selecting && canSelect;
   const editable = (m: MomentView) => canEditMoment?.(m.authorId) ?? false;
@@ -369,6 +368,16 @@ export function ItineraryTab({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [selectionOn]);
+  // "/" jumps to the search from anywhere outside a text field, as on most sites.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+      e.preventDefault();
+      searchInput.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Day groups (also behind "All") are keyed by the author's local day,
   // which the date filter then uses too.
@@ -712,6 +721,37 @@ export function ItineraryTab({
           onChange={(authors) => setFilters({ ...filters, authors })}
         />
 
+        {/* Always visible. Full width on phones, where it gets its own line. */}
+        <div className="relative w-full sm:w-72">
+          <SearchIcon
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            ref={searchInput}
+            type="search"
+            aria-label="Search moments"
+            aria-keyshortcuts="/"
+            placeholder="Search places, notes, people…"
+            className="h-8 pr-8 pl-8"
+            value={filters.search}
+            onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.key !== "Escape") return;
+              setFilters({ ...filters, search: "" });
+              e.currentTarget.blur();
+            }}
+          />
+          {filters.search === "" && (
+            <kbd
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border px-1 text-[11px] text-muted-foreground sm:block"
+            >
+              /
+            </kbd>
+          )}
+        </div>
+
         <div className="ms-auto flex min-w-0 items-center gap-0.5">
           {canSelect && all > 0 && (
             <Button
@@ -721,42 +761,6 @@ export function ItineraryTab({
               onClick={() => (selectionOn ? stopSelecting() : setSelecting(true))}
             >
               {selectionOn ? "Done" : "Select"}
-            </Button>
-          )}
-          {searchOpen || filters.search !== "" ? (
-            <div className="relative w-48 max-w-full sm:w-60">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                autoFocus
-                aria-label="Search moments"
-                placeholder="Search places and notes…"
-                className="h-8 pr-8 pl-8"
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setFilters({ ...filters, search: "" });
-                    setSearchOpen(false);
-                  }
-                }}
-              />
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Close search"
-                className="absolute top-1/2 right-1 -translate-y-1/2"
-                onClick={() => {
-                  setFilters({ ...filters, search: "" });
-                  setSearchOpen(false);
-                }}
-              >
-                <XIcon />
-              </Button>
-            </div>
-          ) : (
-            <Button variant="ghost" size="icon-sm" aria-label="Search moments" onClick={() => setSearchOpen(true)}>
-              <SearchIcon />
             </Button>
           )}
           <FiltersPopover
@@ -929,6 +933,11 @@ function placeColor(place: string) {
   let hue = 0;
   for (const ch of place.toLowerCase()) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
   return `oklch(0.65 0.16 ${hue})`;
+}
+
+// Keys typed into a field belong to the field, not to the page's shortcuts.
+function isTyping(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select") !== null);
 }
 
 function firstLine(m: MomentView) {
