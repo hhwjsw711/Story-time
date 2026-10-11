@@ -7,7 +7,7 @@ Story-time collects everyone's photos from something you did together, in the or
 - TanStack Start and Router (React 19), running on Cloudflare Workers. SSR is off; the server renders only the shell and its `<head>`.
 - Convex for data and functions, Convex Auth for sign-in (GitHub and Google).
 - Cloudflare R2 for photos and videos, encrypted with SSE-C keys derived per experience.
-- Tailwind CSS v4 and shadcn/ui; three.js for the story camera, MapLibre for the map.
+- Tailwind CSS v4 and shadcn/ui; MapLibre (through mapcn) for the maps. The story is plain DOM and CSS, no WebGL beyond the map.
 
 ## Local setup
 
