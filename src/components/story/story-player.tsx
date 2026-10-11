@@ -74,6 +74,7 @@ export function StoryPlayer({
   meId,
   step,
   onStep,
+  onClose,
 }: {
   event: StoryEvent;
   moments: StoryMoment[];
@@ -82,6 +83,8 @@ export function StoryPlayer({
   step: number;
   // Keeps ?step= on the scene in view, replacing history rather than adding.
   onStep: (step: number) => void;
+  // Closing hands back the scene in view; without it, the story is left.
+  onClose?: (step: number) => void;
 }) {
   const navigate = useNavigate();
   const steps = useMemo(() => buildStorySteps(event.title, moments), [event.title, moments]);
@@ -119,10 +122,13 @@ export function StoryPlayer({
   };
   // A shared story's viewers may have no experience to go back to.
   const shared = event.role === undefined;
-  const exit = useCallback(
-    () => void (shared ? navigate({ to: "/" }) : navigate({ to: "/e/$id", params: { id: event._id } })),
-    [navigate, event._id, shared],
-  );
+  const exit = useCallback(() => {
+    if (onClose) {
+      onClose(at.current);
+      return;
+    }
+    void (shared ? navigate({ to: "/" }) : navigate({ to: "/e/$id", params: { id: event._id } }));
+  }, [navigate, event._id, shared, onClose]);
 
   // A deep link opens on its scene.
   useLayoutEffect(() => {

@@ -1,5 +1,6 @@
-import type { MomentView } from "@/components/event/types";
-import { stopsOf, type Transport } from "../components/event/transport";
+import type { StoryMoment } from "../components/event/types";
+import type { Transport } from "../components/event/transport";
+import { stopsOf } from "./story-steps";
 
 // A stop with coordinates. `stopIndex` is its place among the moment's stops,
 // the moment's own first stop being 0.
@@ -14,7 +15,7 @@ export type MapPoint = {
 };
 
 // Every stop with coordinates, in time order: by moment, then by stop.
-export function mapPoints(moments: MomentView[]): MapPoint[] {
+export function mapPoints(moments: StoryMoment[]): MapPoint[] {
   return [...moments]
     .sort((a, b) => a.startsAt - b.startsAt)
     .flatMap((moment) =>

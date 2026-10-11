@@ -5,6 +5,7 @@ import { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import { SignedOutPage } from "@/components/sign-in-screen";
 import { StoryPlayer } from "@/components/story/story-player";
+import { StoryScroll } from "@/components/story/story-scroll";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -13,6 +14,8 @@ import { MediaAuthContext } from "@/lib/use-media-url";
 const search = z.object({
   // The scene in view, kept up to date as the story scrolls.
   step: z.number().int().min(0).default(0).catch(0),
+  // The memoir to read, or the film to watch.
+  mode: z.enum(["read", "film"]).default("read").catch("read"),
 });
 
 // A story anyone can watch with its link, so there's no sign-in gate. The token
@@ -30,7 +33,7 @@ function readToken(): string {
 }
 
 function SharedStoryPage() {
-  const { step } = Route.useSearch();
+  const { step, mode } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const [token] = useState(readToken);
   const shared = useQuery(api.share.get, token ? { token } : "skip");
@@ -38,7 +41,18 @@ function SharedStoryPage() {
   // The URL follows the scroll without adding history. `hash: true` keeps the
   // token in the fragment, which navigation would otherwise drop.
   const onStep = useCallback(
-    (next: number) => void navigate({ search: { step: next }, hash: true, replace: true, resetScroll: false }),
+    (next: number) =>
+      void navigate({ search: (prev) => ({ step: next, mode: prev.mode }), hash: true, replace: true, resetScroll: false }),
+    [navigate],
+  );
+  // Playing the film from a scene is a step forward; closing it returns to the
+  // memoir at the scene the film had reached.
+  const playFilm = useCallback(
+    (next: number) => void navigate({ search: { step: next, mode: "film" }, hash: true }),
+    [navigate],
+  );
+  const closeFilm = useCallback(
+    (next: number) => void navigate({ search: { step: next, mode: "read" }, hash: true, replace: true, resetScroll: false }),
     [navigate],
   );
 
@@ -46,7 +60,18 @@ function SharedStoryPage() {
   if (shared === undefined) return <Skeleton className="h-svh w-full rounded-none" />;
   return (
     <MediaAuthContext.Provider value={{ kind: "share", token }}>
-      <StoryPlayer event={shared.event} moments={shared.moments} meId={undefined} step={step} onStep={onStep} />
+      {mode === "film" ? (
+        <StoryPlayer
+          event={shared.event}
+          moments={shared.moments}
+          meId={undefined}
+          step={step}
+          onStep={onStep}
+          onClose={closeFilm}
+        />
+      ) : (
+        <StoryScroll event={shared.event} moments={shared.moments} step={step} onStep={onStep} onPlayFilm={playFilm} />
+      )}
     </MediaAuthContext.Provider>
   );
 }

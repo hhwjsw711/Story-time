@@ -6,6 +6,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { SignInScreen } from "@/components/sign-in-screen";
 import { StoryPlayer } from "@/components/story/story-player";
+import { StoryScroll } from "@/components/story/story-scroll";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -16,6 +17,8 @@ const search = z.object({
   step: z.number().int().min(0).default(0).catch(0),
   // Start at this moment's first scene, then drop out of the URL.
   momentId: z.string().optional().catch(undefined),
+  // The memoir to read, or the film to watch.
+  mode: z.enum(["read", "film"]).default("read").catch("read"),
 });
 
 // Outside `_app`, so there's no sidebar or header: the story fills the window.
@@ -27,7 +30,7 @@ export const Route = createFileRoute("/e/$id/story")({
 function StoryPage() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { id } = Route.useParams();
-  const { step, momentId } = Route.useSearch();
+  const { step, momentId, mode } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const eventId = id as Id<"events">;
   const event = useQuery(api.events.get, isAuthenticated ? { eventId } : "skip");
@@ -35,9 +38,17 @@ function StoryPage() {
   const me = useQuery(api.users.getCurrentUser, isAuthenticated ? {} : "skip");
   useDocumentTitle(event ? `${event.title} · Story-time` : undefined);
   // The URL follows the scroll without adding history; stable, so the
-  // player's effects don't rerun on unrelated renders. It also drops momentId.
+  // player's effects don't rerun on unrelated renders. It keeps the mode and
+  // drops momentId.
   const onStep = useCallback(
-    (next: number) => void navigate({ search: { step: next }, replace: true, resetScroll: false }),
+    (next: number) => void navigate({ search: (prev) => ({ step: next, mode: prev.mode }), replace: true, resetScroll: false }),
+    [navigate],
+  );
+  // Playing the film from a scene is a step forward; closing it goes back to
+  // the memoir, at the scene the film had reached.
+  const playFilm = useCallback((next: number) => void navigate({ search: { step: next, mode: "film" } }), [navigate]);
+  const closeFilm = useCallback(
+    (next: number) => void navigate({ search: { step: next, mode: "read" }, replace: true, resetScroll: false }),
     [navigate],
   );
 
@@ -58,13 +69,18 @@ function StoryPage() {
     );
   }
 
-  return (
-    <StoryPlayer
-      event={event}
-      moments={moments ?? []}
-      meId={me?.id}
-      step={momentId ? stepForMoment(buildStorySteps(event.title, moments ?? []), momentId) : step}
-      onStep={onStep}
-    />
-  );
+  const start = momentId ? stepForMoment(buildStorySteps(event.title, moments ?? []), momentId) : step;
+  if (mode === "film") {
+    return (
+      <StoryPlayer
+        event={event}
+        moments={moments ?? []}
+        meId={me?.id}
+        step={start}
+        onStep={onStep}
+        onClose={closeFilm}
+      />
+    );
+  }
+  return <StoryScroll event={event} moments={moments ?? []} step={start} onStep={onStep} onPlayFilm={playFilm} />;
 }
