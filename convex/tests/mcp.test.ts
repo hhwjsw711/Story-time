@@ -456,6 +456,21 @@ describe("the tools", () => {
     expect(made?.actorId).toBe(ownerId);
   });
 
+  test("the same call sent again is the same moment, not a twin; a different one is new", async () => {
+    const { t, owner, eventId } = await setup();
+    const token = await connect(owner, eventId);
+    const args = { experienceId: eventId, place: "Pontocho Alley", note: "Dinner by the river" };
+    const first = await call(t, token, "add_moment", args);
+    const again = await call(t, token, "add_moment", args);
+    expect(again.isError).toBe(false);
+    expect(again.data).toMatchObject({ id: first.data.id, summary: expect.stringContaining("Already added") });
+    expect(await owner.query(api.moments.list, { eventId })).toHaveLength(1);
+
+    // Other words are another moment.
+    await call(t, token, "add_moment", { ...args, note: "Dessert by the river" });
+    expect(await owner.query(api.moments.list, { eventId })).toHaveLength(2);
+  });
+
   test("a note without a mood is a plain note, and the time without an offset is UTC", async () => {
     const { t, owner, eventId } = await setup();
     const token = await connect(owner, eventId);

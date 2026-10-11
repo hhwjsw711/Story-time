@@ -320,6 +320,39 @@ export const list_moments = internalMutation({
 });
 
 // Adds a moment, labelled as the assistant's, for the person it works for.
+// How long an add stays a likely retry of the one before it.
+const RETRY_MS = 2 * 60_000;
+
+// The moment this same assistant made for the same person in the last two
+// minutes, at the same time (within those minutes: a call without a time is
+// "now"), the same place and with the same first words: the same call, sent
+// again. ponytail: matched on content, not a request key the client sends; a
+// deliberate twin that close together is not something people make.
+async function retriedMoment(
+  ctx: MutationCtx,
+  event: Doc<"events">,
+  caller: Caller,
+  startsAt: number,
+  place: string,
+  diary: string,
+  now: number,
+): Promise<Id<"moments"> | null> {
+  const near = await ctx.db
+    .query("moments")
+    .withIndex("by_event_and_startsAt", (q) =>
+      q.eq("eventId", event._id).gte("startsAt", startsAt - RETRY_MS).lte("startsAt", startsAt + RETRY_MS),
+    )
+    .take(20);
+  for (const m of near) {
+    if (m.authorAgent !== caller.name || m.authorId !== caller.userId || m._creationTime < now - RETRY_MS) continue;
+    const view = await viewMoment(ctx, event, m);
+    const words = view.blocks.find((b) => b.type === "note" || b.type === "feeling");
+    const said = words && (words.type === "note" || words.type === "feeling") ? words.text : "";
+    if ((view.place ?? "") === place && said === diary) return m._id;
+  }
+  return null;
+}
+
 export const add_moment = internalMutation({
   args: {
     token: v.string(),
@@ -396,6 +429,14 @@ export const add_moment = internalMutation({
       stops: stops.length > 0 ? stops : undefined,
       labels: args.labels,
     };
+    const place = text(args.place);
+    const day = localKeys(first.startsAt, first.tzOffsetMinutes).dayKey;
+    // A retry of a call whose answer was lost comes back to the moment it
+    // already made rather than making a twin.
+    const twin = await retriedMoment(ctx, event, caller, first.startsAt, place, diary, now);
+    if (twin !== null) {
+      return { id: twin, summary: `Already added: this moment was saved a moment ago, on ${day}.` };
+    }
     const id = await createMoment(ctx, {
       event,
       userId: caller.userId,
@@ -403,8 +444,6 @@ export const add_moment = internalMutation({
       input,
     });
 
-    const day = localKeys(first.startsAt, first.tzOffsetMinutes).dayKey;
-    const place = text(args.place);
     const where = place === "" ? "" : ` at ${place}`;
     const more =
       stops.length === 0 ? "" : `, with ${stops.length} more ${stops.length === 1 ? "stop" : "stops"}`;
