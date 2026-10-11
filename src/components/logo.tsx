@@ -25,12 +25,8 @@ export function Logo({ className }: { className?: string }) {
   );
 }
 
-// The logo, centered and gently pulsing: the first paint, and the moment
-// before we know whether someone is signed in.
-export function LogoSplash() {
-  return (
-    <div role="status" aria-label="Loading" className="flex min-h-svh items-center justify-center">
-      <Logo className="size-10 animate-pulse" />
-    </div>
-  );
+// The first paint, and the moment before we know whether someone is signed
+// in: an empty screen, so nothing flashes or spins before the page is ready.
+export function LogoSplash({ className }: { className?: string }) {
+  return <div role="status" aria-label="Loading" className={cn("min-h-svh", className)} />;
 }
