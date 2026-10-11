@@ -10,23 +10,20 @@ import {
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { StoryEvent, StoryMoment } from "@/components/event/types";
 import { EndCard } from "@/components/story/end-card";
-import { MapScene } from "@/components/story/map-scene";
 import { ShareButton } from "@/components/story/share-button";
 import { StopCaption } from "@/components/story/stop-caption";
 import { StopFallback } from "@/components/story/story-fallback";
 import { TitleCard, typingMs } from "@/components/story/title-card";
+import { TravelScene } from "@/components/story/travel-scene";
 import { Button } from "@/components/ui/button";
 import { legDuration } from "@/lib/story-map";
 import { buildStorySteps, clampStep, type LatLng, type StoryStep } from "@/lib/story-steps";
 import { usePrefetchMedia } from "@/lib/use-media-url";
 import { cn } from "@/lib/utils";
 
-// three.js and MapLibre only load when a scene needs them.
+// three.js only loads when a scene needs it.
 const CameraScene = lazy(() =>
   import("@/components/story/camera-scene").then((m) => ({ default: m.CameraScene })),
-);
-const RealMapScene = lazy(() =>
-  import("@/components/story/real-map-scene").then((m) => ({ default: m.RealMapScene })),
 );
 
 const NEXT_KEYS = ["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"];
@@ -248,35 +245,20 @@ export function StoryPlayer({
       case "end":
         // Built on arrival, so its prints are dealt out in view.
         return active && <EndCard event={event} moments={moments} onReplay={() => restart(!reduced)} />;
-      case "travel": {
+      case "travel":
         if (!near) return null;
-        const drawn = (
-          <MapScene
-            key={active ? "on" : "off"}
-            places={places}
+        return (
+          <TravelScene
+            leg={s}
             legs={legs}
-            current={legs.indexOf(s)}
-            animate={!reduced && active}
+            places={places}
+            located={located}
+            animate={!reduced}
+            active={active}
             idle={i > current}
+            webgl={webgl}
           />
         );
-        if (!webgl || !s.fromGeo || !s.toGeo) return drawn;
-        return (
-          <Suspense fallback={null}>
-            <RealMapScene
-              leg={s}
-              from={s.fromGeo}
-              to={s.toGeo}
-              legs={legs}
-              current={legs.indexOf(s)}
-              places={located}
-              animate={!reduced}
-              active={active}
-              fallback={drawn}
-            />
-          </Suspense>
-        );
-      }
       case "stop":
         return (
           <>
