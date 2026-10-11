@@ -32,10 +32,12 @@ export function LoginForm({
   className,
   heading = "Welcome",
   description = "Share moments from experiences you had together. You choose what to add, and who can see it.",
+  returnTo,
   ...props
 }: React.ComponentProps<"div"> & {
   heading?: React.ReactNode;
   description?: React.ReactNode;
+  returnTo?: string;
 }) {
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -45,7 +47,7 @@ export function LoginForm({
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent>
-          <SignInButtons />
+          <SignInButtons returnTo={returnTo} />
         </CardContent>
       </Card>
     </div>
@@ -53,7 +55,9 @@ export function LoginForm({
 }
 
 // The provider buttons on their own, for pages that don't want a card.
-// OAuth comes back to the page it started on, so deep links survive sign-in.
+// OAuth comes back to the page it started on, so deep links survive sign-in;
+// `returnTo` names another address, for a page whose URL holds a secret (the
+// address is handed to the sign-in backend).
 // `prominent` makes them page-sized buttons on paper, `groupClassName` lays
 // them out, and `showError` lets a second set on a page leave the error to
 // the first.
@@ -62,12 +66,15 @@ export function SignInButtons({
   groupClassName,
   prominent = false,
   showError = true,
+  returnTo,
 }: {
   className?: string;
   groupClassName?: string;
   prominent?: boolean;
   showError?: boolean;
+  returnTo?: string;
 }) {
+  const options = returnTo === undefined ? undefined : { redirectTo: returnTo };
   const { isLoading } = useConvexAuth();
   const { signInGithub } = useSignInWithGithub(api.auth);
   const { signInGoogle } = useSignInWithGoogle(api.auth);
@@ -82,7 +89,7 @@ export function SignInButtons({
           type="button"
           disabled={isLoading}
           className={size}
-          onClick={() => void signInGoogle().catch(() => {})}
+          onClick={() => void signInGoogle(options).catch(() => {})}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden>
             <path
@@ -101,7 +108,7 @@ export function SignInButtons({
             prominent &&
               "border-stone-900/20 bg-transparent hover:bg-stone-900/5 dark:border-white/20 dark:bg-transparent dark:hover:bg-white/5",
           )}
-          onClick={() => void signInGithub().catch(() => {})}
+          onClick={() => void signInGithub(options).catch(() => {})}
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden>
             <path

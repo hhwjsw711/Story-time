@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import { INVITE_STASH, InvitePage } from "@/components/invite-page";
 
 // /invite#<token>: browsers don't send what follows "#" to any server. The
-// token moves into this tab's sessionStorage and out of the address bar at
-// once, so signing in, which hands the page's URL to the sign-in backend as
-// where to come back to, carries no token either.
+// link stays as it was, so it can be reloaded, copied or opened in another
+// browser; sign-in, which hands its return address to the sign-in backend,
+// is given /invite without the token, and the token waits in this tab.
 export const Route = createFileRoute("/invite/")({ component: Invite });
 
 function readToken(): string {
@@ -15,11 +15,18 @@ function readToken(): string {
     if (!fromLink) return sessionStorage.getItem(INVITE_STASH) ?? "";
     sessionStorage.setItem(INVITE_STASH, fromLink);
   } catch {
-    // No storage: the token stays in the address bar, the only place left.
-    return fromLink;
+    // No storage: see returnTo below.
   }
-  window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
   return fromLink;
+}
+
+// Whether the token is waiting in this tab, so sign-in can come back without it.
+function kept(token: string): boolean {
+  try {
+    return token !== "" && sessionStorage.getItem(INVITE_STASH) === token;
+  } catch {
+    return false;
+  }
 }
 
 function Invite() {
@@ -33,5 +40,7 @@ function Invite() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  return <InvitePage key={token} token={token} />;
+  // Without storage the token has to travel in the address, or the invite is lost.
+  const returnTo = typeof window !== "undefined" && kept(token) ? `${window.location.origin}/invite` : undefined;
+  return <InvitePage key={token} token={token} returnTo={returnTo} />;
 }

@@ -7,8 +7,8 @@ import { SignedOutPage } from "@/components/sign-in-screen";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 
-// Where a link's token waits in this tab while its opener signs in: the
-// /invite route takes it out of the address bar, which sign-in sends along.
+// Where a link's token waits in this tab while its opener signs in: sign-in
+// comes back to /invite without the "#" part, so the token never travels with it.
 export const INVITE_STASH = "storytime:invite";
 
 function forgetStash() {
@@ -21,7 +21,7 @@ function forgetStash() {
 
 // Opens an invite: sign in if needed, then use the token once and go to the
 // experience. Used by /invite#<token> and by older /invite/<token> links.
-export function InvitePage({ token }: { token: string }) {
+export function InvitePage({ token, returnTo }: { token: string; returnTo?: string }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const accept = useMutation(api.invites.accept);
   const navigate = useNavigate();
@@ -32,9 +32,13 @@ export function InvitePage({ token }: { token: string }) {
     if (!token || !isAuthenticated || started.current) return;
     started.current = true; // an invite works for the first person who opens it, so never retry
     accept({ token })
-      .then((r) => navigate({ to: "/e/$id", params: { id: r.eventId } }))
-      .catch((e) => setError(errorMessage(e)))
-      .finally(forgetStash);
+      // Kept after a failure, so a reload can try again (say, once an
+      // archived experience is restored).
+      .then((r) => {
+        forgetStash();
+        return navigate({ to: "/e/$id", params: { id: r.eventId } });
+      })
+      .catch((e) => setError(errorMessage(e)));
   }, [isAuthenticated, accept, token, navigate]);
 
   return (
@@ -58,6 +62,7 @@ export function InvitePage({ token }: { token: string }) {
         ) : (
           // OAuth returns to this page, and the effect above accepts the invite.
           <LoginForm
+            returnTo={returnTo}
             heading="You're invited"
             description="Someone shared an experience with you on Story-time. It's where the people who were there put their photos together and play them back as a story. Sign in to open it."
           />
