@@ -35,6 +35,8 @@ AI features (captions, labels, transport) run through the Convex AI Gateway, whi
 
 Place search and the names of photo locations use OpenStreetMap data from photon.komoot.io; your typed text or the photo's coordinates are sent to it.
 
+Where a leg of a story goes by foot, bike, car, bus or train, the map draws it along real streets and tracks. The browser of whoever is watching (people with a share link too) asks OpenStreetMap's public routers, routing.openstreetmap.de for roads and routing.openrailrouting.org for rails, for the route between the two stops. Only those two coordinates, rounded to about 100 m, are sent, and the answers are kept in memory, never stored. If a router can't be reached the leg is drawn as a curve. Planes, boats and other ways of travelling are always curves.
+
 On the client, `VITE_APP_URL` (the site's origin, set at build time) makes the link-preview image URL absolute. Crawlers ignore relative `og:image` URLs.
 
 ## Scripts

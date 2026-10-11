@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/map";
 import { bend, curve, ease } from "@/lib/map-route";
 import type { LatLng, Transport } from "@/lib/story-steps";
+import { useRoutePath } from "@/lib/use-route-path";
 import { cn } from "@/lib/utils";
 
 // A located stop: its step in the story, its number, and where it is.
@@ -77,9 +78,13 @@ export function StickyMap({
     return leg ? [[leg.from.lng, leg.from.lat], [focused.lng, focused.lat]] : [[focused.lng, focused.lat]];
   }, [stops, focused, leg]);
   const framingKey = framing.map((p) => p.join(",")).join(";");
+  // The leg in focus follows its streets or tracks when a router knows them (the
+  // overview line behind stays the arcs it was). It draws once that is settled,
+  // so the highlight never reshapes after it starts.
+  const { path, settled } = useRoutePath(leg?.from, leg?.to, leg?.transport ?? "walk");
   const legLine = useMemo(
-    () => (leg ? curve([leg.from.lng, leg.from.lat], [leg.to.lng, leg.to.lat], bend(leg.transport)) : undefined),
-    [leg],
+    () => (leg ? (path ?? curve([leg.from.lng, leg.from.lat], [leg.to.lng, leg.to.lat], bend(leg.transport))) : undefined),
+    [leg, path],
   );
 
   if (stops.length === 0) return null;
@@ -103,7 +108,7 @@ export function StickyMap({
             interactive={false}
           />
         )}
-        {leg && legLine && focus !== null && (
+        {leg && legLine && focus !== null && settled && (
           <LegRoute
             key={focus}
             id={`memoir-leg-${focus}`}

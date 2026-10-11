@@ -15,8 +15,10 @@ import {
 } from "@/components/ui/map";
 import { thinLabels, type LabelBox } from "@/lib/map-labels";
 import { bend, curve, ease } from "@/lib/map-route";
+import { cachedPath } from "@/lib/road-path";
 import { legDuration } from "@/lib/story-map";
 import type { LatLng, StoryStep } from "@/lib/story-steps";
+import { useRoutePath } from "@/lib/use-route-path";
 import { cn } from "@/lib/utils";
 
 type Leg = Extract<StoryStep, { kind: "travel" }>;
@@ -76,21 +78,33 @@ export function RealMapScene({
   const [progress, setProgress] = useState(animate ? 0 : 1);
   const [loaded, setLoaded] = useState(false);
   const [gaveUp, setGaveUp] = useState(false);
+  // Along the streets or tracks when a router knows them, else the arc. Until it
+  // has answered (or given up) nothing moves, so a leg never sets off along an
+  // arc and bends onto a street halfway.
+  const { path, settled } = useRoutePath(from, to, leg.transport);
   // An arrival has no route: nothing to draw from.
   const route = useMemo(
-    () => (from ? curve(lngLat(from), lngLat(to), bend(leg.transport)) : []),
-    [from?.lng, from?.lat, to.lng, to.lat, leg.transport],
+    () => (from ? (path ?? curve(lngLat(from), lngLat(to), bend(leg.transport))) : []),
+    [from?.lng, from?.lat, to.lng, to.lat, leg.transport, path],
   );
+  // The legs behind stay faint: along their streets where those came back while
+  // they were in view, else as arcs.
   const behind = useMemo(() => {
-    const done = legs.slice(0, current).flatMap((l, id) =>
-      l.fromGeo && l.toGeo ? [{ id, from: lngLat(l.fromGeo), to: lngLat(l.toGeo), plane: l.transport === "plane" }] : [],
-    );
-    return { flown: done.filter((l) => l.plane), went: done.filter((l) => !l.plane) };
+    const done = legs.slice(0, current).flatMap((l, id) => {
+      if (!l.fromGeo || !l.toGeo) return [];
+      const road = cachedPath(l.fromGeo, l.toGeo, l.transport);
+      return [{ id, from: lngLat(l.fromGeo), to: lngLat(l.toGeo), plane: l.transport === "plane", road }];
+    });
+    return {
+      flown: done.filter((l) => l.plane),
+      went: done.filter((l) => !l.plane && l.road === undefined),
+      roads: done.flatMap((l) => (l.road === undefined ? [] : [{ id: l.id, path: l.road }])),
+    };
   }, [legs, current]);
   const visited = useMemo(() => new Set(legs.slice(0, current + 1).flatMap((l) => [l.from, l.to])), [legs, current]);
 
   useEffect(() => {
-    if (!departs || !animate || !active) return;
+    if (!departs || !animate || !active || !settled) return;
     const t0 = performance.now();
     let raf = requestAnimationFrame(function tick(now) {
       const t = Math.min(1, (now - t0) / (seconds * 1000));
@@ -98,7 +112,7 @@ export function RealMapScene({
       if (t < 1) raf = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(raf);
-  }, [departs, animate, active, seconds]);
+  }, [departs, animate, active, settled, seconds]);
 
   // Timed only while in view: a scene mounted ahead may load at leisure.
   useEffect(() => {
@@ -116,12 +130,15 @@ export function RealMapScene({
         <RealMap theme="dark" interactive={false} center={lngLat(from ?? to)} zoom={11}>
           <Loaded onLoad={setLoaded} />
           {from ? (
-            <Camera from={from} to={to} route={route} seconds={seconds} animate={animate} active={active} />
+            <Camera from={from} to={to} route={route} seconds={seconds} animate={animate} active={active} ready={settled} />
           ) : (
             <Arrival to={to} places={places} seconds={seconds} animate={animate} active={active} />
           )}
           <MapArc id="flown" data={behind.flown} curvature={bend("plane")} paint={PAST} interactive={false} />
           <MapArc id="went" data={behind.went} curvature={bend("walk")} paint={PAST} interactive={false} />
+          {behind.roads.map((r) => (
+            <MapRoute key={r.id} id={`behind-${r.id}`} coordinates={r.path} color="#e7e5e4" opacity={0.3} width={1.5} dashArray={[2, 2]} interactive={false} />
+          ))}
           <PlaceMarkers places={places} from={leg.from} to={leg.to} visited={visited} />
           {from ? (
             <MapRoute coordinates={route} color="#e7e5e4" opacity={0.3} width={2} dashArray={[1, 2]} progress={progress} interactive={false}>
@@ -262,9 +279,9 @@ function framePadding(map: MapLibre) {
   return { top: h * 0.3, bottom: h * 0.14, left: side, right: side };
 }
 
-// Starts close on the departure, then (once active) eases out to frame both
-// ends below the caption. Two spots in the same place just centre at street
-// level.
+// Starts close on the departure, then (once active) eases out to frame the
+// whole route below the caption, wherever it bends. Two spots in the same place
+// just centre at street level. It waits for the route to be known (`ready`).
 function Camera({
   from,
   to,
@@ -272,6 +289,7 @@ function Camera({
   seconds,
   animate,
   active,
+  ready,
 }: {
   from: LatLng;
   to: LatLng;
@@ -279,10 +297,11 @@ function Camera({
   seconds: number;
   animate: boolean;
   active: boolean;
+  ready: boolean;
 }) {
   const { map } = useMap();
   useEffect(() => {
-    if (!map) return;
+    if (!map || !ready) return;
     const bounds = route.reduce((b, p) => b.extend(p), new LngLatBounds(route[0], route[0]));
     const fit = { padding: framePadding(map), maxZoom: 13 };
     if (!animate) {
@@ -292,8 +311,8 @@ function Camera({
     const zoom = map.cameraForBounds(bounds, fit)?.zoom ?? 10;
     map.jumpTo({ center: [from.lng, from.lat], zoom: Math.min(zoom + 2, 14) });
     if (active) map.fitBounds(bounds, { ...fit, duration: Math.min(2500, seconds * 700), essential: true });
-    // Keyed on the leg's ends, not their objects, so a data refresh doesn't restart it.
-  }, [map, from.lat, from.lng, to.lat, to.lng, animate, active]);
+    // Keyed on the leg's ends and its route, not their objects, so a data refresh doesn't restart it.
+  }, [map, from.lat, from.lng, to.lat, to.lng, route, animate, active, ready]);
   return null;
 }
 

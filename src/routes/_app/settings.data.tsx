@@ -38,6 +38,11 @@ function DataSettings() {
               Place search and the names of photo locations use OpenStreetMap data from photon.komoot.io; your typed text
               or the photo's coordinates are sent to it.
             </li>
+            <li>
+              When a story goes by foot, bike, car, bus or train, its map draws the leg along real streets and tracks.
+              Whoever is watching, a shared link included, asks OpenStreetMap's public routers for it and sends only the
+              two stops' coordinates, rounded to about 100 m; nothing is stored. If they can't be reached, the leg is a curve.
+            </li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
         </SettingsBlock>
