@@ -271,6 +271,13 @@ describe("a connection's token", () => {
       params: { name: "list_moments", arguments: {} },
     });
     expect(badArguments.status).toBe(401);
+    // Without an id it is a notification, which gets no answer, but the token is still checked.
+    const notification = await post(t, bad, {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { name: "list_experiences", arguments: {} },
+    });
+    expect(notification.status).toBe(401);
   });
 
   test("the rate limit allows 60 requests in a minute and refuses the 61st", async () => {

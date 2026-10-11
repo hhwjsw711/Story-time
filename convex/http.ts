@@ -115,11 +115,14 @@ function tooLarge(): Response {
   );
 }
 
-// A call to a real tool. Only these check the token inside the tool's own
-// transaction; anything else checks it before it is answered.
+// A call to a real tool, with an id so that it gets an answer. Only these check
+// the token inside the tool's own transaction; anything else, notifications
+// included, checks it before it is answered.
 function isToolCall(message: unknown): boolean {
   const parsed = rpcMessage.safeParse(message);
-  if (!parsed.success || parsed.data.method !== "tools/call") return false;
+  if (!parsed.success || parsed.data.id === undefined || parsed.data.method !== "tools/call") {
+    return false;
+  }
   const params = parsed.data.params;
   return isRecord(params) && TOOLS.some((tool) => tool.name === params.name);
 }
