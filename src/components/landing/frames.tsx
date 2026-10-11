@@ -17,7 +17,6 @@ const LAND = "#1b1b1b";
 const WATER = "#10161b";
 const STREET = "#2a2a2a";
 const AVENUE = "#383838";
-const SANS = "'Manrope Variable', Manrope, ui-sans-serif, system-ui, sans-serif";
 const SERIF = "ui-serif, Georgia, serif";
 // Small grey district names, the way the basemap letters them.
 const DISTRICTS = [
@@ -56,11 +55,11 @@ export function MapFrame() {
           {/* The bridge, upriver. */}
           <path d="M7 44 L11 67" strokeWidth="0.8" />
         </g>
-        <text x="60" y="53" fontFamily={SANS} fontSize="2.4" fontStyle="italic" fill="#3b4a55">
+        <text x="60" y="53" className="font-sans" fontSize="2.4" fontStyle="italic" fill="#3b4a55">
           Rio Tejo
         </text>
         {DISTRICTS.map((d) => (
-          <text key={d.name} x={d.x} y={d.y} textAnchor="middle" fontFamily={SANS} fontSize="1.9" letterSpacing="0.35" fill="#6b6b6b">
+          <text key={d.name} x={d.x} y={d.y} textAnchor="middle" className="font-sans" fontSize="1.9" letterSpacing="0.35" fill="#6b6b6b">
             {d.name}
           </text>
         ))}

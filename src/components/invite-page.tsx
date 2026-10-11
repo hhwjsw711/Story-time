@@ -7,8 +7,8 @@ import { SignedOutPage } from "@/components/sign-in-screen";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 
-// Where a link's token waits in this tab while its opener signs in, since the
-// sign-in leaves for the provider and the "#…" part may not survive the trip.
+// Where a link's token waits in this tab while its opener signs in: the
+// /invite route takes it out of the address bar, which sign-in sends along.
 export const INVITE_STASH = "storytime:invite";
 
 function forgetStash() {
