@@ -44,7 +44,7 @@ export function SignInScreen() {
       <LoginForm
         className="w-full max-w-sm"
         heading="Sign in to open this page"
-        description="Only the people it was shared with can see it. You'll come straight back here."
+        description="Only the people it was shared with, or anyone holding a link its owner switched on, can see it. You'll come straight back here."
       />
     </SignedOutPage>
   );

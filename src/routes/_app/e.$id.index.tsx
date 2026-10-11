@@ -239,7 +239,7 @@ function EventPage() {
             </div>
           </div>
         </TabsContent>
-        {isOwner && <TabsContent value="shared"><SharedTab eventId={eventId} /></TabsContent>}
+        {isOwner && <TabsContent value="shared"><SharedTab eventId={eventId} archived={archived} /></TabsContent>}
         {isOwner && <TabsContent value="activity"><ActivityTab eventId={eventId} /></TabsContent>}
         {isOwner && <TabsContent value="settings"><SettingsTab eventId={eventId} /></TabsContent>}
       </Tabs>

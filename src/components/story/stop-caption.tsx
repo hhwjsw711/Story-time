@@ -17,11 +17,14 @@ const when = (ms: number) =>
 export function StopCaption({ scene, meId }: { scene: StopScene; meId: string | undefined }) {
   const { stop } = scene;
   const transport = transportOf(stop.transport);
-  const author = scene.authorId === meId ? "you" : (scene.authorName ?? "Anonymous");
+  // A shared story names no one, so there is no author to show.
+  const author =
+    scene.authorId === undefined ? undefined : scene.authorId === meId ? "you" : (scene.authorName ?? "Anonymous");
   const text = stop.blocks.filter((b) => b.type !== "photo" && b.type !== "video");
   // A stop without a place is headed by its time, or its number in the story.
   const time = stop.startsAt === undefined ? undefined : when(stop.startsAt);
   const heading = stop.place || time || scene.place;
+  const showTime = time !== undefined && heading !== time;
 
   return (
     <section
@@ -32,10 +35,12 @@ export function StopCaption({ scene, meId }: { scene: StopScene; meId: string | 
         {transport && (
           <>
             <transport.icon aria-hidden className="mr-1.5 inline size-3.5 align-[-2px]" />
-            {transport.phrase} ·{" "}
+            {transport.phrase}
+            {(showTime || author) && " · "}
           </>
         )}
-        {time && heading !== time && `${time} · `}by {author}
+        {showTime && (author ? `${time} · ` : time)}
+        {author && `by ${author}`}
       </p>
       <h2 className="font-serif text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{heading}</h2>
       {scene.labels.length > 0 && scene.stopIndex === 0 && (

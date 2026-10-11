@@ -28,8 +28,8 @@ function DataSettings() {
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             <li>What you add: profile fields, moments, notes, links, photos and videos.</li>
             <li>Place, notes and links are encrypted before they are saved.</li>
-            <li>Photos are encrypted in storage and visible only to people you share with.</li>
-            <li>Photos and videos keep the details the camera saved in them, like where they were taken.</li>
+            <li>Photos are encrypted in storage and visible only to people you share with — or to anyone holding a link you switched on.</li>
+            <li>JPEG photos lose the details the camera saved in them, like where they were taken, when they're added. Other photos and videos keep theirs.</li>
             <li>
               When you add photos, small copies of up to four photos from each moment go through Convex's AI gateway to
               Anthropic to draft the first note and labels; the copies aren't kept.

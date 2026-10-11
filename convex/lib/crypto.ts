@@ -145,3 +145,25 @@ export async function placeKeyFor(
   );
   return toB64(new Uint8Array(sig)).slice(0, 22);
 }
+
+// Finds an experience from its share link without keeping the token: a keyed
+// hash of it. Derived from the master key alone, since the experience isn't
+// known yet when a link is opened.
+export async function shareKeyFor(token: string): Promise<string> {
+  const key = await cached("share", async () =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: enc.encode("storytime/share"),
+        info: enc.encode("share"),
+      },
+      await masterKey(),
+      { name: "HMAC", hash: "SHA-256", length: 256 },
+      false,
+      ["sign"],
+    ),
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(token));
+  return toB64(new Uint8Array(sig)).slice(0, 22);
+}

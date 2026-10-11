@@ -2,20 +2,31 @@ import { createFileRoute } from "@tanstack/react-router";
 import { env } from "cloudflare:workers";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { bearerToken, convexAs, json, ssecKeyFor } from "@/server/r2";
+import { bearerToken, convexAnonymous, convexAs, json, shareToken, ssecKeyFor } from "@/server/r2";
+
+// Null unless the caller may see it. A signed-in viewer is checked as
+// themselves; a share link by its token alone. Convex makes both decisions.
+async function mediaFor(request: Request, mediaId: Id<"media">) {
+  const token = bearerToken(request);
+  if (token) {
+    return convexAs(token).query(api.media.getForDownload, { mediaId }).catch(() => null);
+  }
+  const share = shareToken(request);
+  if (share) {
+    return convexAnonymous()
+      .query(api.share.mediaForShare, { token: share, mediaId })
+      .catch(() => null);
+  }
+  return null;
+}
 
 export const Route = createFileRoute("/api/media/$id")({
   server: {
     handlers: {
       GET: async ({ request, params }) => {
-        const token = bearerToken(request);
-        if (!token) return json({ error: "Sign in" }, 401);
+        if (!bearerToken(request) && !shareToken(request)) return json({ error: "Sign in" }, 401);
 
-        // Null unless the caller may see it: an active grant on the event for
-        // photos, or the owner / someone sharing an experience for avatars.
-        const media = await convexAs(token)
-          .query(api.media.getForDownload, { mediaId: params.id as Id<"media"> })
-          .catch(() => null);
+        const media = await mediaFor(request, params.id as Id<"media">);
         if (!media) return json({ error: "Not found" }, 404);
 
         const object = await env.MEDIA.get(media.r2Key, {
@@ -26,6 +37,10 @@ export const Route = createFileRoute("/api/media/$id")({
         return new Response(object.body, {
           headers: {
             "Content-Type": media.mime,
+            // Shown in the page, not saved as a file, and not sniffed into
+            // another type.
+            "Content-Disposition": "inline",
+            "X-Content-Type-Options": "nosniff",
             // Private, per-viewer content: never cached by shared caches.
             "Cache-Control": "private, no-store",
           },

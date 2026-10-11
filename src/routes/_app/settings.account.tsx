@@ -3,6 +3,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { LogOutIcon } from "lucide-react";
 import { SettingsBlock, SettingsPage } from "@/components/settings/section";
 import { Button } from "@/components/ui/button";
+import { clearMediaCache } from "@/lib/use-media-url";
 
 export const Route = createFileRoute("/_app/settings/account")({ component: Account });
 
@@ -16,7 +17,13 @@ function Account() {
           title="Signing in"
           description="You sign in with GitHub or Google, so there is no password to manage here."
         >
-          <Button variant="outline" onClick={() => void signOut()}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              clearMediaCache();
+              void signOut();
+            }}
+          >
             <LogOutIcon /> Sign out
           </Button>
         </SettingsBlock>

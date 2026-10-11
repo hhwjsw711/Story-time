@@ -3,7 +3,7 @@ import { Share2Icon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
-import type { EventView } from "@/components/event/types";
+import type { StoryEvent } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/errors";
 
@@ -15,32 +15,39 @@ function copyLater(text: Promise<string>): Promise<void> {
   return navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
 }
 
-// Owners share by invite, as on the Shared tab: a one-time viewer link.
-// Everyone else copies the story's own address.
-export function ShareButton({ event, label }: { event: EventView; label?: string }) {
-  const createInvite = useMutation(api.invites.create);
+// Owners switch the story's link on and copy it: anyone with it can watch.
+// Everyone else copies the story's own address. On a shared story, which has
+// no role, the address on screen is the link.
+export function ShareButton({ event, label }: { event: StoryEvent; label?: string }) {
+  const enableLink = useMutation(api.share.enable);
   const [busy, setBusy] = useState(false);
-  const isOwner = event.role === "owner";
-  const archived = event.status === "archived";
+  const shared = event.role === undefined;
+  const canShareLink = event.role === "owner" && event.status !== "archived";
 
   async function share() {
     setBusy(true);
-    const invite = isOwner && !archived;
-    const link = invite
-      ? createInvite({ eventId: event._id, role: "viewer" }).then((r) => r.link)
-      : Promise.resolve(`${window.location.origin}/e/${event._id}/story`);
+    const link = shared
+      ? Promise.resolve(window.location.href)
+      : canShareLink
+        ? enableLink({ eventId: event._id })
+        : Promise.resolve(`${window.location.origin}/e/${event._id}/story`);
     const copied = copyLater(link).then(
       () => true,
       () => false,
     );
     try {
       const url = await link;
-      const description = invite
-        ? "It works once and expires in 7 days."
-        : "Only people who already have access to this experience can open it.";
-      if (await copied) toast.success(invite ? "Invite link copied" : "Link copied", { description });
-      // The browser refused the clipboard: a fresh click on Copy is allowed.
-      else toast(url, { description, action: { label: "Copy", onClick: () => void navigator.clipboard.writeText(url) } });
+      const description = shared
+        ? "Anyone with it can watch."
+        : canShareLink
+          ? "Switch it off under Shared."
+          : "Only people who already have access to this experience can open it.";
+      if (await copied) {
+        toast.success(canShareLink ? "Link copied · anyone with it can watch" : "Link copied", { description });
+      } else {
+        // The browser refused the clipboard: a fresh click on Copy is allowed.
+        toast(url, { description, action: { label: "Copy", onClick: () => void navigator.clipboard.writeText(url) } });
+      }
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -59,7 +66,7 @@ export function ShareButton({ event, label }: { event: EventView; label?: string
     <Button
       variant="ghost"
       size="icon"
-      aria-label={isOwner ? "Share by invite link" : "Copy link"}
+      aria-label={canShareLink ? "Share with a link" : "Copy link"}
       onClick={() => void share()}
       disabled={busy}
       className="text-white hover:bg-white/10 hover:text-white"

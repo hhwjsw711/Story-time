@@ -1,3 +1,5 @@
+import { stripExif } from "./strip-exif";
+
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 export const VIDEO_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
@@ -6,6 +8,8 @@ export const MEDIA_ACCEPT = `image/*,${VIDEO_TYPES.join(",")}`;
 export const isVideoFile = (file: File) => VIDEO_TYPES.includes(file.type);
 
 // Streams a photo or video through our server route, which encrypts it into R2.
+// A JPEG goes up without its camera details (where and when it was taken),
+// since a share link can reach it; the file the caller holds is untouched.
 export async function uploadMedia(
   file: File,
   eventId: string,
@@ -16,15 +20,17 @@ export async function uploadMedia(
   } else if (file.size > MAX_UPLOAD_BYTES) {
     throw new Error("Photos can be at most 5 MB");
   }
+  const upload = await stripExif(file);
   const res = await fetch("/api/upload", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": file.type,
       "X-Event-Id": eventId,
-      "X-File-Size": String(file.size),
+      // The server streams exactly this many bytes, so it must be the stripped size.
+      "X-File-Size": String(upload.size),
     },
-    body: file,
+    body: upload,
   });
   const body = (await res.json().catch(() => null)) as {
     mediaId?: string;

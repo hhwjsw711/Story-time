@@ -1,4 +1,4 @@
-import type { MomentView } from "@/components/event/types";
+import type { MomentView, StoryMoment } from "@/components/event/types";
 
 export type Transport = NonNullable<MomentView["transport"]>;
 export type Stop = MomentView["stops"][number];
@@ -24,7 +24,8 @@ export type StoryStep =
       stop: Stop;
       // The first stop of the whole story: the camera opens on it.
       first: boolean;
-      authorId: string;
+      // Absent in a shared story, which names no one.
+      authorId?: string;
       authorName?: string;
       labels: string[];
       // Its name on the map, unique to this stop unless it's a real place.
@@ -33,7 +34,7 @@ export type StoryStep =
   | { kind: "end" };
 
 // The first stop lives on the moment itself; later ones in `stops`.
-export function stopsOf(m: MomentView): Stop[] {
+export function stopsOf(m: StoryMoment): Stop[] {
   return [{ startsAt: m.startsAt, place: m.place, geo: m.geo, transport: m.transport, blocks: m.blocks }, ...m.stops];
 }
 
@@ -45,7 +46,7 @@ export const placeLabel = (stop: Stop, n: number) => stop.place || `Stop ${n + 1
 // Moments play in time order. Before any stop that records how they got
 // there, a travel scene runs from the previous place (or the title, for the
 // very first) to this one.
-export function buildStorySteps(title: string, moments: MomentView[]): StoryStep[] {
+export function buildStorySteps(title: string, moments: StoryMoment[]): StoryStep[] {
   const steps: StoryStep[] = [{ kind: "title" }];
   const ordered = [...moments].sort((a, b) => a.startsAt - b.startsAt);
   let previousPlace = title;

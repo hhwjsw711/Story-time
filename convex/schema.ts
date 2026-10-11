@@ -107,7 +107,18 @@ export default defineSchema({
       v.literal("active"),
       v.literal("archived"),
     ),
-    visibility: v.union(v.literal("private"), v.literal("invite")),
+    // "link": anyone holding the share link can watch (share.ts). "invite" is
+    // what rows from before links carry, and reads as private.
+    visibility: v.union(
+      v.literal("private"),
+      v.literal("invite"),
+      v.literal("link"),
+    ),
+    // Set only while visibility is "link". The key finds the experience from a
+    // link (a keyed hash, never the token); the token is kept encrypted so the
+    // owner can copy the link again.
+    shareKey: v.optional(v.string()),
+    shareToken: v.optional(vEncrypted),
     region: vRegion,
     momentLimit: v.number(),
     momentCount: v.number(),
@@ -115,6 +126,7 @@ export default defineSchema({
     coverMediaId: v.optional(v.id("media")),
   })
     .index("by_owner", ["ownerId"])
+    .index("by_shareKey", ["shareKey"])
     .searchIndex("search_title", {
       searchField: "title",
       filterFields: ["ownerId"],

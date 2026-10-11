@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as SRouteImport } from './routes/s'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as ApiUploadRouteImport } from './routes/api/upload'
@@ -32,6 +33,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SRoute = SRouteImport.update({
+  id: '/s',
+  path: '/s',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppHomeRoute = AppHomeRouteImport.update({
@@ -102,6 +108,7 @@ const AppEIdNewRoute = AppEIdNewRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/s': typeof SRoute
   '/home': typeof AppHomeRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/api/upload': typeof ApiUploadRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/s': typeof SRoute
   '/home': typeof AppHomeRoute
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -135,6 +143,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/s': typeof SRoute
   '/_app/home': typeof AppHomeRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/api/upload': typeof ApiUploadRoute
@@ -153,6 +162,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/s'
     | '/home'
     | '/settings'
     | '/api/upload'
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/s'
     | '/home'
     | '/api/upload'
     | '/invite/$token'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/s'
     | '/_app/home'
     | '/_app/settings'
     | '/api/upload'
@@ -203,6 +215,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  SRoute: typeof SRoute
   ApiUploadRoute: typeof ApiUploadRoute
   InviteTokenRoute: typeof InviteTokenRoute
   ApiEventsIdRoute: typeof ApiEventsIdRoute
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s': {
+      id: '/s'
+      path: '/s'
+      fullPath: '/s'
+      preLoaderRoute: typeof SRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/home': {
@@ -357,6 +377,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  SRoute: SRoute,
   ApiUploadRoute: ApiUploadRoute,
   InviteTokenRoute: InviteTokenRoute,
   ApiEventsIdRoute: ApiEventsIdRoute,

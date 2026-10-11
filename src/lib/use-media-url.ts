@@ -1,8 +1,23 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 
 type MediaState = { url: string | null; failed: boolean };
 type Entry = { state: MediaState; users: Set<() => void>; abort: AbortController };
+
+// Who is asking for a picture: the signed-in viewer ("bearer"), or someone who
+// opened a share link ("share"), whose token is the only credential.
+export type MediaAuth = { kind: "bearer" | "share"; token: string };
+
+// A shared story provides its link's token. Without a provider, pictures are
+// fetched with the signed-in viewer's session.
+export const MediaAuthContext = createContext<MediaAuth | null>(null);
+
+function useMediaAuth(): MediaAuth | null {
+  const shared = useContext(MediaAuthContext);
+  const token = useAuthToken();
+  if (shared) return shared;
+  return token ? { kind: "bearer", token } : null;
+}
 
 const IDLE: MediaState = { url: null, failed: false };
 
@@ -15,7 +30,7 @@ const IDLE: MediaState = { url: null, failed: false };
 const MAX = 40;
 const cache = new Map<string, Entry>();
 
-function load(mediaId: string, token: string | null): Entry | undefined {
+function load(mediaId: string, auth: MediaAuth | null): Entry | undefined {
   const hit = cache.get(mediaId);
   cache.delete(mediaId);
   // A failure is retried once nobody is showing it.
@@ -23,14 +38,15 @@ function load(mediaId: string, token: string | null): Entry | undefined {
     cache.set(mediaId, hit);
     return hit;
   }
-  if (!token) return undefined;
+  if (!auth) return undefined;
   const entry: Entry = { state: IDLE, users: new Set(), abort: new AbortController() };
   cache.set(mediaId, entry);
   const settle = (state: MediaState) => {
     entry.state = state;
     for (const notify of entry.users) notify();
   };
-  fetch(`/api/media/${mediaId}`, { headers: { Authorization: `Bearer ${token}` }, signal: entry.abort.signal })
+  const authorization = auth.kind === "share" ? `Share ${auth.token}` : `Bearer ${auth.token}`;
+  fetch(`/api/media/${mediaId}`, { headers: { Authorization: authorization }, signal: entry.abort.signal })
     .then((r) => (r.ok ? r.blob() : Promise.reject(new Error("failed"))))
     .then((blob) => {
       if (!entry.abort.signal.aborted) settle({ url: URL.createObjectURL(blob), failed: false });
@@ -50,17 +66,30 @@ function evict() {
   }
 }
 
+// On sign-out: every picture leaves memory, so the next person at this browser
+// can't see the last one's. Pictures on screen fall back to the placeholder.
+export function clearMediaCache() {
+  for (const [id, entry] of cache) {
+    cache.delete(id);
+    entry.abort.abort();
+    if (entry.state.url) URL.revokeObjectURL(entry.state.url);
+    entry.state = IDLE;
+    for (const notify of entry.users) notify();
+  }
+}
+
 // Private media can't use a plain <img src>, so fetch it with the viewer's
 // token and hand back a blob URL. `failed` is set when it can't be shown.
 export function useMediaUrl(mediaId: string | undefined): MediaState {
-  const token = useAuthToken();
-  const tokenRef = useRef(token);
-  tokenRef.current = token;
-  const signedIn = token !== null;
+  const auth = useMediaAuth();
+  const authRef = useRef(auth);
+  authRef.current = auth;
+  // Subscribes again once access arrives, not each time a token is refreshed.
+  const kind = auth?.kind;
   const subscribe = useCallback(
     (notify: () => void) => {
       if (!mediaId) return () => {};
-      const entry = load(mediaId, tokenRef.current);
+      const entry = load(mediaId, authRef.current);
       entry?.users.add(notify);
       evict();
       return () => {
@@ -68,19 +97,21 @@ export function useMediaUrl(mediaId: string | undefined): MediaState {
         evict();
       };
     },
-    // Subscribes again once a token arrives, not each time it's refreshed.
-    [mediaId, signedIn],
+    [mediaId, kind],
   );
   return useSyncExternalStore(subscribe, () => (mediaId && cache.get(mediaId)?.state) || IDLE, () => IDLE);
 }
 
 // Starts loading pictures that are about to be shown.
 export function usePrefetchMedia(mediaIds: string[]) {
-  const token = useAuthToken();
+  const auth = useMediaAuth();
   const ids = mediaIds.join(" ");
+  // Taken apart, so the effect reruns for a new token rather than a new object.
+  const kind = auth?.kind;
+  const token = auth?.token;
   useEffect(() => {
-    if (!ids) return;
-    for (const id of ids.split(" ")) load(id, token);
+    if (!ids || kind === undefined || token === undefined) return;
+    for (const id of ids.split(" ")) load(id, { kind, token });
     evict();
-  }, [ids, token]);
+  }, [ids, kind, token]);
 }

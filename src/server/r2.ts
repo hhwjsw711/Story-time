@@ -41,11 +41,23 @@ export function bearerToken(request: Request): string | null {
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
+// A share link's token, sent as `Authorization: Share <token>`.
+export function shareToken(request: Request): string | null {
+  const header = request.headers.get("Authorization");
+  return header?.startsWith("Share ") ? header.slice(6) : null;
+}
+
 // A Convex client acting as the caller, so every check in convex/ applies.
 export function convexAs(token: string): ConvexHttpClient {
   const client = new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL);
   client.setAuth(token);
   return client;
+}
+
+// No caller at all, for share links: the token is the only credential, and
+// convex/share.ts checks it.
+export function convexAnonymous(): ConvexHttpClient {
+  return new ConvexHttpClient(import.meta.env.VITE_CONVEX_URL);
 }
 
 export function json(body: unknown, status = 200): Response {

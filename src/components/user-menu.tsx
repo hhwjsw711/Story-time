@@ -14,6 +14,7 @@ import {
 import { SidebarMenuButton, useSidebar } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserAvatar } from "@/components/user-avatar";
+import { clearMediaCache } from "@/lib/use-media-url";
 
 // Footer card: shows who you are and opens a menu to the side with
 // Settings and Sign out.
@@ -60,7 +61,12 @@ export function UserMenu() {
             <SettingsIcon /> Settings
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => void signOut()}>
+        <DropdownMenuItem
+          onSelect={() => {
+            clearMediaCache();
+            void signOut();
+          }}
+        >
           <LogOutIcon /> Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
