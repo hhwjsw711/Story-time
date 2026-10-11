@@ -153,7 +153,7 @@ export const TOOLS: ReadonlyArray<{
   {
     name: "list_moments",
     description:
-      "Read the most recent moments of one experience, newest first. Call list_experiences first for the experienceId. Each moment has id, when (ISO 8601, UTC), place, lat and lng, transport, labels, notes (the text of its notes and feelings, each cut to 300 characters), stops (how many more stops follow the first), photos (how many photos and videos it has), by (who added it: a person, or an agent with its name) and editedBy (the same, for the latest edit). Example: {\"experienceId\": \"jd7b4z8k2q1m5n9p\", \"limit\": 5}.",
+      "Read the most recent moments of one experience, newest first. Call list_experiences first for the experienceId. Each moment has id, when (ISO 8601, with the offset where it happened when known, else UTC), place, lat and lng, transport, labels, notes (the text of its notes and feelings, each cut to 300 characters), stops (how many more stops follow the first), photos (how many photos and videos it has), by (who added it: a person, or an agent with its name) and editedBy (the same, for the latest edit). Example: {\"experienceId\": \"jd7b4z8k2q1m5n9p\", \"limit\": 5}.",
     input: listMomentsInput,
     readOnly: true,
   },

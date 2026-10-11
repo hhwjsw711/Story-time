@@ -147,10 +147,16 @@ function clampLimit(limit: number | undefined): number {
   return Math.min(Math.max(Math.trunc(limit), 1), MAX_MOMENTS);
 }
 
-// ISO 8601 in UTC, or undefined when there is no date or it can't be shown.
-function isoOf(ms: number | undefined): string | undefined {
+// ISO 8601, or undefined when there is no date or it can't be shown. With the
+// offset where it happened, when known ("2026-06-01T23:30:00-05:00"), so an
+// assistant reads the clock time people lived; in UTC otherwise.
+function isoOf(ms: number | undefined, offset?: number): string | undefined {
   if (ms === undefined || !Number.isFinite(ms) || Math.abs(ms) > MAX_DATE_MS) return undefined;
-  return new Date(ms).toISOString();
+  if (offset === undefined) return new Date(ms).toISOString();
+  const local = new Date(ms + offset * 60_000).toISOString().slice(0, 19);
+  const abs = Math.abs(offset);
+  const zone = `${offset < 0 ? "-" : "+"}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  return `${local}${zone}`;
 }
 
 // Cut by characters, not UTF-16 units, so an emoji is never split.
@@ -185,7 +191,7 @@ function summaryOf(view: View) {
   const lists: PlainBlock[][] = [view.blocks, ...view.stops.map((s) => s.blocks)];
   return {
     id: view._id,
-    when: isoOf(view.startsAt) ?? "unknown date",
+    when: isoOf(view.startsAt, view.tzOffsetMinutes) ?? "unknown date",
     place: view.place,
     lat: view.geo?.lat,
     lng: view.geo?.lng,

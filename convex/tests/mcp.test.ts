@@ -493,7 +493,8 @@ describe("the tools", () => {
     const rows = await t.run((ctx) => ctx.db.query("itinerary").take(100));
     expect(rows.map((row) => row.dayKey)).toEqual(["2026-06-01"]);
     const listed = await call(t, token, "list_moments", { experienceId: eventId });
-    expect(listed.data).toEqual([expect.objectContaining({ when: "2026-06-02T04:30:00.000Z" })]);
+    // Read back in the zone it was given in, as the people there lived it.
+    expect(listed.data).toEqual([expect.objectContaining({ when: "2026-06-01T23:30:00-05:00" })]);
   });
 
   test("list_moments returns the newest first, up to the limit, with notes cut to 300 characters", async () => {
