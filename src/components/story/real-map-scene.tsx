@@ -13,6 +13,7 @@ import {
   RouteProgress,
   useMap,
 } from "@/components/ui/map";
+import { thinLabels, type LabelBox } from "@/lib/map-labels";
 import { bend, curve, ease } from "@/lib/map-route";
 import { legDuration } from "@/lib/story-map";
 import type { LatLng, StoryStep } from "@/lib/story-steps";
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 type Leg = Extract<StoryStep, { kind: "travel" }>;
 type Point = [number, number];
+type Placed = { name: string; geo: LatLng };
 
 const lngLat = (g: LatLng): Point => [g.lng, g.lat];
 // How long a leg in view waits for the basemap before showing the drawn map.
@@ -29,6 +31,13 @@ const PAST = { "line-color": "#e7e5e4", "line-opacity": 0.3, "line-width": 1.5, 
 const ARRIVE_ZOOM = 12.5;
 // Where an arrival opens when it is the only place on the map.
 const LONE_ZOOM = 5;
+// A name's box on screen, estimated in pixels: how far its text sits below the
+// dot's centre (the dot's half-width plus the margin above the text), the text's
+// height, about 7px a letter, and the most a name takes before it is cut. The
+// destination's name is bigger and sits lower, clear of the transport parked on it.
+const CAPTION = { drop: 8, height: 18, perLetter: 7, maxWidth: 160 };
+const DEST_CAPTION = { drop: 26, height: 22, perLetter: 8, maxWidth: 208 };
+const CAPTION_PAD = 6;
 
 // A leg on a real map, live-tracker style: the camera starts on where they
 // left from and pulls back to show both ends while the route draws itself
@@ -54,7 +63,7 @@ export function RealMapScene({
   to: LatLng;
   legs: Leg[];
   current: number;
-  places: Array<{ name: string; geo: LatLng }>;
+  places: Placed[];
   animate: boolean;
   active: boolean;
   // Shown instead when the basemap doesn't arrive (tiles blocked, offline).
@@ -113,32 +122,7 @@ export function RealMapScene({
           )}
           <MapArc id="flown" data={behind.flown} curvature={bend("plane")} paint={PAST} interactive={false} />
           <MapArc id="went" data={behind.went} curvature={bend("walk")} paint={PAST} interactive={false} />
-          {places.map((p) => {
-            const active = p.name === leg.to;
-            return (
-              <MapMarker key={p.name} longitude={p.geo.lng} latitude={p.geo.lat}>
-                <MarkerContent>
-                  <span
-                    className={cn(
-                      "block rounded-full border",
-                      active ? "size-3 border-[#c2410c] bg-amber-200" : "size-2 border-stone-900 bg-stone-300",
-                      !active && !visited.has(p.name) && "opacity-50",
-                    )}
-                  />
-                  <MarkerLabel
-                    position="bottom"
-                    className={cn(
-                      "max-w-40 truncate font-serif text-xs text-stone-300 [text-shadow:0_1px_3px_#141210]",
-                      // Clear of the transport, which parks here.
-                      active && "mt-5 max-w-52 text-sm font-semibold text-amber-200",
-                    )}
-                  >
-                    {p.name}
-                  </MarkerLabel>
-                </MarkerContent>
-              </MapMarker>
-            );
-          })}
+          <PlaceMarkers places={places} from={leg.from} to={leg.to} visited={visited} />
           {from ? (
             <MapRoute coordinates={route} color="#e7e5e4" opacity={0.3} width={2} dashArray={[1, 2]} progress={progress} interactive={false}>
               <RouteProgress color="#fde68a" opacity={1} width={4} />
@@ -187,6 +171,79 @@ function Badge({ Icon, pulse = false }: { Icon?: LucideIcon; pulse?: boolean }) 
       </span>
     </span>
   );
+}
+
+// Every located place is marked, but a name shows only where it fits clear of
+// the others. The destination's name comes first, then where the leg set off
+// from, then the places already visited; the rest give way.
+function PlaceMarkers({ places, from, to, visited }: { places: Placed[]; from: string; to: string; visited: Set<string> }) {
+  const { map, isLoaded } = useMap();
+  const [named, setNamed] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!map || !isLoaded) return;
+    // Read again when the camera settles, not on every frame of a flight.
+    const relabel = () => setNamed(namesThatFit(map, places, from, to, visited));
+    relabel();
+    map.on("moveend", relabel);
+    return () => {
+      map.off("moveend", relabel);
+    };
+  }, [map, isLoaded, places, from, to, visited]);
+
+  return (
+    <>
+      {places.map((p) => {
+        const dest = p.name === to;
+        return (
+          <MapMarker key={p.name} longitude={p.geo.lng} latitude={p.geo.lat}>
+            <MarkerContent>
+              <span
+                className={cn(
+                  "block rounded-full border",
+                  dest ? "size-3 border-[#c2410c] bg-amber-200" : "size-2 border-stone-900 bg-stone-300",
+                  !dest && !visited.has(p.name) && "opacity-50",
+                )}
+              />
+              {named.has(p.name) && (
+                <MarkerLabel
+                  position="bottom"
+                  className={cn(
+                    "max-w-40 truncate font-serif text-xs text-stone-300 [text-shadow:0_1px_3px_#141210]",
+                    // Clear of the transport, which parks here.
+                    dest && "mt-5 max-w-52 text-sm font-semibold text-amber-200",
+                  )}
+                >
+                  {p.name}
+                </MarkerLabel>
+              )}
+            </MarkerContent>
+          </MapMarker>
+        );
+      })}
+    </>
+  );
+}
+
+// The names that fit clear of one another where the map is now. A place off
+// the screen has no name to place; its dot is simply not on the map.
+function namesThatFit(map: MapLibre, places: Placed[], from: string, to: string, visited: Set<string>): Set<string> {
+  const { clientWidth: w, clientHeight: h } = map.getContainer();
+  const boxes: LabelBox[] = [];
+  for (const p of places) {
+    const at = map.project([p.geo.lng, p.geo.lat]);
+    if (at.x < 0 || at.y < 0 || at.x > w || at.y > h) continue;
+    const dest = p.name === to;
+    const caption = dest ? DEST_CAPTION : CAPTION;
+    boxes.push({
+      id: p.name,
+      x: at.x,
+      y: at.y + caption.drop + caption.height / 2,
+      width: Math.min(p.name.length * caption.perLetter, caption.maxWidth),
+      height: caption.height,
+      priority: dest ? 100 : p.name === from ? 90 : visited.has(p.name) ? 50 : 10,
+    });
+  }
+  return thinLabels(boxes, CAPTION_PAD);
 }
 
 function Loaded({ onLoad }: { onLoad: (loaded: boolean) => void }) {
@@ -251,7 +308,7 @@ function Arrival({
   active,
 }: {
   to: LatLng;
-  places: Array<{ name: string; geo: LatLng }>;
+  places: Placed[];
   seconds: number;
   animate: boolean;
   active: boolean;
