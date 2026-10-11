@@ -1,11 +1,15 @@
 import { useMutation, useQuery } from "convex/react";
+import { PlugIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { errorMessage } from "@/lib/errors";
+
+const ALL = "all";
 
 // Makes a connection for an assistant. The token comes back once, to the page
 // that shows it, and is kept nowhere else.
@@ -17,7 +21,8 @@ export function ConnectAgentForm({
   const experiences = useQuery(api.events.listMine);
   const connect = useMutation(api.agentTokens.create);
   const [name, setName] = useState("");
-  const [scope, setScope] = useState("");
+  // "all" for every experience the person can add to, else one experience's id.
+  const [scope, setScope] = useState(ALL);
   const [saving, setSaving] = useState(false);
   const trimmed = name.trim();
   // Only experiences the person can add to. A viewer can't give an assistant one.
@@ -32,7 +37,7 @@ export function ConnectAgentForm({
       const made = await connect({ name: trimmed, eventId });
       onConnected({ token: made.token, name: trimmed });
       setName("");
-      setScope("");
+      setScope(ALL);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
@@ -60,23 +65,23 @@ export function ConnectAgentForm({
         </div>
         <div className="min-w-0 space-y-2">
           <Label htmlFor="agent-scope">Can use</Label>
-          <select
-            id="agent-scope"
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-          >
-            <option value="">All my experiences</option>
-            {writable.map((e) => (
-              <option key={e._id} value={e._id}>
-                {e.title}
-              </option>
-            ))}
-          </select>
+          <Select value={scope} onValueChange={setScope}>
+            <SelectTrigger id="agent-scope" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All my experiences</SelectItem>
+              {writable.map((e) => (
+                <SelectItem key={e._id} value={e._id}>
+                  {e.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
       <Button type="submit" disabled={saving || trimmed === ""}>
-        Connect
+        <PlugIcon /> {saving ? "Connecting…" : "Connect"}
       </Button>
     </form>
   );

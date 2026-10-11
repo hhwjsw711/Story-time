@@ -36,11 +36,14 @@ export function EventActionsMenu({
   onEditDetails,
   onAddMoment,
   onAddFromPhotos,
+  compact = false,
 }: {
   event: EventView;
   onEditDetails?: () => void;
   onAddMoment?: () => void;
   onAddFromPhotos?: () => void;
+  // The icon alone, where a label would crowd (a card's corner).
+  compact?: boolean;
 }) {
   const update = useMutation(api.events.update);
   const token = useAuthToken();
@@ -77,16 +80,17 @@ export function EventActionsMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          {/* "More" is spelled out from the `sm` breakpoint up; below it, the icon alone. */}
+          {/* "More" is spelled out from the `sm` breakpoint up (the icon alone
+              below it, and always when `compact`, as in a card's corner). */}
           <Button
             variant="ghost"
             size="icon"
             aria-label={`More actions for ${event.title}`}
             title="More: add a moment, edit details, share, archive"
-            className="sm:w-auto sm:gap-1.5 sm:px-3"
+            className={compact ? undefined : "sm:w-auto sm:gap-1.5 sm:px-3"}
           >
             <MoreHorizontalIcon />
-            <span className="hidden sm:inline">More</span>
+            {!compact && <span className="hidden sm:inline">More</span>}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-72">

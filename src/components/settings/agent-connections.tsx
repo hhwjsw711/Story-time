@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { formatDistanceToNow } from "date-fns";
+import { BotIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
@@ -42,7 +43,14 @@ export function AgentConnections() {
               key={c._id}
               className="flex min-w-0 flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div className="min-w-0 space-y-1">
+              <div className="flex min-w-0 items-start gap-3">
+                <span
+                  aria-hidden
+                  className="grid size-9 shrink-0 place-items-center rounded-full bg-violet-100 text-violet-900 dark:bg-violet-500/20 dark:text-violet-200"
+                >
+                  <BotIcon className="size-4" />
+                </span>
+                <div className="min-w-0 space-y-1">
                 <p className="flex flex-wrap items-center gap-2 font-medium">
                   <span className="min-w-0 break-words">{c.name}</span>
                   {live ? (
@@ -58,6 +66,7 @@ export function AgentConnections() {
                   {" · "}
                   {lastUsedOf(c)}
                 </p>
+                </div>
               </div>
               {live && (
                 <Button
