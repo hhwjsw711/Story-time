@@ -4,6 +4,7 @@ import { ArrowLeftIcon, PlayIcon } from "lucide-react";
 import { useCallback, useState } from "react";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
+import { CanvasEditor } from "@/components/canvas/editor";
 import { ActivityTab } from "@/components/event/activity-tab";
 import { BulkAddSheet } from "@/components/event/bulk-add-sheet";
 import { EventActionsMenu } from "@/components/event/event-actions-menu";
@@ -23,7 +24,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 
 const search = z.object({
   // Old "moments" links fall back to the itinerary, which now has a card view.
-  tab: z.enum(["itinerary", "shared", "activity", "settings"]).default("itinerary").catch("itinerary"),
+  tab: z.enum(["itinerary", "canvas", "shared", "activity", "settings"]).default("itinerary").catch("itinerary"),
   groupBy: z.enum(["day", "place", "month", "none"]).default("day").catch("day"),
   view: z.enum(["table", "cards", "map"]).default("table").catch("table"),
   panel: z.enum(["outline", "details", "new-moment", "moment"]).default("outline").catch("outline"),
@@ -163,6 +164,7 @@ function EventPage() {
         <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList>
             <TabsTrigger value="itinerary">Itinerary</TabsTrigger>
+            <TabsTrigger value="canvas">Canvas</TabsTrigger>
             {isOwner && <TabsTrigger value="shared">Shared</TabsTrigger>}
             {isOwner && <TabsTrigger value="activity">Activity</TabsTrigger>}
             {isOwner && <TabsTrigger value="settings">Settings</TabsTrigger>}
@@ -242,6 +244,7 @@ function EventPage() {
             </div>
           </div>
         </TabsContent>
+        <TabsContent value="canvas">{tab === "canvas" && <CanvasEditor event={event} />}</TabsContent>
         {isOwner && <TabsContent value="shared"><SharedTab eventId={eventId} archived={archived} /></TabsContent>}
         {isOwner && <TabsContent value="activity"><ActivityTab eventId={eventId} meId={me?.id} /></TabsContent>}
         {isOwner && <TabsContent value="settings"><SettingsTab eventId={eventId} /></TabsContent>}

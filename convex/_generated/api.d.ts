@@ -19,6 +19,7 @@ import type * as ai_scribe from "../ai/scribe.js";
 import type * as ai_unfurl from "../ai/unfurl.js";
 import type * as ai_voice from "../ai/voice.js";
 import type * as auth from "../auth.js";
+import type * as canvas from "../canvas.js";
 import type * as changes from "../changes.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   "ai/unfurl": typeof ai_unfurl;
   "ai/voice": typeof ai_voice;
   auth: typeof auth;
+  canvas: typeof canvas;
   changes: typeof changes;
   crons: typeof crons;
   events: typeof events;
