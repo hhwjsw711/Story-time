@@ -1,3 +1,5 @@
+import { thinLabels, type LabelBox } from "./map-labels";
+
 // Places have no coordinates (they're encrypted free text), so the map is a
 // drawn one: every stop gets a fixed spot on a 100 x 60 sheet, laid along a
 // gentle left-to-right zigzag so each leg reads in story order. Held upright
@@ -84,4 +86,51 @@ export function legDuration(transport: string): number {
     default:
       return 3;
   }
+}
+
+// A place's name as drawn beside its dot: its text and side, and the box the
+// estimate works from (about 1.3 units a letter, 3 units tall).
+export type DrawnName = {
+  text: string;
+  left: boolean;
+  gap: number;
+  box: { x: number; y: number; width: number; height: number };
+};
+
+// How far apart drawn names are kept, in sheet units.
+const NAME_PAD = 0.5;
+
+function nameAt(label: string, p: MapPoint, sheet: number, portrait: boolean, active: boolean): DrawnName {
+  // A label beside its place stays clear of the legs: across, they run left
+  // to right, so it sits on the right (on the left near the right edge);
+  // upright, they zigzag down the middle, so it sits on the outer side.
+  const left = portrait ? p.x < sheet / 2 : p.x > sheet * 0.7;
+  // The travelling icon parks on the active place, so its label moves out.
+  const gap = active ? 4.4 : 2.6;
+  // Cut to the room left before the sheet's edge, about 1.3 units a letter.
+  const room = left ? p.x - gap - 1.5 : sheet - 1.5 - p.x - gap;
+  const max = Math.max(4, Math.min(22, Math.floor(room / 1.3)));
+  const text = label.length > max ? `${label.slice(0, max - 1)}…` : label;
+  // The active name is set bold, so a little wider.
+  const width = text.length * (active ? 1.43 : 1.3);
+  const x = left ? p.x - gap - width / 2 : p.x + gap + width / 2;
+  return { text, left, gap, box: { x, y: p.y + 0.25, width, height: 3 } };
+}
+
+// The names that show, each with where it sits. The place in focus keeps its
+// name first, then the origin (the diamond), then the places already visited,
+// then the rest. A name that would crowd one already kept is left out, and its
+// place keeps just its dot.
+export function placeNames(
+  points: Map<string, MapPoint>,
+  { sheet, portrait, active, origin, visited }: { sheet: number; portrait: boolean; active?: string; origin?: string; visited: Set<string> },
+): Map<string, DrawnName> {
+  const laid = [...points].map(([label, p]) => [label, nameAt(label, p, sheet, portrait, label === active)] as const);
+  const boxes: LabelBox[] = laid.map(([label, name]) => ({
+    id: label,
+    ...name.box,
+    priority: label === active ? 100 : label === origin ? 90 : visited.has(label) ? 50 : 10,
+  }));
+  const kept = thinLabels(boxes, NAME_PAD);
+  return new Map(laid.filter(([label]) => kept.has(label)));
 }

@@ -1,6 +1,6 @@
 import { useId, useSyncExternalStore } from "react";
 import { transportOf } from "@/components/event/transport";
-import { layoutPlaces, legDuration, legPath, sheetSize, type MapPoint, type Orientation } from "@/lib/story-map";
+import { layoutPlaces, legDuration, legPath, placeNames, sheetSize, type DrawnName, type MapPoint, type Orientation } from "@/lib/story-map";
 import type { StoryStep } from "@/lib/story-steps";
 
 type Leg = Extract<StoryStep, { kind: "travel" }>;
@@ -62,6 +62,8 @@ export function MapScene({
       visited.add(l.to);
     }
   }
+  // Names that would crowd another are left out; their places keep a dot.
+  const names = placeNames(points, { sheet: w, portrait: orientation === "portrait", active: leg.to, origin: places[0], visited });
 
   return (
     <section aria-label={`${transport?.phrase ?? "Travelling"} from ${leg.from} to ${leg.to}`} className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
@@ -125,10 +127,8 @@ export function MapScene({
         {[...points.entries()].map(([label, p]) => (
           <Place
             key={label}
-            label={label}
             p={p}
-            sheet={w}
-            portrait={orientation === "portrait"}
+            name={names.get(label)}
             visited={visited.has(label)}
             active={label === leg.to}
             origin={label === places[0]}
@@ -183,33 +183,20 @@ function LegPath({ d, transport, faint = false }: { d: string; transport: string
   }
 }
 
+// A place's dot, and its name where the sheet has room for it (see placeNames).
 function Place({
-  label,
   p,
-  sheet,
-  portrait,
+  name,
   visited,
   active,
   origin,
 }: {
-  label: string;
   p: MapPoint;
-  sheet: number;
-  portrait: boolean;
+  name?: DrawnName;
   visited: boolean;
   active: boolean;
   origin: boolean;
 }) {
-  // A label beside its place stays clear of the legs: across, they run left
-  // to right, so it sits on the right (on the left near the right edge);
-  // upright, they zigzag down the middle, so it sits on the outer side.
-  const left = portrait ? p.x < sheet / 2 : p.x > sheet * 0.7;
-  // The travelling icon parks on the active place, so its label moves out.
-  const gap = active ? 4.4 : 2.6;
-  // Cut to the room left before the sheet's edge, about 1.3 units a letter.
-  const room = left ? p.x - gap - 1.5 : sheet - 1.5 - p.x - gap;
-  const max = Math.max(4, Math.min(22, Math.floor(room / 1.3)));
-  const short = label.length > max ? `${label.slice(0, max - 1)}…` : label;
   return (
     <g>
       {active && <circle cx={p.x} cy={p.y} r="2.2" fill={ACCENT} fillOpacity="0.15" />}
@@ -218,19 +205,21 @@ function Place({
       ) : (
         <circle cx={p.x} cy={p.y} r="1.1" fill={visited ? (active ? ACCENT : INK) : PAPER} stroke={active ? ACCENT : INK} strokeWidth="0.3" />
       )}
-      <text
-        x={left ? p.x - gap : p.x + gap}
-        y={p.y + 0.9}
-        textAnchor={left ? "end" : "start"}
-        fontSize="2.6"
-        fontFamily="ui-serif, Georgia, serif"
-        fontStyle={origin ? "italic" : "normal"}
-        fontWeight={active ? 700 : 500}
-        fill={active ? ACCENT : INK}
-        fillOpacity={visited ? 1 : 0.6}
-      >
-        {short}
-      </text>
+      {name && (
+        <text
+          x={name.left ? p.x - name.gap : p.x + name.gap}
+          y={p.y + 0.9}
+          textAnchor={name.left ? "end" : "start"}
+          fontSize="2.6"
+          fontFamily="ui-serif, Georgia, serif"
+          fontStyle={origin ? "italic" : "normal"}
+          fontWeight={active ? 700 : 500}
+          fill={active ? ACCENT : INK}
+          fillOpacity={visited ? 1 : 0.6}
+        >
+          {name.text}
+        </text>
+      )}
     </g>
   );
 }

@@ -34,7 +34,9 @@ export function TravelScene({ leg, legs, places, located, animate, active, idle,
   const drawn = (
     <MapScene key={active ? "on" : "off"} places={places} legs={legs} current={current} animate={animate && active} idle={idle} />
   );
-  if (!webgl || !leg.fromGeo || !leg.toGeo) return drawn;
+  // Any leg whose stop is on the map gets the real map, even when where it set
+  // off from isn't: that one arrives instead.
+  if (!webgl || !leg.toGeo) return drawn;
   return (
     <Suspense fallback={null}>
       <RealMapScene

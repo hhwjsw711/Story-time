@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { MAP_HEIGHT, MAP_WIDTH, layoutPlaces, legDuration, legPath, sheetSize } from "./story-map";
+import { MAP_HEIGHT, MAP_WIDTH, layoutPlaces, legDuration, legPath, placeNames, sheetSize } from "./story-map";
 
 test("layout is deterministic and keeps every place on the sheet", () => {
   const labels = ["Lisbon", "Sintra", "Porto", "Lisbon", "Gaia"];
@@ -59,4 +59,37 @@ test("leg paths start and end at the given points", () => {
 
 test("walking takes longer than flying", () => {
   expect(legDuration("walk")).toBeGreaterThan(legDuration("plane"));
+});
+
+// A busy trip: twenty places close together on the sheet, some revisited.
+const busy = [
+  "Kyoto in November", "Kyoto Station", "Kiyomizu-dera", "Fushimi Inari Taisha", "Arashiyama Bamboo Grove", "Gion",
+  "Kansai Airport", "Nara", "Osaka", "Tokyo", "Kinkaku-ji", "Nishiki Market", "Ginkaku-ji", "Philosopher's Path",
+  "Tofuku-ji", "Nijo Castle", "Sanjusangen-do", "Shinjuku", "Shibuya", "Gion",
+];
+
+test("drawn names that show never crowd one another", () => {
+  for (const orientation of ["landscape", "portrait"] as const) {
+    const names = placeNames(layoutPlaces(busy, orientation), {
+      sheet: sheetSize(orientation).w,
+      portrait: orientation === "portrait",
+      active: "Gion",
+      origin: busy[0],
+      visited: new Set(busy.slice(0, 6)),
+    });
+    const boxes = [...names.values()].map((n) => n.box);
+    boxes.forEach((a, i) => {
+      for (const b of boxes.slice(i + 1)) {
+        expect(Math.abs(a.x - b.x) >= (a.width + b.width) / 2 || Math.abs(a.y - b.y) >= (a.height + b.height) / 2).toBe(true);
+      }
+    });
+  }
+});
+
+test("across the sheet, names that would crowd are left out, the place in focus and the origin kept", () => {
+  const points = layoutPlaces(busy);
+  const names = placeNames(points, { sheet: MAP_WIDTH, portrait: false, active: "Gion", origin: busy[0], visited: new Set(busy.slice(0, 6)) });
+  expect(names.size).toBeLessThan(points.size);
+  expect(names.has("Gion")).toBe(true);
+  expect(names.has(busy[0])).toBe(true);
 });

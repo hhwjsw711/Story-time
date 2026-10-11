@@ -5,6 +5,7 @@ import { transportOf } from "@/components/event/transport";
 import { RUST } from "@/components/landing/paper";
 import {
   Map as MapView,
+  MapControls,
   MapMarker,
   MapRoute,
   MarkerContent,
@@ -27,6 +28,9 @@ type Point = [number, number];
 // How long the leg in focus takes to draw, and how long the camera flies to it.
 const LEG_MS = 1200;
 const FLY_MS = 800;
+// The zoom buttons sit in the bottom-right corner, 42px in from the right edge.
+// The wider right side keeps a framed stop, and its focus ring, clear of them.
+const FRAME_PADDING = { top: 32, bottom: 32, left: 32, right: 64 };
 
 // The stops joined in story order, each leg bowed the way the film bows them.
 function routeThrough(stops: MapStop[]): Point[] {
@@ -133,6 +137,8 @@ export function StickyMap({
             </MapMarker>
           );
         })}
+        {/* The map takes no gestures of its own, so these are its zoom, by mouse or touch. */}
+        <MapControls position="bottom-right" showZoom />
       </MapView>
     </section>
   );
@@ -154,7 +160,7 @@ function Camera({ framing, framingKey, reduced }: { framing: Point[]; framingKey
       return;
     }
     const box = framing.reduce((b, p) => b.extend(p), new LngLatBounds(first, first));
-    map.fitBounds(box, { padding: 32, maxZoom: 14, duration });
+    map.fitBounds(box, { padding: FRAME_PADDING, maxZoom: 14, duration });
   }, [isLoaded, map, framing, framingKey, reduced]);
   return null;
 }
