@@ -93,7 +93,7 @@ const GROUPINGS: Array<{ value: Grouping; label: string }> = [
   { value: "day", label: "Day" },
   { value: "place", label: "Place" },
   { value: "month", label: "Month" },
-  { value: "none", label: "All" },
+  { value: "none", label: "None" },
 ];
 
 const AGENT_CHOICES: Array<{ value: AgentFilter; label: string }> = [
@@ -326,7 +326,7 @@ export function ItineraryTab({
   // After a bulk delete, with the ids deleted.
   onDeleted?: (momentIds: string[]) => void;
 }) {
-  // "All" still asks for days: the rows come back the same, just ungrouped.
+  // "None" still asks for days: the rows come back the same, just ungrouped.
   const groups = useQuery(api.itinerary.grouped, {
     eventId,
     groupBy: grouping === "none" ? "day" : grouping,
@@ -380,7 +380,7 @@ export function ItineraryTab({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Day groups (also behind "All") are keyed by the author's local day,
+  // Day groups (also behind "None") are keyed by the author's local day,
   // which the date filter then uses too.
   const byDay = grouping === "day" || grouping === "none";
   const data = useMemo(
@@ -698,24 +698,26 @@ export function ItineraryTab({
     // panel open it is much narrower than the screen.
     <div className="@container rounded-xl border bg-card text-sm text-card-foreground">
       <div className="flex flex-wrap items-center gap-1.5 px-3 pt-3 pb-2">
-        <div role="group" aria-label="Group by" className="inline-flex rounded-full text-[13px]">
+        {/* A radio group: the arrow keys move between the choices. */}
+        <RadioGroupPrimitive.Root
+          aria-label="Group by"
+          value={grouping}
+          onValueChange={(v) => {
+            const next = GROUPINGS.find((g) => g.value === v);
+            if (next) onGroupingChange(next.value);
+          }}
+          className="inline-flex rounded-full text-[13px]"
+        >
           {GROUPINGS.map((g) => (
-            <button
+            <RadioGroupPrimitive.Item
               key={g.value}
-              type="button"
-              aria-pressed={grouping === g.value}
-              onClick={() => onGroupingChange(g.value)}
-              className={cn(
-                "rounded-full px-3 py-1.5 whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                grouping === g.value
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
+              value={g.value}
+              className="rounded-full px-3 py-1.5 whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:bg-muted data-[state=checked]:text-foreground data-[state=checked]:shadow-sm data-[state=unchecked]:text-muted-foreground data-[state=unchecked]:hover:text-foreground"
             >
               {g.label}
-            </button>
+            </RadioGroupPrimitive.Item>
           ))}
-        </div>
+        </RadioGroupPrimitive.Root>
 
         <People
           people={people}
