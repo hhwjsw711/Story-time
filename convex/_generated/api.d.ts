@@ -31,6 +31,7 @@ import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_geo from "../lib/geo.js";
 import type * as lib_limits from "../lib/limits.js";
 import type * as lib_profile from "../lib/profile.js";
+import type * as lib_rateLimit from "../lib/rateLimit.js";
 import type * as mcp from "../mcp.js";
 import type * as mcpTools from "../mcpTools.js";
 import type * as media from "../media.js";
@@ -70,6 +71,7 @@ declare const fullApi: ApiFromModules<{
   "lib/geo": typeof lib_geo;
   "lib/limits": typeof lib_limits;
   "lib/profile": typeof lib_profile;
+  "lib/rateLimit": typeof lib_rateLimit;
   mcp: typeof mcp;
   mcpTools: typeof mcpTools;
   media: typeof media;

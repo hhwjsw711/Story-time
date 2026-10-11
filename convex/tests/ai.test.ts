@@ -173,6 +173,32 @@ describe("decideTransport: without Jev, speed decides", () => {
   });
 });
 
+describe("enrich: an hourly allowance per person", () => {
+  test("the 121st fill-in in an hour is refused, and the next hour starts fresh", async () => {
+    vi.useFakeTimers();
+    try {
+      const { owner, eventId } = await setup();
+      const momentId = await owner.mutation(api.moments.create, {
+        eventId,
+        startsAt: T0,
+        tzOffsetMinutes: 0,
+        place: "Lisbon",
+        geo: LISBON,
+        blocks: [{ type: "note", text: "one" }],
+      });
+      for (let i = 0; i < 120; i++) {
+        expect(await owner.mutation(internal.ai.enrich.admit, { momentId })).toBe(true);
+      }
+      expect(await owner.mutation(internal.ai.enrich.admit, { momentId })).toBe(false);
+
+      vi.advanceTimersByTime(HOUR);
+      expect(await owner.mutation(internal.ai.enrich.admit, { momentId })).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("unfurl: page titles", () => {
   test("reads the title, decodes basic entities, and drops empty ones", () => {
     expect(titleFromHtml("<html><head><title>  Ponte &amp; Co &#8211;\n2026 </title></head></html>")).toBe(

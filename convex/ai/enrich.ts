@@ -1,8 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import { WorkflowManager, start } from "@convex-dev/workflow";
 import { components, internal } from "../_generated/api";
-import { action, internalQuery } from "../_generated/server";
+import { action, internalMutation } from "../_generated/server";
 import { assertNotArchived, requireEventAccess } from "../lib/access";
+import { takeOne } from "../lib/rateLimit";
 import { captionMoment, vThumb } from "./scribe";
 
 export const workflow = new WorkflowManager(components.workflow);
@@ -17,12 +18,17 @@ export const enrichMoment = workflow.define({
   },
 });
 
+// AI fill-ins per person per hour: a big import still gets its notes, and a
+// runaway client can't run up the AI bill.
+const ENRICH_PER_HOUR = 120;
+const HOUR_MS = 60 * 60_000;
+
 // Only the moment's author (or the owner) may have it enriched, the same rule
-// as editing it.
-export const authorize = internalQuery({
+// as editing it. False once they've used this hour's fill-ins.
+export const admit = internalMutation({
   args: { momentId: v.id("moments") },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
     const moment = await ctx.db.get("moments", args.momentId);
     if (moment === null) throw new Error("Moment not found");
     const { userId, event, role } = await requireEventAccess(ctx, moment.eventId, "contributor");
@@ -33,7 +39,7 @@ export const authorize = internalQuery({
       });
     }
     assertNotArchived(event);
-    return null;
+    return await takeOne(ctx, `enrich:${userId}`, ENRICH_PER_HOUR, HOUR_MS);
   },
 });
 
@@ -46,7 +52,11 @@ export const enrich = action({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    await ctx.runQuery(internal.ai.enrich.authorize, { momentId: args.momentId });
+    // Over the limit the moment stays as it was saved, just without fill-ins.
+    if (!(await ctx.runMutation(internal.ai.enrich.admit, { momentId: args.momentId }))) {
+      console.warn("Enrichment skipped: the hourly limit is used up");
+      return null;
+    }
     if (args.thumbs !== undefined && args.thumbs.length > 0) {
       await captionMoment(ctx, { momentId: args.momentId, thumbs: args.thumbs });
     }

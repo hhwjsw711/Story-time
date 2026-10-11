@@ -268,6 +268,13 @@ export default defineSchema({
     .index("by_event_and_at", ["eventId", "at"])
     .index("by_entity", ["entity", "entityId", "at"]),
 
+  // Fixed windows for rate limits, one row per key (say "enrich:<userId>").
+  limits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
+
   // Connections for assistants (MCP). The token itself is never stored, only a
   // keyed hash of it, so a database leak hands out nothing usable.
   agentTokens: defineTable({
