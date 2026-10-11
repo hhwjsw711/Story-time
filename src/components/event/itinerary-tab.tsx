@@ -1,5 +1,6 @@
 import { useQuery } from "convex/react";
 import {
+  ArrowRightIcon,
   BotIcon,
   CalendarDaysIcon,
   CalendarIcon,
@@ -36,13 +37,14 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { ActorBadge } from "@/components/event/actor-badge";
 import { BulkEditBar, SelectBox } from "@/components/event/bulk-edit-bar";
 import { MomentCard } from "@/components/event/moment-card";
+import { stopsOf, transportOf } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -121,9 +123,46 @@ function whenText(ms: number, offset: number | undefined, timeOnly: boolean | un
   return timeOnly ? time : `${formatDay(ms, offset, { month: "short", day: "numeric" })}, ${time}`;
 }
 
+// A moment's stops in order, each name cut to its first part and shortened on
+// its own, so the last stop always shows ("Queen Alia Intern… 🚗 Hanover").
+// Between two stops: how they got to the second.
+function Route({ stops }: { stops: ReturnType<typeof stopsOf> }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="sr-only">{stops.length} stops: </span>
+      {stops.map((s, i) => {
+        const Way = transportOf(s.transport)?.icon ?? ArrowRightIcon;
+        return (
+          <Fragment key={i}>
+            {i > 0 && (
+              <>
+                <Way aria-hidden className="size-3 shrink-0" />
+                <span className="sr-only">, then </span>
+              </>
+            )}
+            <span title={s.place} className="min-w-0 truncate">
+              {s.place?.split(",")[0]?.trim()}
+            </span>
+          </Fragment>
+        );
+      })}
+    </span>
+  );
+}
+
 // Under the title while their columns are folded away: the time (narrowest
-// tables only) and the place, unless the title already is the place.
+// tables only) and the place, unless the title already is the place. A moment
+// with several stops lists them all, at every width.
 function Subtitle({ moment, title, timeOnly }: { moment: MomentView; title: string | undefined; timeOnly: boolean | undefined }) {
+  const stops = stopsOf(moment).filter((s) => s.place);
+  if (stops.length > 1) {
+    return (
+      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <span className="shrink-0 @sm:hidden">{whenText(moment.startsAt, moment.tzOffsetMinutes, timeOnly)} ·</span>
+        <Route stops={stops} />
+      </span>
+    );
+  }
   const place = title === moment.place ? null : (moment.place ?? "No place");
   return (
     <span className="block truncate text-xs text-muted-foreground @xl:hidden">
