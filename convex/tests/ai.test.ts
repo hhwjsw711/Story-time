@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { beforeAll, describe, expect, test, vi } from "vitest";
-import { transportFromSpeed } from "../ai/decide";
+import { transportFromSpeed, withDistance } from "../ai/decide";
 import { titleFromHtml } from "../ai/unfurl";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -143,6 +143,20 @@ describe("decide: the speed fallback", () => {
   });
 });
 
+describe("decide: long legs are flights", () => {
+  test("a road or foot guess over 1,000 km becomes a plane; trains, boats and short legs keep theirs", () => {
+    // Amman to Hanover, photos a day apart: 130 km/h reads as a drive.
+    expect(withDistance(transportFromSpeed(130), 3124.7)).toBe("plane");
+    expect(withDistance("bus", 1200)).toBe("plane");
+    expect(withDistance("walk", 1001)).toBe("plane");
+    expect(withDistance("car", 1000)).toBe("car");
+    expect(withDistance("car", 400)).toBe("car");
+    expect(withDistance("train", 1500)).toBe("train");
+    expect(withDistance("boat", 1400)).toBe("boat");
+    expect(withDistance("car", undefined)).toBe("car");
+  });
+});
+
 describe("decideTransport: without Jev, speed decides", () => {
   test("a stop's transport comes from its speed, and the decision is saved", async () => {
     const { t, owner, eventId } = await setup();
@@ -169,6 +183,24 @@ describe("decideTransport: without Jev, speed decides", () => {
     expect(m?.stops[1]?.transport).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith("Jev skipped the transport decision:", expect.any(String));
+    warn.mockRestore();
+  });
+
+  test("a day between an airport and a city 3,000 km away is a flight, not a drive", async () => {
+    const { t, owner, eventId } = await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: T0,
+      tzOffsetMinutes: 0,
+      place: "Queen Alia International Airport",
+      geo: { lat: 31.7226, lng: 35.9932 },
+      blocks: [{ type: "note", text: "boarding" }],
+      stops: [{ place: "Hanover", geo: { lat: 52.3759, lng: 9.732 }, startsAt: T0 + 24 * HOUR, blocks: [] }],
+    });
+
+    const decided = await t.action(internal.ai.decide.decideTransport, { momentId });
+    expect(decided).toEqual({ transports: { "1": "plane" } });
     warn.mockRestore();
   });
 });

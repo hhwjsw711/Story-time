@@ -21,10 +21,10 @@ const TRANSPORTS: Transport[] = ["walk", "bike", "car", "bus", "train", "plane",
 const TRANSPORT_CRITERIA: Record<Transport, string> = {
   walk: "Short distance, under about 6 km/h.",
   bike: "Up to about 25 km/h.",
-  car: "Road speeds, door to door.",
+  car: "Road speeds, door to door, and under about 1,000 km.",
   bus: "Road speeds between stops in town.",
   train: "Station names, or 60 to 250 km/h between towns.",
-  plane: "Over 300 km, or over 400 km/h.",
+  plane: "Over 300 km, or over 400 km/h. Almost anything over 1,000 km, even when the times are a day apart.",
   boat: "Water: ferry or harbour names.",
   other: "None of these.",
 };
@@ -144,6 +144,16 @@ function isTransport(value: string): value is Transport {
   return TRANSPORTS.some((t) => t === value);
 }
 
+// Past this, a leg on the road or on foot is really a flight: photos taken a
+// day apart make a flight's average speed look like a drive (Amman to Hanover,
+// 3,125 km in 24 hours, is 130 km/h). Trains and boats can go this far.
+const FLIGHT_KM = 1000;
+
+export function withDistance(transport: Transport, km: number | undefined): Transport {
+  if (km === undefined || km <= FLIGHT_KM || transport === "train" || transport === "boat") return transport;
+  return "plane";
+}
+
 // ponytail: speed alone is a rough guess (it can't tell a bus from a car), so this
 // only answers when Jev can't.
 export function transportFromSpeed(kmh: number): Transport {
@@ -156,7 +166,10 @@ export function transportFromSpeed(kmh: number): Transport {
 function heuristic(legs: Leg[]): Decided {
   const transports: Record<string, Transport> = {};
   for (const leg of legs) {
-    if (leg.kmh !== undefined) transports[String(leg.stopIndex)] = transportFromSpeed(leg.kmh);
+    // No time between the stops: only a distance this long says anything.
+    const guess =
+      leg.kmh !== undefined ? transportFromSpeed(leg.kmh) : leg.km !== undefined && leg.km > FLIGHT_KM ? "plane" : undefined;
+    if (guess !== undefined) transports[String(leg.stopIndex)] = withDistance(guess, leg.km);
   }
   return { transports };
 }
@@ -189,7 +202,7 @@ function readDecisions(
   const transports: Record<string, Transport> = {};
   for (const leg of found.legs) {
     const choice = choiceOf(answers[`transport_${leg.id}`]);
-    if (choice !== undefined && isTransport(choice)) transports[String(leg.stopIndex)] = choice;
+    if (choice !== undefined && isTransport(choice)) transports[String(leg.stopIndex)] = withDistance(choice, leg.km);
   }
   const label = choiceOf(answers.label);
   return {
