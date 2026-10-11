@@ -115,22 +115,25 @@ describe("enrichMoment", () => {
     expect(enrich).toHaveBeenCalledWith({ momentId: "m1", thumbs: [] });
   });
 
-  test("after a refusal, moments skip the request for a while, then ask again", async () => {
-    vi.useFakeTimers();
+  test("after a refusal, every form skips the request for a while, then asks again", async () => {
+    // Clock at 0, so the pause it leaves behind is long over in real time.
+    vi.useFakeTimers({ now: 0 });
     try {
-      const enrich = vi.fn(async () => false);
-      enrichMoment(enrich, "m1" as Id<"moments">, []);
+      const refuse = vi.fn(async () => false);
+      enrichMoment(refuse, "m1" as Id<"moments">, []);
       await vi.runAllTimersAsync();
-      expect(enrich).toHaveBeenCalledOnce();
+      expect(refuse).toHaveBeenCalledOnce();
 
-      enrichMoment(enrich, "m2" as Id<"moments">, []);
+      // Another form, with its own enrich function, waits too.
+      const other = vi.fn(async () => true);
+      enrichMoment(other, "m2" as Id<"moments">, []);
       await vi.runAllTimersAsync();
-      expect(enrich).toHaveBeenCalledOnce();
+      expect(other).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(10 * 60_000);
-      enrichMoment(enrich, "m3" as Id<"moments">, []);
+      enrichMoment(other, "m3" as Id<"moments">, []);
       await vi.runAllTimersAsync();
-      expect(enrich).toHaveBeenCalledTimes(2);
+      expect(other).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }

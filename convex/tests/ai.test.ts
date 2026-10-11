@@ -38,7 +38,7 @@ async function setup() {
   await t.run((ctx) =>
     ctx.db.insert("sessions", { eventId, userId: viewerId, grantedBy: ownerId, role: "viewer" }),
   );
-  return { t, eventId, owner, helper: as(helperId), viewer: as(viewerId) };
+  return { t, eventId, ownerId, owner, helper: as(helperId), viewer: as(viewerId) };
 }
 
 describe("decide: the legs of a journey", () => {
@@ -318,6 +318,20 @@ describe("enrich: who may ask", () => {
     await expect(
       viewer.action(api.ai.enrich.enrich, { momentId: helpersMoment }),
     ).rejects.toThrow(/Event not found/);
+  });
+
+  test("once the person's allowance is spent, enrich says no and does nothing", async () => {
+    const { t, ownerId, owner, eventId } = await setup();
+    rateLimiterTest.register(t);
+    const momentId = await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: T0,
+      blocks: [{ type: "note", text: "one too many" }],
+    });
+    for (let i = 0; i < 120; i++) await t.run((ctx) => rateLimiter.limit(ctx, "enrich", { key: ownerId }));
+    // Past the limit it returns before captions or the workflow (which isn't
+    // registered here, so going on would throw).
+    expect(await owner.action(api.ai.enrich.enrich, { momentId })).toBe(false);
   });
 });
 
