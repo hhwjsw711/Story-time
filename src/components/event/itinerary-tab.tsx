@@ -19,6 +19,7 @@ import {
   UserIcon,
   UsersIcon,
   VideoIcon,
+  XIcon,
 } from "lucide-react";
 import {
   columnFilteringFeature,
@@ -412,6 +413,7 @@ export function ItineraryTab({
     return [...byId.values()].sort((a, b) => Number(b.id === meId) - Number(a.id === meId));
   }, [data, meId]);
   const filtering = isFiltering(filters);
+  const chips = activeChips(filters, people, setFilters);
   // Groups sort by key: newest first reverses days and months, while places
   // stay alphabetical. Within a group, moments sort by time.
   const sorting = useMemo(
@@ -797,13 +799,29 @@ export function ItineraryTab({
         </div>
       </div>
 
-      <div className={cn("flex items-center gap-2 px-4 pb-2", !filtering && "sr-only")}>
+      <div className={cn("flex flex-wrap items-center gap-1.5 px-4 pb-2", !filtering && "sr-only")}>
         <p aria-live="polite" className="text-xs text-muted-foreground">
           {count === all ? `${count} moment${count === 1 ? "" : "s"}` : `${count} of ${all} moments`}
         </p>
-        {filtering && count > 0 && (
+        {chips.map((c) => (
+          <span
+            key={c.key}
+            className="inline-flex h-6 max-w-full items-center gap-0.5 rounded-full border border-primary bg-primary ps-2.5 pe-0.5 text-[13px] text-primary-foreground"
+          >
+            <span className="truncate">{c.label}</span>
+            <button
+              type="button"
+              aria-label={`Remove filter: ${c.label}`}
+              onClick={c.onRemove}
+              className="flex size-5 shrink-0 items-center justify-center rounded-full outline-none hover:bg-primary-foreground/20 focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <XIcon aria-hidden className="size-3" />
+            </button>
+          </span>
+        ))}
+        {filtering && (
           <Button variant="ghost" size="xs" onClick={() => setFilters(noFilters)}>
-            Clear filters
+            Clear all
           </Button>
         )}
       </div>
@@ -1058,6 +1076,67 @@ function FiltersPopover({
       </PopoverContent>
     </Popover>
   );
+}
+
+type Chip = { key: string; label: string; onRemove: () => void };
+
+// One removable chip per active filter, in the order the popover lists them.
+function activeChips(
+  filters: MomentFilters,
+  people: Array<{ id: string; name: string }>,
+  onChange: (f: MomentFilters) => void,
+): Chip[] {
+  const chips: Chip[] = [];
+  const search = filters.search.trim();
+  if (search !== "") {
+    chips.push({ key: "search", label: `Search: ${search}`, onRemove: () => onChange({ ...filters, search: "" }) });
+  }
+  for (const place of filters.places) {
+    chips.push({
+      key: `place:${place}`,
+      label: `Place: ${place === NO_PLACE ? "No place" : place}`,
+      onRemove: () => onChange({ ...filters, places: filters.places.filter((p) => p !== place) }),
+    });
+  }
+  for (const type of filters.contains) {
+    const label = BLOCKS.find((b) => b.type === type)?.label ?? type;
+    chips.push({
+      key: `contains:${type}`,
+      label: `With ${label.toLowerCase()}`,
+      onRemove: () => onChange({ ...filters, contains: filters.contains.filter((t) => t !== type) }),
+    });
+  }
+  for (const label of filters.labels) {
+    chips.push({
+      key: `label:${label}`,
+      label: `Label: ${label}`,
+      onRemove: () => onChange({ ...filters, labels: filters.labels.filter((l) => l !== label) }),
+    });
+  }
+  if (filters.from) {
+    const range = filters.to ? `${date(filters.from)} – ${date(filters.to)}` : date(filters.from);
+    chips.push({
+      key: "dates",
+      label: `Dates: ${range}`,
+      onRemove: () => onChange({ ...filters, from: undefined, to: undefined }),
+    });
+  }
+  for (const id of filters.authors) {
+    const name = people.find((p) => p.id === id)?.name ?? "Anonymous";
+    chips.push({
+      key: `author:${id}`,
+      label: `By ${name === "You" ? "you" : name}`,
+      onRemove: () => onChange({ ...filters, authors: filters.authors.filter((a) => a !== id) }),
+    });
+  }
+  if (filters.agents !== "any") {
+    chips.push({
+      key: "agents",
+      label: filters.agents === "only" ? "Agents only" : "People only",
+      onRemove: () => onChange({ ...filters, agents: "any" }),
+    });
+  }
+  return chips;
 }
 
 function FilterChips({
