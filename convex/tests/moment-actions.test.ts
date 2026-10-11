@@ -30,7 +30,7 @@ async function setup() {
   await t.run((ctx) =>
     ctx.db.insert("sessions", { eventId, userId: viewerId, grantedBy: ownerId, role: "viewer" }),
   );
-  return { t, eventId, owner, helper: as(helperId), viewer: as(viewerId) };
+  return { t, eventId, owner, helper: as(helperId), helperId, viewer: as(viewerId) };
 }
 
 type Caller = Awaited<ReturnType<typeof setup>>["owner"];
@@ -236,7 +236,7 @@ describe("deleting experience photos", () => {
     await expect(owner.mutation(api.media.markDeleted, { mediaId: photo })).rejects.toThrow();
   });
 
-  test("whoever takes a photo off their moment can delete it", async () => {
+  test("taking someone else's photo off a moment doesn't make it yours to delete", async () => {
     const { owner, helper, eventId } = await setup();
     const momentId = await addMoment(helper, eventId);
     const photo = await readyPhoto(owner, eventId);
@@ -249,7 +249,38 @@ describe("deleting experience photos", () => {
       blocks: [{ type: "note", text: "first" }],
     });
     expect(removedMediaIds).toEqual([photo]);
+    // Only the uploader, or the experience owner, may delete it.
+    expect(await helper.query(api.media.getForDelete, { mediaId: photo })).toBeNull();
+    expect(await owner.query(api.media.getForDelete, { mediaId: photo })).not.toBeNull();
+  });
+
+  test("whoever uploaded a photo can delete it once it is off their moment", async () => {
+    const { helper, eventId } = await setup();
+    const momentId = await addMoment(helper, eventId);
+    const photo = await readyPhoto(helper, eventId);
+    await helper.mutation(api.moments.update, {
+      momentId,
+      blocks: [{ type: "note", text: "first" }, { type: "photo", mediaId: photo }],
+    });
+    await helper.mutation(api.moments.update, {
+      momentId,
+      blocks: [{ type: "note", text: "first" }],
+    });
     expect(await helper.query(api.media.getForDelete, { mediaId: photo })).not.toBeNull();
+  });
+
+  test("losing contributor access ends the right to delete an unattached photo", async () => {
+    const { t, owner, helper, helperId, eventId } = await setup();
+    const photo = await readyPhoto(helper, eventId);
+    const session = await t.run((ctx) =>
+      ctx.db
+        .query("sessions")
+        .withIndex("by_event_and_user", (q) => q.eq("eventId", eventId).eq("userId", helperId))
+        .unique(),
+    );
+    await owner.mutation(api.sessions.revoke, { sessionId: session!._id });
+    expect(await helper.query(api.media.getForDelete, { mediaId: photo })).toBeNull();
+    await expect(helper.mutation(api.media.markDeleted, { mediaId: photo })).rejects.toThrow();
   });
 
   test("after markDeleted the photo is gone for everyone", async () => {

@@ -84,7 +84,7 @@ describe("uploadAll", () => {
 
     expect(full).toBe(true);
     expect(uploaded.size).toBe(0);
-    expect(failures.at(-1)).toBe("2 more files weren't uploaded: this experience has reached its upload limit");
+    expect(failures.at(-1)).toBe("2 more files weren't uploaded: the upload limit has been reached");
   });
 });
 

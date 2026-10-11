@@ -3,6 +3,7 @@ import { env, internalMutation, mutation, query } from "./_generated/server";
 import { vGithubProfile } from "@convex-dev/auth/providers/oauth/github";
 import { vGoogleProfile } from "@convex-dev/auth/providers/oauth/google";
 import { requireUserId } from "./lib/access";
+import { appOrigins } from "./lib/appUrl";
 import {
   EMAIL_PATTERN,
   MAX_DISPLAY_NAME,
@@ -49,7 +50,13 @@ export const createAnonymousUser = internalMutation({
   },
   returns: v.id("users"),
   handler: async (ctx) => {
-    if (env.ALLOW_ANONYMOUS_SIGNIN !== "true") {
+    // The flag alone isn't enough: every app origin must be local too, so a
+    // flag left on a production deployment does nothing.
+    const localOnly = appOrigins().every((origin) => {
+      const host = new URL(origin).hostname;
+      return host === "localhost" || host === "127.0.0.1";
+    });
+    if (env.ALLOW_ANONYMOUS_SIGNIN !== "true" || !localOnly) {
       throw new ConvexError("Anonymous sign-in is disabled.");
     }
     return await ctx.db.insert("users", {});

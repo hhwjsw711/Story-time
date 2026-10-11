@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
+import type { FunctionReturnType } from "convex/server";
 import { beforeAll, describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -209,6 +210,62 @@ describe("access and revoke", () => {
     await expect(friend.query(api.moments.list, { eventId })).rejects.toThrow();
     expect(await friend.query(api.events.get, { eventId })).toBeNull();
   });
+
+  test("revoking reads the same for a stranger and for a grant that doesn't exist", async () => {
+    const { t, owner, friendId, ownerId } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    const sessionId = await t.run((ctx) =>
+      ctx.db.insert("sessions", { eventId, userId: friendId, grantedBy: ownerId, role: "viewer" }),
+    );
+    const strangerId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const stranger = t.withIdentity({ subject: strangerId });
+    const missing = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("sessions", {
+        eventId,
+        userId: strangerId,
+        grantedBy: ownerId,
+        role: "viewer",
+      });
+      await ctx.db.delete("sessions", id);
+      return id;
+    });
+    await expect(stranger.mutation(api.sessions.revoke, { sessionId })).rejects.toThrow("Event not found");
+    await expect(stranger.mutation(api.sessions.revoke, { sessionId: missing })).rejects.toThrow(
+      "Event not found",
+    );
+    expect((await t.run((ctx) => ctx.db.get("sessions", sessionId)))?.revokedAt).toBeUndefined();
+  });
+
+  test("the people list pages through every grant, for the owner only", async () => {
+    const { t, owner, friend, ownerId } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5; i++) {
+        const userId = await ctx.db.insert("users", {});
+        await ctx.db.insert("sessions", { eventId, userId, grantedBy: ownerId, role: "viewer" });
+      }
+    });
+    await expect(
+      friend.query(api.sessions.listForEvent, { eventId, paginationOpts: { numItems: 2, cursor: null } }),
+    ).rejects.toThrow();
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone) {
+      const page: FunctionReturnType<typeof api.sessions.listForEvent> = await owner.query(
+        api.sessions.listForEvent,
+        {
+          eventId,
+          paginationOpts: { numItems: 2, cursor },
+        },
+      );
+      seen.push(...page.page.map((grant) => grant._id));
+      cursor = page.continueCursor;
+      isDone = page.isDone;
+    }
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
+  });
 });
 
 describe("uploads", () => {
@@ -332,6 +389,58 @@ describe("uploads", () => {
       blocks: [{ type: "photo", mediaId }],
     });
     expect(await friend.query(api.media.getForDownload, { mediaId })).not.toBeNull();
+  });
+
+  test("one person's live uploads share a byte budget across experiences", async () => {
+    const { t, owner, ownerId } = await setup();
+    const first = await owner.mutation(api.events.createDraft, {});
+    const second = await owner.mutation(api.events.createDraft, {});
+    const CAP = 2 * 1024 ** 3;
+    const big = await t.run((ctx) =>
+      ctx.db.insert("media", {
+        eventId: first,
+        uploaderId: ownerId,
+        r2Key: "test/big",
+        size: CAP - 100,
+        mime: "image/png",
+        keyVersion: 1,
+        status: "ready",
+      }),
+    );
+    // Room for exactly 100 bytes, whichever experience they are for.
+    await owner.mutation(api.media.reserveUpload, { eventId: second, size: 100, mime: "image/png" });
+    await expect(
+      owner.mutation(api.media.reserveUpload, { eventId: first, size: 1, mime: "image/png" }),
+    ).rejects.toThrow(/UPLOAD_BUDGET/);
+    // Profile images draw on the same budget, so they can't be used to get around it.
+    await expect(
+      owner.mutation(api.media.reserveAvatarUpload, { size: 1, mime: "image/png" }),
+    ).rejects.toThrow(/UPLOAD_BUDGET/);
+    // Deleting an upload frees its room.
+    await t.run((ctx) => ctx.db.patch("media", big, { status: "deleted" }));
+    await owner.mutation(api.media.reserveUpload, { eventId: first, size: 1000, mime: "image/png" });
+  });
+
+  test("past 5,000 live uploads the budget can't be checked, so new uploads are refused", async () => {
+    const { t, owner, ownerId } = await setup();
+    const eventId = await owner.mutation(api.events.createDraft, {});
+    // Profile images count toward the budget too, and sit outside any experience's cap.
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 5001; i++) {
+        await ctx.db.insert("media", {
+          purpose: "avatar",
+          uploaderId: ownerId,
+          r2Key: `avatars/${i}`,
+          size: 1,
+          mime: "image/png",
+          keyVersion: 1,
+          status: "ready",
+        });
+      }
+    });
+    await expect(
+      owner.mutation(api.media.reserveUpload, { eventId, size: 1, mime: "image/png" }),
+    ).rejects.toThrow(/UPLOAD_BUDGET/);
   });
 });
 
