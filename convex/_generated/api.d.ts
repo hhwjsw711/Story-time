@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as agentTokens from "../agentTokens.js";
 import type * as ai_apply from "../ai/apply.js";
 import type * as ai_decide from "../ai/decide.js";
 import type * as ai_enrich from "../ai/enrich.js";
@@ -43,6 +44,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentTokens: typeof agentTokens;
   "ai/apply": typeof ai_apply;
   "ai/decide": typeof ai_decide;
   "ai/enrich": typeof ai_enrich;
