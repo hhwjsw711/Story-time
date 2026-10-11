@@ -60,4 +60,16 @@ export function describeActor(actor: ActorView): string {
   }
 }
 
+// The author as a story's by-line names them: "you" for the signed-in person's
+// own moment, the person by name, or the agent that added the moment for them.
+// A shared story names no one, so it has no author at all.
+export function authorByline(
+  m: { authorId?: string; authorName?: string; authorAgent?: string },
+  meId?: string,
+): string | undefined {
+  if (m.authorId === undefined) return undefined;
+  if (m.authorAgent !== undefined) return describeActor({ kind: "agent", name: m.authorAgent });
+  return m.authorId === meId ? "you" : describeActor({ kind: "human", name: m.authorName });
+}
+
 export const isAgent = (actor: ActorView): actor is Extract<ActorView, { kind: "agent" }> => actor.kind === "agent";

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { MomentView } from "@/components/event/types";
+import type { MomentView, StoryMoment } from "@/components/event/types";
 import type { Id } from "../../convex/_generated/dataModel";
 import { buildStorySteps, clampStep, stepForMoment } from "./story-steps";
 
@@ -77,6 +77,19 @@ test("legs carry where both ends are, when they're known", () => {
 test("stop scenes carry the author and labels of their moment", () => {
   const steps = buildStorySteps("Trip", [moment({ authorName: "Sara", labels: ["food"] })]);
   expect(steps[1]).toMatchObject({ kind: "stop", authorName: "Sara", labels: ["food"] });
+});
+
+test("stop scenes carry the agent that added their moment", () => {
+  const steps = buildStorySteps("Trip", [moment({ authorName: "Sara", authorAgent: "Claude" })]);
+  expect(steps[1]).toMatchObject({ kind: "stop", authorName: "Sara", authorAgent: "Claude" });
+});
+
+test("a shared story's stops name no author, and no agent either", () => {
+  const shared: StoryMoment = { _id: "s" as Id<"moments">, startsAt: 1, blocks: [], stops: [], labels: [] };
+  const steps = buildStorySteps("Trip", [shared]);
+  expect(steps[1]).toMatchObject({ kind: "stop" });
+  expect(steps[1]).not.toMatchObject({ authorId: expect.anything() });
+  expect(steps[1]).not.toMatchObject({ authorAgent: expect.anything() });
 });
 
 test("clampStep keeps the index inside the story", () => {

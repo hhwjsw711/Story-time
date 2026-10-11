@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { authorOf, changeActorOf, describeActor, editNoticeOf, editorOf } from "./actors";
+import { authorByline, authorOf, changeActorOf, describeActor, editNoticeOf, editorOf } from "./actors";
 
 describe("authorOf", () => {
   test("a person, with or without a name", () => {
@@ -66,6 +66,25 @@ describe("changeActorOf", () => {
     });
     expect(changeActorOf({ actorId: "u1" }, "Sara")).toEqual({ kind: "human", name: "Sara" });
     expect(changeActorOf({})).toEqual({ kind: "system" });
+  });
+});
+
+describe("authorByline", () => {
+  test("nothing in a shared story, which names no one", () => {
+    expect(authorByline({})).toBeUndefined();
+  });
+
+  test("a person by name, or 'you' for the signed-in person's own moment", () => {
+    expect(authorByline({ authorId: "u1", authorName: "Sara" }, "u1")).toBe("you");
+    expect(authorByline({ authorId: "u1", authorName: "Sara" }, "u2")).toBe("Sara");
+    expect(authorByline({ authorId: "u1", authorName: "Sara" })).toBe("Sara");
+    expect(authorByline({ authorId: "u1" })).toBe("Anonymous");
+  });
+
+  test("an agent that added a moment for its author is named as the agent", () => {
+    expect(authorByline({ authorId: "u1", authorName: "Sara", authorAgent: "Claude" }, "u1")).toBe(
+      "Claude, an AI agent",
+    );
   });
 });
 

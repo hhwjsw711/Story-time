@@ -1,4 +1,5 @@
 import { transportOf } from "@/components/event/transport";
+import { authorByline } from "@/lib/actors";
 import type { StoryStep } from "@/lib/story-steps";
 
 type StopScene = Extract<StoryStep, { kind: "stop" }>;
@@ -17,9 +18,7 @@ const when = (ms: number) =>
 export function StopCaption({ scene, meId }: { scene: StopScene; meId: string | undefined }) {
   const { stop } = scene;
   const transport = transportOf(stop.transport);
-  // A shared story names no one, so there is no author to show.
-  const author =
-    scene.authorId === undefined ? undefined : scene.authorId === meId ? "you" : (scene.authorName ?? "Anonymous");
+  const author = authorByline(scene, meId);
   const text = stop.blocks.filter((b) => b.type !== "photo" && b.type !== "video");
   // A stop without a place is headed by its time, or its number in the story.
   const time = stop.startsAt === undefined ? undefined : when(stop.startsAt);

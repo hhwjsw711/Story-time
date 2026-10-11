@@ -27,6 +27,8 @@ export type StoryStep =
       // Absent in a shared story, which names no one.
       authorId?: string;
       authorName?: string;
+      // The agent that added the moment for its author, if one did.
+      authorAgent?: string;
       labels: string[];
       // Its name on the map, unique to this stop unless it's a real place.
       place: string;
@@ -76,6 +78,7 @@ export function buildStorySteps(title: string, moments: StoryMoment[]): StorySte
         first: n === 0,
         authorId: moment.authorId,
         authorName: moment.authorName,
+        authorAgent: moment.authorAgent,
         labels: moment.labels,
         place: to,
       });

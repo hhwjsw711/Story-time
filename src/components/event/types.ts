@@ -18,4 +18,4 @@ export type StoryMoment = Pick<
   MomentView,
   "_id" | "startsAt" | "place" | "geo" | "blocks" | "transport" | "stops" | "labels"
 > &
-  Partial<Pick<MomentView, "authorId" | "authorName">>;
+  Partial<Pick<MomentView, "authorId" | "authorName" | "authorAgent">>;
