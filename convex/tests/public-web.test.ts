@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isPrivateIp, isPublicWebUrl, readPublicPage, type WebFetch, type WebResponse } from "../lib/publicWeb";
+import { addressesToPin, connectLookup, isPrivateIp, isPublicWebUrl, readPublicPage, type WebFetch, type WebResponse } from "../lib/publicWeb";
 
 function page(html: string, status = 200, headers?: HeadersInit, url = ""): WebResponse {
   const response = new Response(html, { status, headers });
@@ -153,12 +153,57 @@ describe("readPublicPage", () => {
     expect(read).toBeNull();
   });
 
+  test("the connection is given only the addresses that passed the check", async () => {
+    const pinned: string[][] = [];
+    const read = await readPublicPage("https://good.test/a", 1024, {
+      resolve: (host) => Promise.resolve(host === "good.test" ? ["1.1.1.1", "8.8.8.8"] : ["9.9.9.9"]),
+      fetch: (url, init) => {
+        pinned.push([...init.addresses]);
+        if (url.hostname === "good.test") {
+          return Promise.resolve(page("", 302, { location: "https://next.test/b" }));
+        }
+        return Promise.resolve(page("<title>Hi</title>", 200, undefined, url.href));
+      },
+    });
+    expect(read?.html).toBe("<title>Hi</title>");
+    expect(pinned).toEqual([
+      ["1.1.1.1", "8.8.8.8"],
+      ["9.9.9.9"],
+    ]);
+  });
+
   test("only the first bytes of a page are kept", async () => {
     const read = await readPublicPage("https://good.test/", 4, {
       resolve: () => Promise.resolve(["1.1.1.1"]),
       fetch: () => Promise.resolve(page("abcdef")),
     });
     expect(read?.html).toBe("abcd");
+  });
+});
+
+describe("connectLookup", () => {
+  test("a pin returns only the checked addresses, and fails closed otherwise", () => {
+    const lookup = connectLookup(["1.1.1.1", "2606:4700:4700::1111"]);
+    expect(lookup).toBeTypeOf("function");
+    if (lookup === undefined) return;
+    const all: unknown[] = [];
+    lookup("rebind.test", { all: true }, (_err, address) => {
+      all.push(address);
+    });
+    expect(all).toEqual([
+      [
+        { address: "1.1.1.1", family: 4 },
+        { address: "2606:4700:4700::1111", family: 6 },
+      ],
+    ]);
+    let single: { address?: string; family?: number } = {};
+    lookup("rebind.test", {}, (_err, address, family) => {
+      if (typeof address === "string") single = { address, family };
+    });
+    expect(single).toEqual({ address: "1.1.1.1", family: 4 });
+    expect(connectLookup(["1.1.1.1", "10.0.0.1"])).toBeUndefined();
+    expect(connectLookup([])).toBeUndefined();
+    expect(addressesToPin(["8.8.8.8"])).toEqual([{ address: "8.8.8.8", family: 4 }]);
   });
 });
 

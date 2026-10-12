@@ -161,24 +161,70 @@ export type WebResponse = {
   body: ReadableStream<Uint8Array> | null;
 };
 
-export type WebFetch = (url: URL, init: { signal: AbortSignal; redirect: "manual" }) => Promise<WebResponse>;
+export type WebFetch = (
+  url: URL,
+  init: { signal: AbortSignal; redirect: "manual"; addresses: readonly string[] },
+) => Promise<WebResponse>;
+
+export type PinnedAddress = { address: string; family: 4 | 6 };
+
+// The addresses a connection may use. Empty, mixed, or private answers pin
+// nothing: the caller must fail closed instead of looking the name up again.
+export function addressesToPin(addresses: readonly string[]): readonly PinnedAddress[] | undefined {
+  if (addresses.length === 0) return undefined;
+  const pinned: PinnedAddress[] = [];
+  for (const address of addresses) {
+    if (isPrivateIp(address)) return undefined;
+    pinned.push({ address, family: address.includes(":") ? 6 : 4 });
+  }
+  return pinned;
+}
+
+// A DNS callback that can only return `addresses`. It never asks the network.
+export function connectLookup(
+  addresses: readonly string[],
+):
+  | ((
+      hostname: string,
+      options: { all?: boolean },
+      callback: (err: Error | null, address: string | readonly PinnedAddress[], family?: number) => void,
+    ) => void)
+  | undefined {
+  const pinned = addressesToPin(addresses);
+  if (pinned === undefined) return undefined;
+  return (hostname, options, callback) => {
+    void hostname;
+    if (options.all === true) {
+      callback(null, pinned);
+      return;
+    }
+    const first = pinned[0];
+    if (first === undefined) {
+      callback(new Error("no pinned address"), "");
+      return;
+    }
+    callback(null, first.address, first.family);
+  };
+}
 
 // Every address the name resolves to must be a public one. A lookup that fails
 // or returns nothing is treated as private: the page is not fetched.
-async function resolvesPublic(url: URL, resolve: WebLookup): Promise<boolean> {
-  if (!isPublicWebUrl(url)) return false;
+async function publicAddresses(url: URL, resolve: WebLookup): Promise<readonly string[] | undefined> {
+  if (!isPublicWebUrl(url)) return undefined;
   let addresses: readonly string[];
   try {
     addresses = await resolve(hostOf(url));
   } catch {
-    return false;
+    return undefined;
   }
-  if (addresses.length === 0) return false;
-  return addresses.every((address) => !isPrivateIp(address));
+  if (addressesToPin(addresses) === undefined) return undefined;
+  return addresses;
 }
 
-// Fetches a public page, following redirects by hand. Each hop is a name check
-// and a lookup, including the address the response says it landed on.
+// Fetches a public page, following redirects by hand. Each hop is looked up,
+// and the connection is given only those addresses so a later DNS answer
+// cannot point it somewhere else. The address the response says it landed on
+// is checked the same way.
 export async function readPublicPage(
   raw: string,
   limit: number,
@@ -191,10 +237,15 @@ export async function readPublicPage(
     return null;
   }
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    if (!(await resolvesPublic(current, deps.resolve))) return null;
+    const addresses = await publicAddresses(current, deps.resolve);
+    if (addresses === undefined) return null;
     let response: WebResponse;
     try {
-      response = await deps.fetch(current, { signal: AbortSignal.timeout(TIMEOUT_MS), redirect: "manual" });
+      response = await deps.fetch(current, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        redirect: "manual",
+        addresses,
+      });
     } catch {
       return null;
     }
@@ -206,7 +257,7 @@ export async function readPublicPage(
         return null;
       }
     }
-    if (!(await resolvesPublic(landed, deps.resolve))) return null;
+    if ((await publicAddresses(landed, deps.resolve)) === undefined) return null;
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (location === null || location === "") return null;
