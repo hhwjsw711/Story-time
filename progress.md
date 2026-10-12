@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- Play opens the journal (PR #46). The film is still there, behind Play. A moment with no page falls back to the story, and a page that clipped the note offers "Read the moment". Taking a sticker back was already in PR #39; the smaller on-device model is still to try.
 - The cover keeps the trip's name and dates until someone retypes that line (PR #45). A rename after that leaves the handmade cover alone.
 - Past a few dozen pages, printing the whole journal is named as the long choice (PR #44); this page and this day stay the usual ones.
 - A moment's page can catch up (PR #43). Until the owner saves it, opening the book updates the prints and the note. After that, the page says "The moment changed." and waits for "Update this page", which keeps what they added. A deleted moment stays on the page and says so. A tier list that doesn't fit continues on the next page. A missing photo reads "This photo was removed".
