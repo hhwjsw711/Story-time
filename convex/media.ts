@@ -11,6 +11,7 @@ import {
   sharesExperience,
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
+import { mediaOnAPage } from "./journal";
 import {
   AVATAR_MIME_TYPES,
   IMAGE_MIME_TYPES,
@@ -329,6 +330,9 @@ async function deletableBy(
     return user?.imageMediaId !== media._id;
   }
   if (media.momentId !== undefined || media.eventId === undefined) return false;
+  // A sticker still pasted on a page is part of the journal. Taking it off
+  // the shelf is refused until every page lets it go.
+  if (media.purpose === "sticker" && (await mediaOnAPage(ctx, media.eventId, media._id))) return false;
   // Checked now, not when the photo was added: someone whose access was
   // revoked, or who is only a viewer now, can no longer delete.
   const access = await getEventAccess(ctx, media.eventId);

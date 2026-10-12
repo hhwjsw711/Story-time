@@ -100,6 +100,12 @@ async function pagesOf(ctx: QueryCtx, eventId: Id<"events">) {
     .take(MAX_JOURNAL_PAGES + 1);
 }
 
+// A sticker (or any picture) is still on a page of this experience.
+export async function mediaOnAPage(ctx: QueryCtx, eventId: Id<"events">, mediaId: Id<"media">) {
+  const pages = await pagesOf(ctx, eventId);
+  return pages.some((page) => page.elements.some((element) => element.mediaId === mediaId));
+}
+
 // A page to change, with the experience it is in. Only the owner, never on an
 // archived experience, and never while the page or the journal is locked
 // (`unlocking` lets the lock itself be taken off).
@@ -194,8 +200,96 @@ async function viewPage(event: Doc<"events">, page: Doc<"journalPages">) {
   };
 }
 
-// The journal and its pages, in order. `pending` is how many moments don't
-// have a page yet, for the owner, whose page then calls `fill`.
+// How many moments still need a page. A journal that does not exist yet still
+// owes its cover, so the count is at least 1.
+async function pendingOf(ctx: QueryCtx, event: Doc<"events">, journal: Doc<"journals"> | null) {
+  const moments = await ctx.db
+    .query("moments")
+    .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
+    .take(momentsToRead(event.momentCount));
+  let pending = moments.filter((m) => journal?.filledAt === undefined || m._creationTime > journal.filledAt).length;
+  if (journal === null) pending = Math.max(pending, 1);
+  return pending;
+}
+
+// A short line for the page strip: the first title or note, not the drawing.
+async function labelOf(event: Doc<"events">, page: Doc<"journalPages">) {
+  const text = page.elements.find((e) => (e.kind === "title" || e.kind === "note") && e.text !== undefined)?.text;
+  if (text === undefined) return "";
+  return (await decryptText(event._id, text)).replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+const vOutlinePage = v.object({
+  _id: v.id("journalPages"),
+  order: v.number(),
+  paper: v.string(),
+  locked: v.boolean(),
+  momentId: v.optional(v.id("moments")),
+  label: v.string(),
+});
+
+// The book the screen keeps open: who may edit, how many pages are still owed,
+// and a contents list. Words stay on `page`, so one subscription does not
+// decrypt every page.
+export const outline = query({
+  args: { eventId: v.id("events") },
+  returns: v.object({
+    canEdit: v.boolean(),
+    locked: v.boolean(),
+    pending: v.number(),
+    pages: v.array(vOutlinePage),
+  }),
+  handler: async (ctx, args) => {
+    const { event, role } = await requireEventAccess(ctx, args.eventId, "viewer");
+    const journal = await journalOf(ctx, event._id);
+    const canEdit = role === "owner" && event.status !== "archived";
+    const pending = canEdit && !journal?.locked ? await pendingOf(ctx, event, journal) : 0;
+    const pages = await Promise.all(
+      (await pagesOf(ctx, event._id)).slice(0, MAX_JOURNAL_PAGES).map(async (page) => ({
+        _id: page._id,
+        order: page.order,
+        paper: page.paper,
+        locked: page.locked ?? false,
+        momentId: page.momentId,
+        label: await labelOf(event, page),
+      })),
+    );
+    return { canEdit, locked: journal?.locked ?? false, pending, pages };
+  },
+});
+
+// One page, decrypted. The open page, a neighbour, or a page being printed.
+export const page = query({
+  args: { pageId: v.id("journalPages") },
+  returns: v.union(vPageView, v.null()),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get("journalPages", args.pageId);
+    if (row === null) return null;
+    const { event } = await requireEventAccess(ctx, row.eventId, "viewer");
+    return await viewPage(event, row);
+  },
+});
+
+// The saved page for a moment, or the cover when no moment is named. Null when
+// that page was never made or was taken out: the caller does not invent one.
+export const pageForMoment = query({
+  args: { eventId: v.id("events"), momentId: v.optional(v.id("moments")) },
+  returns: v.union(vPageView, v.null()),
+  handler: async (ctx, args) => {
+    const { event } = await requireEventAccess(ctx, args.eventId, "viewer");
+    const row =
+      args.momentId === undefined
+        ? (await pagesOf(ctx, event._id))[0]
+        : await ctx.db
+            .query("journalPages")
+            .withIndex("by_event_and_moment", (q) => q.eq("eventId", event._id).eq("momentId", args.momentId))
+            .first();
+    return row === undefined || row === null ? null : await viewPage(event, row);
+  },
+});
+
+// The whole book, decrypted. Tests and the one-shot journal file use this.
+// The open book does not: it subscribes to `outline` and `page`.
 export const get = query({
   args: { eventId: v.id("events") },
   returns: v.object({
@@ -208,16 +302,7 @@ export const get = query({
     const { event, role } = await requireEventAccess(ctx, args.eventId, "viewer");
     const journal = await journalOf(ctx, event._id);
     const canEdit = role === "owner" && event.status !== "archived";
-    let pending = 0;
-    if (canEdit && !journal?.locked) {
-      const moments = await ctx.db
-        .query("moments")
-        .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-        .take(momentsToRead(event.momentCount));
-      pending = moments.filter((m) => journal?.filledAt === undefined || m._creationTime > journal.filledAt).length;
-      // A brand-new journal still gets its cover.
-      if (journal === null) pending = Math.max(pending, 1);
-    }
+    const pending = canEdit && !journal?.locked ? await pendingOf(ctx, event, journal) : 0;
     const pages = await Promise.all((await pagesOf(ctx, event._id)).slice(0, MAX_JOURNAL_PAGES).map((p) => viewPage(event, p)));
     return { canEdit, locked: journal?.locked ?? false, pending, pages };
   },
@@ -263,27 +348,34 @@ export const fill = mutation({
       made++;
     }
 
-    for (const row of fresh) {
-      if (room <= 0) break;
+    // Creation order, not the order they happened: `filledAt` is a high-water
+    // mark, so a moment that did not fit must stay above it.
+    const waiting = [...fresh].sort((a, b) => a._creationTime - b._creationTime);
+    let watermark = journal.filledAt;
+    for (const row of waiting) {
       const has = await ctx.db
         .query("journalPages")
         .withIndex("by_event_and_moment", (q) => q.eq("eventId", event._id).eq("momentId", row._id))
         .first();
-      if (has !== null) continue;
-      const moment = await viewMoment(ctx, event, row);
-      const spec = momentPage({ ...moment, stops: moment.stops }, rows.indexOf(row));
-      await ctx.db.insert("journalPages", {
-        eventId: event._id,
-        order: row.startsAt,
-        paper: spec.paper,
-        momentId: row._id,
-        elements: await encodeElements(ctx, event, fromLayout(spec.elements), true),
-      });
-      room--;
-      made++;
+      if (has === null) {
+        if (room <= 0) break;
+        const moment = await viewMoment(ctx, event, row);
+        const spec = momentPage({ ...moment, stops: moment.stops }, rows.indexOf(row));
+        await ctx.db.insert("journalPages", {
+          eventId: event._id,
+          order: row.startsAt,
+          paper: spec.paper,
+          momentId: row._id,
+          elements: await encodeElements(ctx, event, fromLayout(spec.elements), true),
+        });
+        room--;
+        made++;
+      }
+      watermark = row._creationTime;
     }
-    const newest = rows.reduce((top, m) => Math.max(top, m._creationTime), journal.filledAt ?? 0);
-    await ctx.db.patch("journals", journal._id, { filledAt: newest });
+    if (watermark !== undefined && watermark !== journal.filledAt) {
+      await ctx.db.patch("journals", journal._id, { filledAt: watermark });
+    }
     return made;
   },
 });
@@ -346,7 +438,7 @@ export const movePage = mutation({
   args: { pageId: v.id("journalPages"), before: v.union(v.id("journalPages"), v.null()) },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { page, event } = await editablePage(ctx, args.pageId, true);
+    const { page, event } = await editablePage(ctx, args.pageId);
     const others = (await pagesOf(ctx, event._id)).filter((p) => p._id !== page._id);
     const at = args.before === null ? others.length : others.findIndex((p) => p._id === args.before);
     if (at < 0) throw notFound();
@@ -417,6 +509,27 @@ export const keepSticker = mutation({
       invalid("mediaId", "Only a picture you just added can go in the journal.");
     }
     await ctx.db.patch("media", media._id, { purpose: "sticker" });
+    return null;
+  },
+});
+
+// Takes a sticker off the shelf. Refused while any page still shows it, so a
+// sticker on two pages survives being taken off one. The caller then deletes
+// the stored object the same way a moment drops a photo.
+export const dropSticker = mutation({
+  args: { mediaId: v.id("media") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const media = await ctx.db.get("media", args.mediaId);
+    if (media === null || media.eventId === undefined) throw notFound();
+    const { userId, event } = await requireEventAccess(ctx, media.eventId, "owner");
+    assertNotArchived(event);
+    if (media.uploaderId !== userId || media.purpose !== "sticker" || media.status !== "ready") {
+      invalid("mediaId", "That sticker isn't on the shelf.");
+    }
+    if (await mediaOnAPage(ctx, event._id, media._id)) {
+      throw new ConvexError({ code: "IN_USE", message: "This sticker is still on a page. Take it off the page first." });
+    }
     return null;
   },
 });

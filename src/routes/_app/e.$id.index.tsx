@@ -1,5 +1,6 @@
 import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
+import { useEffect, useState } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { BookOpenIcon, PencilIcon, PlayIcon } from "lucide-react";
 import { z } from "zod";
@@ -93,6 +94,17 @@ function EventPage() {
 function PickedPage({ event, momentId, canEditMoment, onEdit }: { event: EventView; momentId?: string; canEditMoment: (authorId: string) => boolean; onEdit: (id: Id<"moments">) => void }) {
   const moments = useQuery(api.moments.list, { eventId: event._id });
   const moment = moments?.find((m) => m._id === momentId);
+  // The aside is hidden below `lg`. Mounting it there would still subscribe
+  // to the page, so a phone does not.
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 64rem)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 64rem)");
+    const sync = () => setWide(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  if (!wide) return null;
   return (
     <aside aria-label="Its journal page" className="hidden min-w-0 space-y-3 lg:sticky lg:top-4 lg:order-2 lg:block">
       <JournalPreview event={event} momentId={moment?._id} scale={448 / 794} />

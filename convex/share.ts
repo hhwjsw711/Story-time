@@ -10,6 +10,7 @@ import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { appOrigin } from "./lib/appUrl";
 import { recordChange } from "./lib/changes";
 import { decryptText, encryptText, readText, shareKeyFor } from "./lib/crypto";
+import { MAX_JOURNAL_PAGES } from "./lib/journal";
 import { listForEvent, vMomentView } from "./moments";
 
 // "Anyone with the link can watch". The link carries a random token in its
@@ -199,7 +200,8 @@ export const get = query({
 });
 
 // Public: a picture's bytes for a share link, the same shape the signed-in
-// route gets. Only pictures on a moment of this experience qualify.
+// route gets. A moment's picture qualifies. A sticker qualifies only when a
+// page of this experience actually shows it.
 export const mediaForShare = query({
   args: { token: v.string(), mediaId: v.id("media") },
   returns: v.union(
@@ -215,15 +217,18 @@ export const mediaForShare = query({
     const event = await eventFor(ctx, args.token);
     if (event === null) return null;
     const media = await ctx.db.get("media", args.mediaId);
-    // Not while still being uploaded, not after it's taken off a moment (a
-    // journal's sticker excepted), and never another experience's.
-    if (
-      media === null ||
-      media.status !== "ready" ||
-      media.eventId !== event._id ||
-      (media.momentId === undefined && media.purpose !== "sticker")
-    ) {
-      return null;
+    // Not while still being uploaded, and never another experience's.
+    if (media === null || media.status !== "ready" || media.eventId !== event._id) return null;
+    // A picture on a moment qualifies. A sticker qualifies only when some page
+    // of this experience shows it. A loose upload, or a sticker only on the
+    // shelf, does not.
+    if (media.momentId === undefined) {
+      if (media.purpose !== "sticker") return null;
+      const pages = await ctx.db
+        .query("journalPages")
+        .withIndex("by_event_and_order", (q) => q.eq("eventId", event._id))
+        .take(MAX_JOURNAL_PAGES);
+      if (!pages.some((page) => page.elements.some((element) => element.mediaId === media._id))) return null;
     }
     return {
       r2Key: media.r2Key,

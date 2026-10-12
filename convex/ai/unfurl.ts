@@ -76,22 +76,65 @@ export function titleFromHtml(html: string): string | undefined {
 
 async function titleOf(raw: string): Promise<string | undefined> {
   try {
-    const url = new URL(raw);
-    if (!isPublicWebUrl(url)) return undefined;
-    const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), redirect: "follow" });
-    if (!response.ok || response.body === null) return undefined;
-    return titleFromHtml(await readHead(response.body, HEAD_BYTES));
+    const read = await readPublic(raw, HEAD_BYTES);
+    return read === undefined ? undefined : titleFromHtml(read.html);
   } catch {
     return undefined;
   }
 }
 
-// Web addresses only, and not this machine or a bare IP: nothing the server
-// shouldn't be fetching for someone.
+const MAX_REDIRECTS = 5;
+
+// Where a redirect would send the next fetch, or nothing if that address is
+// not one this server should open.
+export function publicRedirect(base: string, location: string): string | undefined {
+  try {
+    const next = new URL(location, base);
+    return isPublicWebUrl(next) ? next.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isLiteralAddress(host: string): boolean {
+  const name = host.endsWith(".") ? host.slice(0, -1) : host;
+  if (name.startsWith("[") || name.includes(":")) return true;
+  if (/^\d+$/.test(name)) return true;
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(name);
+}
+
+// Web addresses only. Literal IPs, localhost, and link-local or metadata names
+// are refused. A hostname that merely *resolves* to a private address is not
+// checked here: this file also holds queries, so it cannot use a DNS lookup.
 export function isPublicWebUrl(url: URL): boolean {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-  const host = url.hostname;
-  return host !== "localhost" && !host.endsWith(".localhost") && !host.startsWith("[") && !/^[\d.]+$/.test(host);
+  if (url.username !== "" || url.password !== "") return false;
+  const host = url.hostname.toLowerCase();
+  if (host === "" || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return false;
+  if (isLiteralAddress(host)) return false;
+  return true;
+}
+
+// Fetches a public page, following redirects by hand and checking every hop.
+async function readPublic(raw: string, limit: number): Promise<{ html: string; url: string } | undefined> {
+  let current = new URL(raw);
+  if (!isPublicWebUrl(current)) return undefined;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(current, { signal: AbortSignal.timeout(TIMEOUT_MS), redirect: "manual" });
+    const landed = response.url ? new URL(response.url) : current;
+    if (!isPublicWebUrl(landed)) return undefined;
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return undefined;
+      const next = publicRedirect(landed.href, location);
+      if (next === undefined) return undefined;
+      current = new URL(next);
+      continue;
+    }
+    if (!response.ok || response.body === null) return undefined;
+    return { html: await readHead(response.body, limit), url: landed.href };
+  }
+  return undefined;
 }
 
 // Reads up to `limit` bytes, then stops the download.
@@ -164,11 +207,8 @@ export function previewFromHtml(html: string, url: string): LinkPreview {
 // Fetches a page's first 256 KB and reads its preview. Nothing on failure.
 export async function previewOf(raw: string): Promise<LinkPreview | undefined> {
   try {
-    const url = new URL(raw);
-    if (!isPublicWebUrl(url)) return undefined;
-    const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), redirect: "follow" });
-    if (!response.ok || response.body === null) return undefined;
-    return previewFromHtml(await readHead(response.body, 256 * 1024), url.href);
+    const read = await readPublic(raw, 256 * 1024);
+    return read === undefined ? undefined : previewFromHtml(read.html, read.url);
   } catch {
     return undefined;
   }

@@ -13,22 +13,23 @@ type Step = { pageId: PageId; before: { paper: string; elements: JournalElement[
 // (an optimistic update) and is saved in the background; undo and redo replay
 // a page as it was. A journal with moments that have no page yet is filled
 // once it loads, for its owner.
-export function useJournal(eventId: Id<"events">) {
-  const data = useQuery(api.journal.get, { eventId });
+export function useJournal(eventId: Id<"events">, index: number) {
+  const data = useQuery(api.journal.outline, { eventId });
+  const openId = data === undefined ? undefined : data.pages[Math.min(index, Math.max(0, data.pages.length - 1))]?._id;
+  const open = useQuery(api.journal.page, openId ? { pageId: openId } : "skip");
   const fillPages = useMutation(api.journal.fill);
   const savePage = useMutation(api.journal.savePage).withOptimisticUpdate((store, args) => {
-    const now = store.getQuery(api.journal.get, { eventId });
-    if (now === undefined) return;
-    store.setQuery(api.journal.get, { eventId }, {
+    const now = store.getQuery(api.journal.page, { pageId: args.pageId });
+    if (now === undefined || now === null) return;
+    store.setQuery(api.journal.page, { pageId: args.pageId }, {
       ...now,
-      pages: now.pages.map((p) =>
-        p._id === args.pageId ? { ...p, paper: args.paper ?? p.paper, elements: args.elements.map((e) => ({ ...e, text: e.text })) } : p,
-      ),
+      paper: args.paper ?? now.paper,
+      elements: args.elements.map((e) => ({ ...e, text: e.text })),
     });
   });
   const removePage = useMutation(api.journal.removePage).withOptimisticUpdate((store, args) => {
-    const now = store.getQuery(api.journal.get, { eventId });
-    if (now !== undefined) store.setQuery(api.journal.get, { eventId }, { ...now, pages: now.pages.filter((p) => p._id !== args.pageId) });
+    const now = store.getQuery(api.journal.outline, { eventId });
+    if (now !== undefined) store.setQuery(api.journal.outline, { eventId }, { ...now, pages: now.pages.filter((p) => p._id !== args.pageId) });
   });
   const addPage = useMutation(api.journal.addPage);
   const movePage = useMutation(api.journal.movePage);
@@ -47,9 +48,8 @@ export function useJournal(eventId: Id<"events">) {
     fillPages({ eventId }).catch(fail);
   }, [data?.canEdit, data?.pending, eventId, fillPages, fail]);
 
-  const pages = data?.pages;
-  const pagesRef = useRef(pages);
-  pagesRef.current = pages;
+  const openRef = useRef(open);
+  openRef.current = open;
 
   const past = useRef<Step[]>([]);
   const future = useRef<Step[]>([]);
@@ -58,8 +58,8 @@ export function useJournal(eventId: Id<"events">) {
   // Writes a page, remembering how it was so it can be undone.
   const write = useCallback(
     (pageId: PageId, next: { paper?: string; elements: JournalElement[] }, record = true) => {
-      const page = pagesRef.current?.find((p) => p._id === pageId);
-      if (page === undefined) return;
+      const page = openRef.current;
+      if (page === undefined || page === null || page._id !== pageId) return;
       if (record) {
         past.current.push({ pageId, before: { paper: page.paper, elements: page.elements }, after: { paper: next.paper ?? page.paper, elements: next.elements } });
         if (past.current.length > 100) past.current.shift();
@@ -88,11 +88,13 @@ export function useJournal(eventId: Id<"events">) {
 
   return {
     ready: data !== undefined,
+    pending: data?.pending ?? 0,
     canEdit: (data?.canEdit ?? false) && !(data?.locked ?? false),
     owner: data?.canEdit ?? false,
     locked: data?.locked ?? false,
     filling: (data?.pending ?? 0) > 0 && (data?.canEdit ?? false),
-    pages: pages ?? [],
+    pages: data?.pages ?? [],
+    open: open === undefined || open === null ? undefined : open,
     write,
     undo,
     redo,
