@@ -60,6 +60,7 @@ export function describeChange(c: { entity: string; action: string; fields: stri
       if (onlyField(fields, "visibility")) return "Changed the sharing settings";
       if (onlyField(fields, "shareLink")) return "Made a new share link";
       if (onlyField(fields, "sharedPdf")) return "Changed the locked PDF on the share link";
+      if (onlyField(fields, "shareRedacted")) return "Changed whether the share link shows photos";
       return edited("the experience");
     case "media.create":
       return "Uploaded a photo or video";

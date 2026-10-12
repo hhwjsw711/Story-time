@@ -224,6 +224,96 @@ describe("share links", () => {
     expect(JSON.stringify(rows)).not.toContain(token);
   });
 
+  test("a link can hide every picture, and the payload has no media id or image url", async () => {
+    const { t, owner, guest, eventId } = await setup();
+    const photo = await momentWithPhoto(owner, eventId);
+    const { mediaId: video } = await owner.mutation(api.media.reserveUpload, {
+      eventId,
+      size: 100,
+      mime: "video/mp4",
+    });
+    await owner.mutation(api.media.confirmUpload, { mediaId: video });
+    await owner.mutation(api.moments.create, {
+      eventId,
+      startsAt: Date.UTC(2026, 5, 2, 12),
+      place: "Porto",
+      blocks: [
+        { type: "video", mediaId: video },
+        { type: "note", text: "The river" },
+      ],
+    });
+    const { mediaId: sticker } = await owner.mutation(api.media.reserveUpload, {
+      eventId,
+      size: 100,
+      mime: "image/png",
+    });
+    await owner.mutation(api.media.confirmUpload, { mediaId: sticker });
+    await owner.mutation(api.journal.keepSticker, { mediaId: sticker });
+    await t.finishAllScheduledFunctions(() => undefined);
+    const book = await owner.query(api.journal.outline, { eventId });
+    const pageId = book.pages[1]!._id;
+    const image = "https://cdn.example.com/og-photo.jpg";
+    await owner.mutation(api.journal.savePage, {
+      pageId,
+      elements: [
+        { id: "p1", kind: "photo", x: 40, y: 40, w: 200, h: 200, rotation: 0, z: 1, mediaId: photo },
+        { id: "s1", kind: "sticker", x: 80, y: 80, w: 80, h: 80, rotation: 0, z: 2, mediaId: sticker },
+        { id: "n1", kind: "note", x: 40, y: 300, w: 300, h: 80, rotation: 0, z: 3, text: "Tram 28" },
+        {
+          id: "l1",
+          kind: "link",
+          x: 40,
+          y: 420,
+          w: 280,
+          h: 120,
+          rotation: 0,
+          z: 4,
+          style: "card",
+          text: JSON.stringify({
+            url: "https://example.com/tram",
+            title: "Tram",
+            image,
+          }),
+        },
+      ],
+    });
+
+    expect(await owner.query(api.share.hidePhotos, { eventId })).toBe(false);
+    await expect(guest.mutation(api.share.setHidePhotos, { eventId, hide: true })).rejects.toThrow(/Event not found/);
+    const link = await owner.mutation(api.share.enable, { eventId });
+    const token = tokenOf(link);
+    // The ordinary link still carries the picture, so hiding is a choice.
+    expect(JSON.stringify(await t.query(api.share.get, { token }))).toContain(photo);
+
+    await owner.mutation(api.share.setHidePhotos, { eventId, hide: true });
+    expect(await owner.query(api.share.hidePhotos, { eventId })).toBe(true);
+    const story = await t.query(api.share.get, { token });
+    const page = await t.query(api.share.page, { token, pageId });
+    const owned = await owner.query(api.journal.page, { pageId });
+    expect(owned?.elements.some((e) => e.mediaId === photo)).toBe(true);
+
+    const payload = JSON.stringify({ story, page });
+    expect(payload).not.toContain("mediaId");
+    expect(payload).not.toContain(photo);
+    expect(payload).not.toContain(video);
+    expect(payload).not.toContain(sticker);
+    expect(payload).not.toContain(image);
+    expect(payload).not.toMatch(/https?:\/\/[^"\\]+\.(jpg|jpeg|png|gif|webp|svg)/i);
+    expect(story?.moments.flatMap((m) => m.blocks.map((b) => b.type)).sort()).toEqual(["note", "note"]);
+    expect(page?.elements.map((e) => e.kind).sort()).toEqual(["link", "note"]);
+    expect(page?.elements.find((e) => e.kind === "note")?.text).toBe("Tram 28");
+    const linkText = page?.elements.find((e) => e.kind === "link")?.text ?? "";
+    expect(linkText).toContain("https://example.com/tram");
+    expect(linkText).not.toContain("image");
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: photo })).toBeNull();
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: video })).toBeNull();
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: sticker })).toBeNull();
+
+    await owner.mutation(api.share.setHidePhotos, { eventId, hide: false });
+    expect(JSON.stringify(await t.query(api.share.get, { token }))).toContain(photo);
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: photo })).toMatchObject({ mime: "image/jpeg" });
+  });
+
   test("taking visibility off through events.update switches the link off", async () => {
     const { t, owner, eventId } = await setup();
     const token = tokenOf(await owner.mutation(api.share.enable, { eventId }));

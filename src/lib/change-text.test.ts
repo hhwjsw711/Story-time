@@ -43,6 +43,7 @@ describe("the experience", () => {
 
   test("sharing gets its own phrases, and is named once when mixed in", () => {
     expect(change("event", "update", ["visibility"])).toBe("Changed the sharing settings");
+    expect(change("event", "update", ["shareRedacted"])).toBe("Changed whether the share link shows photos");
     expect(change("event", "update", ["shareLink"])).toBe("Made a new share link");
     expect(change("event", "update", ["title", "visibility", "shareLink"])).toBe(
       "Edited the experience: title, sharing",

@@ -170,6 +170,9 @@ export default defineSchema({
     // owner can copy the link again.
     shareKey: v.optional(v.string()),
     shareToken: v.optional(vEncrypted),
+    // Opt-in: a live link shows the words and leaves out every picture. Off
+    // (or unset) keeps the link as it was, photos included.
+    shareRedacted: v.optional(v.boolean()),
     region: v.optional(vRegion), // legacy, unused
     momentLimit: v.optional(v.number()), // legacy, unused: lib/limits.ts holds the one limit
     momentCount: v.number(),
