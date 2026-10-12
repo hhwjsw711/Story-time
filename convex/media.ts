@@ -215,8 +215,9 @@ export const getForDownload = query({
     if (media.eventId === undefined) return null;
     const access = await getEventAccess(ctx, media.eventId);
     if (access === null) return null;
-    // Photos not yet attached to a moment are visible to their uploader only.
-    if (media.momentId === undefined && media.uploaderId !== access.userId) {
+    // Photos not yet attached to a moment are visible to their uploader only;
+    // a sticker belongs to the journal, so everyone who can see it sees it.
+    if (media.momentId === undefined && media.purpose !== "sticker" && media.uploaderId !== access.userId) {
       return null;
     }
     return {

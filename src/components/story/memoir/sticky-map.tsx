@@ -56,6 +56,8 @@ export function StickyMap({
   reduced,
   className,
   onPick,
+  light = false,
+  printable = false,
 }: {
   stops: MapStop[];
   // The step in view, when it is a stop on the map.
@@ -64,8 +66,13 @@ export function StickyMap({
   reduced: boolean;
   className?: string;
   onPick: (step: number) => void;
+  // Always the light map, as on a paper page.
+  light?: boolean;
+  // Drawn so it can be photographed into a PDF, with no zoom buttons.
+  printable?: boolean;
 }) {
-  const { resolvedTheme } = useTheme();
+  const { resolvedTheme: appTheme } = useTheme();
+  const resolvedTheme = light ? "light" : appTheme;
   // MapLibre needs the browser, so nothing draws until this has mounted.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -98,7 +105,12 @@ export function StickyMap({
   const theme = resolvedTheme === "dark" || resolvedTheme === "light" ? resolvedTheme : undefined;
   return (
     <section aria-label="Map of the stops" className={className}>
-      <MapView theme={theme} interactive={false} className="h-full w-full overflow-hidden rounded-xl border border-[#5b4a3a]/20">
+      <MapView
+        theme={theme}
+        interactive={false}
+        canvasContextAttributes={printable ? { preserveDrawingBuffer: true } : undefined}
+        className="h-full w-full overflow-hidden rounded-xl border border-[#5b4a3a]/20"
+      >
         <Camera framing={framing} framingKey={framingKey} reduced={reduced} />
         {/* A line needs two stops; one stop is just its marker. */}
         {route.length > 1 && (
@@ -147,7 +159,7 @@ export function StickyMap({
           );
         })}
         {/* The map takes no gestures of its own, so these are its zoom, by mouse or touch. */}
-        <MapControls position="bottom-right" showZoom />
+        {!printable && <MapControls position="bottom-right" showZoom />}
       </MapView>
     </section>
   );

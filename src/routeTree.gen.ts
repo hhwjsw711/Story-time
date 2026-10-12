@@ -25,6 +25,9 @@ import { Route as ApiEventsIdRouteImport } from './routes/api/events.$id'
 import { Route as ApiMediaIdRouteImport } from './routes/api/media.$id'
 import { Route as EIdStoryRouteImport } from './routes/e.$id.story'
 import { Route as AppEIdIndexRouteImport } from './routes/_app/e.$id.index'
+import { Route as AppEIdActivityRouteImport } from './routes/_app/e.$id.activity'
+import { Route as AppEIdJournalRouteImport } from './routes/_app/e.$id.journal'
+import { Route as AppEIdSharedRouteImport } from './routes/_app/e.$id.shared'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -105,6 +108,21 @@ const AppEIdIndexRoute = AppEIdIndexRouteImport.update({
   path: '/e/$id/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppEIdActivityRoute = AppEIdActivityRouteImport.update({
+  id: '/e/$id/activity',
+  path: '/e/$id/activity',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEIdJournalRoute = AppEIdJournalRouteImport.update({
+  id: '/e/$id/journal',
+  path: '/e/$id/journal',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppEIdSharedRoute = AppEIdSharedRouteImport.update({
+  id: '/e/$id/shared',
+  path: '/e/$id/shared',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -121,6 +139,9 @@ export interface FileRoutesByFullPath {
   '/api/media/$id': typeof ApiMediaIdRoute
   '/e/$id/story': typeof EIdStoryRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/e/$id/activity': typeof AppEIdActivityRoute
+  '/e/$id/journal': typeof AppEIdJournalRoute
+  '/e/$id/shared': typeof AppEIdSharedRoute
   '/e/$id/': typeof AppEIdIndexRoute
 }
 export interface FileRoutesByTo {
@@ -137,6 +158,9 @@ export interface FileRoutesByTo {
   '/api/media/$id': typeof ApiMediaIdRoute
   '/e/$id/story': typeof EIdStoryRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/e/$id/activity': typeof AppEIdActivityRoute
+  '/e/$id/journal': typeof AppEIdJournalRoute
+  '/e/$id/shared': typeof AppEIdSharedRoute
   '/e/$id': typeof AppEIdIndexRoute
 }
 export interface FileRoutesById {
@@ -156,6 +180,9 @@ export interface FileRoutesById {
   '/api/media/$id': typeof ApiMediaIdRoute
   '/e/$id/story': typeof EIdStoryRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/e/$id/activity': typeof AppEIdActivityRoute
+  '/_app/e/$id/journal': typeof AppEIdJournalRoute
+  '/_app/e/$id/shared': typeof AppEIdSharedRoute
   '/_app/e/$id/': typeof AppEIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -175,6 +202,9 @@ export interface FileRouteTypes {
     | '/api/media/$id'
     | '/e/$id/story'
     | '/settings/'
+    | '/e/$id/activity'
+    | '/e/$id/journal'
+    | '/e/$id/shared'
     | '/e/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -191,6 +221,9 @@ export interface FileRouteTypes {
     | '/api/media/$id'
     | '/e/$id/story'
     | '/settings'
+    | '/e/$id/activity'
+    | '/e/$id/journal'
+    | '/e/$id/shared'
     | '/e/$id'
   id:
     | '__root__'
@@ -209,6 +242,9 @@ export interface FileRouteTypes {
     | '/api/media/$id'
     | '/e/$id/story'
     | '/_app/settings/'
+    | '/_app/e/$id/activity'
+    | '/_app/e/$id/journal'
+    | '/_app/e/$id/shared'
     | '/_app/e/$id/'
   fileRoutesById: FileRoutesById
 }
@@ -338,6 +374,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppEIdIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/e/$id/activity': {
+      id: '/_app/e/$id/activity'
+      path: '/e/$id/activity'
+      fullPath: '/e/$id/activity'
+      preLoaderRoute: typeof AppEIdActivityRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/e/$id/journal': {
+      id: '/_app/e/$id/journal'
+      path: '/e/$id/journal'
+      fullPath: '/e/$id/journal'
+      preLoaderRoute: typeof AppEIdJournalRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/e/$id/shared': {
+      id: '/_app/e/$id/shared'
+      path: '/e/$id/shared'
+      fullPath: '/e/$id/shared'
+      preLoaderRoute: typeof AppEIdSharedRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -362,12 +419,18 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 interface AppRouteChildren {
   AppHomeRoute: typeof AppHomeRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
+  AppEIdActivityRoute: typeof AppEIdActivityRoute
+  AppEIdJournalRoute: typeof AppEIdJournalRoute
+  AppEIdSharedRoute: typeof AppEIdSharedRoute
   AppEIdIndexRoute: typeof AppEIdIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppHomeRoute: AppHomeRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
+  AppEIdActivityRoute: AppEIdActivityRoute,
+  AppEIdJournalRoute: AppEIdJournalRoute,
+  AppEIdSharedRoute: AppEIdSharedRoute,
   AppEIdIndexRoute: AppEIdIndexRoute,
 }
 

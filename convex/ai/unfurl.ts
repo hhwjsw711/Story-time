@@ -88,14 +88,14 @@ async function titleOf(raw: string): Promise<string | undefined> {
 
 // Web addresses only, and not this machine or a bare IP: nothing the server
 // shouldn't be fetching for someone.
-function isPublicWebUrl(url: URL): boolean {
+export function isPublicWebUrl(url: URL): boolean {
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   const host = url.hostname;
   return host !== "localhost" && !host.endsWith(".localhost") && !host.startsWith("[") && !/^[\d.]+$/.test(host);
 }
 
 // Reads up to `limit` bytes, then stops the download.
-async function readHead(body: ReadableStream<Uint8Array>, limit: number): Promise<string> {
+export async function readHead(body: ReadableStream<Uint8Array>, limit: number): Promise<string> {
   const reader = body.getReader();
   const buffer = new Uint8Array(limit);
   let filled = 0;
@@ -119,7 +119,7 @@ const NAMED_ENTITIES: Record<string, string> = {
   nbsp: " ",
 };
 
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
   return text.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (match, body: string) => {
     if (body.startsWith("#")) {
       const hex = body[1] === "x" || body[1] === "X";
@@ -128,4 +128,48 @@ function decodeEntities(text: string): string {
     }
     return NAMED_ENTITIES[body.toLowerCase()] ?? match;
   });
+}
+
+export type LinkPreview = { url: string; title?: string; description?: string; image?: string; site?: string };
+
+// What a page says about itself for a preview: its Open Graph (or Twitter)
+// title, description, picture and site, falling back to <title> and the
+// meta description. A picture must be a public https address.
+export function previewFromHtml(html: string, url: string): LinkPreview {
+  const meta = (names: string[]) => {
+    for (const name of names) {
+      const tag = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*>`, "i").exec(html)?.[0];
+      const content = tag && /content=["']([^"']*)["']/i.exec(tag)?.[1];
+      if (content?.trim()) return decodeEntities(content).replace(/\s+/g, " ").trim();
+    }
+    return undefined;
+  };
+  const clip = (text: string | undefined, n: number) => (text === undefined ? undefined : text.length > n ? `${text.slice(0, n - 1)}…` : text);
+  let image = meta(["og:image", "og:image:url", "twitter:image"]);
+  try {
+    const resolved = image === undefined ? undefined : new URL(image, url);
+    image = resolved && resolved.protocol === "https:" && isPublicWebUrl(resolved) ? resolved.href : undefined;
+  } catch {
+    image = undefined;
+  }
+  return {
+    url,
+    title: clip(meta(["og:title", "twitter:title"]) ?? titleFromHtml(html), 160),
+    description: clip(meta(["og:description", "twitter:description", "description"]), 280),
+    image: image && image.length <= 600 ? image : undefined,
+    site: clip(meta(["og:site_name"]) ?? new URL(url).hostname.replace(/^www\./, ""), 60),
+  };
+}
+
+// Fetches a page's first 256 KB and reads its preview. Nothing on failure.
+export async function previewOf(raw: string): Promise<LinkPreview | undefined> {
+  try {
+    const url = new URL(raw);
+    if (!isPublicWebUrl(url)) return undefined;
+    const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), redirect: "follow" });
+    if (!response.ok || response.body === null) return undefined;
+    return previewFromHtml(await readHead(response.body, 256 * 1024), url.href);
+  } catch {
+    return undefined;
+  }
 }

@@ -36,6 +36,17 @@ function DataSettings() {
               Whoever is watching, a shared link included, asks OpenStreetMap's public routers for it and sends only the
               two stops' coordinates, rounded to about 100 m; nothing is stored. If they can't be reached, the leg is a curve.
             </li>
+            <li>
+              Stickers you cut out of photos for a journal are cut on your device by Google's MediaPipe model, which the
+              page downloads from storage.googleapis.com the first time. The photo isn't sent anywhere to be cut; the
+              finished sticker is saved like any other photo, and everyone who can see the journal can see it.
+            </li>
+            <li>
+              A link you put on a journal page is opened once by Story-time's server to read its title, a line about it and
+              its picture. That picture then loads straight from the linked site for whoever reads the page, a shared link
+              included, so that site sees their visit. Pictures you add from your device are saved like any other photo.
+            </li>
+            <li>A journal's words (titles, notes, tickets, drawings, links) are encrypted like notes. Its layout isn't.</li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
         </SettingsBlock>

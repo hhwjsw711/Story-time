@@ -352,6 +352,20 @@ export const purgeEventData = internalMutation({
       deleted++;
     }
     for (const row of await ctx.db
+      .query("journalPages")
+      .withIndex("by_event_and_order", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("journalPages", row._id);
+      deleted++;
+    }
+    for (const row of await ctx.db
+      .query("journals")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("journals", row._id);
+      deleted++;
+    }
+    for (const row of await ctx.db
       .query("changes")
       .withIndex("by_event_and_at", (q) => q.eq("eventId", eventId))
       .take(PURGE_BATCH)) {
