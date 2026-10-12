@@ -1,12 +1,16 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { BookOpenIcon, PencilIcon, PlayIcon } from "lucide-react";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
 import { CommandBar } from "@/components/event/command-bar";
 import { ExperienceShell } from "@/components/event/experience-shell";
 import { EditorPanel, type Panel } from "@/components/event/itinerary-panel";
 import { Timeline } from "@/components/event/timeline";
-import { cn } from "@/lib/utils";
+import type { EventView } from "@/components/event/types";
+import { JournalPreview } from "@/components/journal/preview";
+import { Button } from "@/components/ui/button";
 
 const search = z.object({
   // Sections that were tabs here are pages of their own now; links to them
@@ -54,21 +58,26 @@ function EventPage() {
               editId: next === "moment" ? nextMomentId : undefined,
             }),
           });
-        // Picking a moment edits it when you may; otherwise it opens in the story.
+        // On a wide screen picking a moment shows its journal page beside the
+        // list. On a phone it edits it when you may, else opens it in the story.
         const pick = (moment: { _id: string; authorId: string }) => {
-          if (canEditMoment(moment.authorId)) openPanel("moment", moment._id);
+          if (window.matchMedia("(min-width: 64rem)").matches) void navigate({ search: (s) => ({ ...s, tab: undefined, momentId: moment._id }) });
+          else if (canEditMoment(moment.authorId)) openPanel("moment", moment._id);
           else void navigate({ to: "/e/$id/story", params: { id }, search: { momentId: moment._id } });
         };
         return (
-          /* The moments, and beside them whatever is being edited. Stacked on
-             narrow screens, the editor first. */
-          <div className={cn("grid gap-6", panel !== "outline" && "max-w-[80rem] lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-start")}>
-            {panel !== "outline" && (
+          /* The moments, and beside them whatever is being edited, else the
+             picked moment's journal page. Stacked on narrow screens, the
+             editor first; the page is for wide screens only. */
+          <div className="grid max-w-[80rem] gap-6 lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-start">
+            {panel !== "outline" ? (
               <div className="min-w-0 lg:sticky lg:top-4 lg:order-2 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto lg:overscroll-contain">
                 <EditorPanel event={event} panel={panel} momentId={editId} canEditMoment={canEditMoment} onClose={() => openPanel("outline")} />
               </div>
+            ) : (
+              <PickedPage event={event} momentId={momentId} canEditMoment={canEditMoment} onEdit={(id) => openPanel("moment", id)} />
             )}
-            <div className={cn("min-w-0 space-y-4 lg:order-1", panel === "outline" && "max-w-3xl")}>
+            <div className="min-w-0 space-y-4 lg:order-1">
               <CommandBar event={event} openMomentId={momentId} />
               <Timeline event={event} meId={me?.id} selectedMomentId={momentId} onPick={pick} />
             </div>
@@ -76,5 +85,37 @@ function EventPage() {
         );
       }}
     </ExperienceShell>
+  );
+}
+
+// Beside the list on a wide screen: the picked moment's journal page with ways
+// on from it, or the cover when nothing is picked.
+function PickedPage({ event, momentId, canEditMoment, onEdit }: { event: EventView; momentId?: string; canEditMoment: (authorId: string) => boolean; onEdit: (id: Id<"moments">) => void }) {
+  const moments = useQuery(api.moments.list, { eventId: event._id });
+  const moment = moments?.find((m) => m._id === momentId);
+  return (
+    <aside aria-label="Its journal page" className="hidden min-w-0 space-y-3 lg:sticky lg:top-4 lg:order-2 lg:block">
+      <JournalPreview event={event} momentId={moment?._id} scale={448 / 794} />
+      <div className="flex flex-wrap gap-2">
+        {moment && (
+          <Button size="sm" asChild>
+            <Link to="/e/$id/story" params={{ id: event._id }} search={{ momentId: moment._id }}>
+              <PlayIcon aria-hidden /> Play from here
+            </Link>
+          </Button>
+        )}
+        {moment && canEditMoment(moment.authorId) && (
+          <Button size="sm" variant="outline" onClick={() => onEdit(moment._id)}>
+            <PencilIcon aria-hidden /> Edit
+          </Button>
+        )}
+        <Button size="sm" variant="outline" asChild>
+          <Link to="/e/$id/journal" params={{ id: event._id }} search={{ momentId: moment?._id }}>
+            <BookOpenIcon aria-hidden /> {moment ? "Open in the journal" : "Open the journal"}
+          </Link>
+        </Button>
+      </div>
+      {!moment && event.momentCount > 0 && <p className="text-sm text-muted-foreground">Pick a moment to see its page.</p>}
+    </aside>
   );
 }

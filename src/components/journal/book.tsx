@@ -89,7 +89,7 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isConte
 // middle, and what to add (or what to do with the picked thing) on the right.
 // Read turns it into a book; the menu prints it, saves it as a file, or brings
 // one back.
-export function JournalBook({ event }: { event: EventView }) {
+export function JournalBook({ event, momentId }: { event: EventView; momentId?: string }) {
   const journal = useJournal(event._id);
   const moments = useQuery(api.moments.list, { eventId: event._id });
   const stickers = useQuery(api.journal.stickers, { eventId: event._id }) ?? [];
@@ -115,6 +115,14 @@ export function JournalBook({ event }: { event: EventView }) {
   }, []);
 
   const [index, setIndex] = useState(0);
+  // Asked for a moment's page: open on it once the pages are in.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current || !momentId || !journal.pages) return;
+    opened.current = true;
+    const at = journal.pages.findIndex((p) => p.momentId === momentId);
+    if (at >= 0) setIndex(at);
+  }, [momentId, journal.pages]);
   const [selected, setSelected] = useState<string | null>(null);
   const [writing, setWriting] = useState<string | null>(null);
   // Read or make: owners make by default, everyone else reads.
