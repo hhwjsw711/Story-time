@@ -59,7 +59,9 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
   const invites = useQuery(api.invites.listForEvent, { eventId });
   // The switched-on link, or null. Undefined while it loads.
   const publicLink = useQuery(api.share.link, { eventId });
+  const hidePhotos = useQuery(api.share.hidePhotos, { eventId });
   const enableLink = useMutation(api.share.enable);
+  const setHidePhotos = useMutation(api.share.setHidePhotos);
   const disableLink = useMutation(api.share.disable);
   const rotateLink = useMutation(api.share.rotate);
   const revoke = useMutation(api.sessions.revoke);
@@ -107,7 +109,11 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
       <Card
         icon={<Link2Icon />}
         title="Share a link"
-        lead="Anyone with the link can watch the story, without an account. They see the moments and photos, not who added them."
+        lead={
+          hidePhotos
+            ? "Anyone with the link can read the story, without an account. Photos, videos and stickers stay off the link."
+            : "Anyone with the link can watch the story, without an account. They see the moments and photos, not who added them."
+        }
         aside={
           <Switch
             aria-label="Anyone with the link can watch"
@@ -134,6 +140,25 @@ export function SharedTab({ eventId, archived }: { eventId: Id<"events">; archiv
               <Button variant="outline" onClick={() => void copy(publicLink)}>
                 <CopyIcon /> Copy
               </Button>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+              <div className="min-w-0">
+                <Label htmlFor="hide-photos" className="text-sm">
+                  Hide photos
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  The link keeps the words. Pictures never load for someone who only has it.
+                </p>
+              </div>
+              <Switch
+                id="hide-photos"
+                aria-label="Hide photos on the share link"
+                checked={hidePhotos === true}
+                disabled={hidePhotos === undefined}
+                onCheckedChange={(hide) => {
+                  void setHidePhotos({ eventId, hide }).catch((e: unknown) => toast.error(errorMessage(e)));
+                }}
+              />
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">Switch it off and the link stops working.</p>

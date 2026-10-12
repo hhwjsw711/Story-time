@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import {
   mutation,
@@ -13,7 +13,7 @@ import { decryptText, encryptText, readText, shareKeyFor } from "./lib/crypto";
 import { contentsOf, pageInEvent, vOutlinePage, vPageView } from "./journal";
 import { MAX_JOURNAL_PAGES } from "./lib/journal";
 import { isSharedPdf } from "./lib/sharedPdf";
-import { listForEvent, vMomentView } from "./moments";
+import { listForEvent, type PlainBlock, vMomentView } from "./moments";
 
 // "Anyone with the link can watch". The link carries a random token in its
 // fragment, which browsers never send to a server, so it stays out of logs.
@@ -81,6 +81,64 @@ const vSharedMoment = vMomentView.omit(
   "editedByName",
   "editedByAgent",
 );
+
+// Photos and videos are the only blocks that carry a picture id. Dropping
+// them leaves notes, links and feelings, and no mediaId anywhere.
+function withoutPictures(blocks: PlainBlock[]): PlainBlock[] {
+  return blocks.filter((block) => block.type !== "photo" && block.type !== "video");
+}
+
+function sharedMoment(moment: Infer<typeof vMomentView>, redact: boolean) {
+  const stops = redact
+    ? moment.stops.map((stop) => ({ ...stop, blocks: withoutPictures(stop.blocks) }))
+    : moment.stops;
+  return {
+    _id: moment._id,
+    startsAt: moment.startsAt,
+    // Not personal: it's the zone the moment happened in.
+    tzOffsetMinutes: moment.tzOffsetMinutes,
+    place: moment.place,
+    geo: moment.geo,
+    blocks: redact ? withoutPictures(moment.blocks) : moment.blocks,
+    transport: moment.transport,
+    stops,
+    labels: moment.labels,
+  };
+}
+
+// Whether this experience's link hides photos. False until the owner opts in,
+// including while the link itself is off, so the choice is waiting when they
+// switch it on.
+export const hidePhotos = query({
+  args: { eventId: v.id("events") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const { event } = await requireEventAccess(ctx, args.eventId, "owner");
+    return event.shareRedacted === true;
+  },
+});
+
+// Opts the link into hiding photos, or back out. Existing links change at
+// once: the same token, with pictures gone or returned.
+export const setHidePhotos = mutation({
+  args: { eventId: v.id("events"), hide: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { userId, event } = await requireEventAccess(ctx, args.eventId, "owner");
+    const current = event.shareRedacted === true;
+    if (current === args.hide) return null;
+    await ctx.db.patch("events", event._id, { shareRedacted: args.hide ? true : undefined });
+    await recordChange(ctx, {
+      eventId: args.eventId,
+      entity: "event",
+      entityId: args.eventId,
+      actorId: userId,
+      action: "update",
+      fields: ["shareRedacted"],
+    });
+    return null;
+  },
+});
 
 // The owner's link, to copy again. Null when none is switched on.
 export const link = query({
@@ -185,18 +243,8 @@ export const get = query({
         status: event.status,
       },
       // Field by field, so a field added to moments later isn't shared by accident.
-      moments: moments.map((m) => ({
-        _id: m._id,
-        startsAt: m.startsAt,
-        // Not personal: it's the zone the moment happened in.
-        tzOffsetMinutes: m.tzOffsetMinutes,
-        place: m.place,
-        geo: m.geo,
-        blocks: m.blocks,
-        transport: m.transport,
-        stops: m.stops,
-        labels: m.labels,
-      })),
+      // A redacted link drops photo and video blocks, so no mediaId leaves.
+      moments: moments.map((m) => sharedMoment(m, event.shareRedacted === true)),
     };
   },
 });
@@ -221,18 +269,19 @@ export const page = query({
   handler: async (ctx, args) => {
     const event = await eventFor(ctx, args.token);
     if (event === null) return null;
-    return await pageInEvent(ctx, event, args.pageId);
+    return await pageInEvent(ctx, event, args.pageId, event.shareRedacted === true);
   },
 });
 
 // Public: the journal's locked PDF on this link, if its owner made one. Never
-// its password: that travels separately, from the owner.
+// its password: that travels separately, from the owner. A link that hides
+// photos does not name the file either — the book is the pictures.
 export const pdf = query({
   args: { token: v.string() },
   returns: v.union(v.null(), v.object({ mediaId: v.id("media"), pages: v.number(), at: v.number() })),
   handler: async (ctx, args) => {
     const event = await eventFor(ctx, args.token);
-    if (event === null) return null;
+    if (event === null || event.shareRedacted === true) return null;
     const journal = await ctx.db
       .query("journals")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
@@ -258,7 +307,7 @@ export const mediaForShare = query({
   ),
   handler: async (ctx, args) => {
     const event = await eventFor(ctx, args.token);
-    if (event === null) return null;
+    if (event === null || event.shareRedacted === true) return null;
     const media = await ctx.db.get("media", args.mediaId);
     // Not while still being uploaded, and never another experience's.
     if (media === null || media.status !== "ready" || media.eventId !== event._id) return null;

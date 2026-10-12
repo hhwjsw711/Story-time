@@ -207,7 +207,42 @@ async function catchUpState(ctx: QueryCtx, page: Doc<"journalPages">) {
   return { edited, stale: page.builtFrom !== undefined && page.builtFrom !== stamp, gone: false };
 }
 
-async function viewPage(ctx: QueryCtx, event: Doc<"events">, page: Doc<"journalPages">) {
+// A link card's picture, whatever scheme it uses. `readLink` only reports
+// https pictures, so an http URL would otherwise stay in the JSON.
+function withoutLinkImage(text: string): string {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !("image" in parsed)) return text;
+    const copy: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (key !== "image") copy[key] = value;
+    }
+    return JSON.stringify(copy);
+  } catch {
+    return text;
+  }
+}
+
+// A share link that hides photos drops every picture and sticker, and the
+// preview image on a link card, before anything is returned. The address of
+// the link stays; the picture URL does not.
+function withoutPictures(elements: Infer<typeof vElement>[]): Infer<typeof vElement>[] {
+  const kept: Infer<typeof vElement>[] = [];
+  for (const element of elements) {
+    if (element.kind === "photo" || element.kind === "sticker" || element.mediaId !== undefined) continue;
+    if (element.kind === "link" && element.text !== undefined) {
+      kept.push({ ...element, text: withoutLinkImage(element.text) });
+      continue;
+    }
+    kept.push(element);
+  }
+  return kept;
+}
+
+async function viewPage(ctx: QueryCtx, event: Doc<"events">, page: Doc<"journalPages">, redact = false) {
+  const elements = await Promise.all(
+    page.elements.map(async (e) => ({ ...e, text: e.text === undefined ? undefined : await decryptText(event._id, e.text) })),
+  );
   return {
     _id: page._id,
     order: page.order,
@@ -215,9 +250,7 @@ async function viewPage(ctx: QueryCtx, event: Doc<"events">, page: Doc<"journalP
     locked: page.locked ?? false,
     momentId: page.momentId,
     ...(await catchUpState(ctx, page)),
-    elements: await Promise.all(
-      page.elements.map(async (e) => ({ ...e, text: e.text === undefined ? undefined : await decryptText(event._id, e.text) })),
-    ),
+    elements: redact ? withoutPictures(elements) : elements,
   };
 }
 
@@ -290,10 +323,15 @@ export async function contentsOf(ctx: QueryCtx, event: Doc<"events">) {
 
 // One page of this experience, decrypted. Null when the page is missing or
 // belongs to another experience, so a share token cannot name its way in.
-export async function pageInEvent(ctx: QueryCtx, event: Doc<"events">, pageId: Id<"journalPages">) {
+export async function pageInEvent(
+  ctx: QueryCtx,
+  event: Doc<"events">,
+  pageId: Id<"journalPages">,
+  redact = false,
+) {
   const row = await ctx.db.get("journalPages", pageId);
   if (row === null || row.eventId !== event._id) return null;
-  return await viewPage(ctx, event, row);
+  return await viewPage(ctx, event, row, redact);
 }
 
 // One page, decrypted. The open page, a neighbour, or a page being printed.
