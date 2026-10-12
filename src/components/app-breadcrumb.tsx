@@ -1,7 +1,6 @@
-import { Link, useMatch } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,20 +10,24 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-// Navbar trail for the experiences side: Experiences › <experience title>.
+const SECTION_NAMES: Record<string, string> = { "/journal": "Journal", "/shared": "Shared", "/activity": "Activity" };
+
+// Navbar trail for the experiences side: Experiences › <experience> › <section>.
 export function AppBreadcrumb() {
-  const home = useMatch({ from: "/_app/home", shouldThrow: false });
-  const experience = useMatch({ from: "/_app/e/$id/", shouldThrow: false });
-  const eventId = experience?.params.id as Id<"events"> | undefined;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const open = /^\/e\/([^/]+)(\/[a-z]+)?\/?$/.exec(pathname);
+  const eventId = open?.[1];
+  const section = open?.[2] ? SECTION_NAMES[open[2]] : undefined;
   const event = useQuery(api.events.get, eventId ? { eventId } : "skip");
 
-  if (!home && !experience) return null;
+  if (pathname !== "/home" && !eventId) return null;
+  const title = event === undefined ? "…" : event === null ? "Not found" : event.title;
 
   return (
     <Breadcrumb className="min-w-0">
       <BreadcrumbList className="flex-nowrap">
         <BreadcrumbItem>
-          {experience ? (
+          {eventId ? (
             <BreadcrumbLink asChild>
               <Link to="/home">Experiences</Link>
             </BreadcrumbLink>
@@ -32,13 +35,27 @@ export function AppBreadcrumb() {
             <BreadcrumbPage>Experiences</BreadcrumbPage>
           )}
         </BreadcrumbItem>
-        {experience && (
+        {eventId && (
           <>
             <BreadcrumbSeparator />
             <BreadcrumbItem className="min-w-0">
-              <BreadcrumbPage className="truncate">
-                {event === undefined ? "…" : event === null ? "Not found" : event.title}
-              </BreadcrumbPage>
+              {section ? (
+                <BreadcrumbLink asChild className="truncate">
+                  <Link to="/e/$id" params={{ id: eventId }}>
+                    {title}
+                  </Link>
+                </BreadcrumbLink>
+              ) : (
+                <BreadcrumbPage className="truncate">{title}</BreadcrumbPage>
+              )}
+            </BreadcrumbItem>
+          </>
+        )}
+        {section && (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{section}</BreadcrumbPage>
             </BreadcrumbItem>
           </>
         )}
