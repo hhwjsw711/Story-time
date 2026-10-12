@@ -16,6 +16,7 @@ import { deletePhotos } from "@/lib/actions";
 import { enrichMoment, plural } from "@/lib/add-moments";
 import { addPhotos } from "@/lib/add-photos";
 import { blocksForShelf, type ShelfItem } from "@/lib/command-shelf";
+import { commandTakesSlash, pageClaimsSlash } from "@/lib/command-keys";
 import { describeOp, placesToFind, withPins, type PlanOp } from "@/lib/command-plan";
 import { errorMessage } from "@/lib/errors";
 import { MEDIA_ACCEPT } from "@/lib/upload";
@@ -67,6 +68,18 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
   useEffect(() => {
     latestToken.current = token;
   }, [token]);
+  // Slash focuses the box only when moment search is not on the page. That
+  // search already uses /, and its listener runs first.
+  useEffect(() => {
+    if (!adding) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (!commandTakesSlash(event, pageClaimsSlash())) return;
+      event.preventDefault();
+      input.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [adding]);
   // Small previews of the first few attached files, let go of when they change.
   const [previews, setPreviews] = useState<Array<{ name: string; url: string | null }>>([]);
   useEffect(() => {
@@ -224,6 +237,7 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
           }}
           placeholder="What happened, or what should change?"
           aria-label="What happened, or what should change?"
+          title={moments !== undefined && moments.length > 0 ? undefined : "Press / to write here"}
           maxLength={MAX_COMMAND_CHARS}
           disabled={busy}
           className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
