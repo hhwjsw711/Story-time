@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- A link preview will not open a hostname that resolves to a private address. The connection is pinned to the addresses just checked, so a later DNS answer cannot move it. Trailing dots, short numeric hosts, and local names are refused before any fetch.
 - Pressing / focuses the box only when moment search is not on the page. Search keeps /.
 - The box can attach photos already in the trip. They are the ones you uploaded that are not on a moment yet, and they become one moment, with your words as the note.
 - Moments that never got a page get one when the journal is opened, and once a day if nobody opens it. A page taken out on purpose stays out.
