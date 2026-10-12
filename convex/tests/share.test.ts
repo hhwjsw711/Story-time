@@ -73,6 +73,35 @@ describe("share links", () => {
     expect(JSON.stringify(story)).not.toContain(ownerId);
   });
 
+  test("a link opens the book, one page at a time, and not another experience's page", async () => {
+    const { t, owner, eventId } = await setup();
+    await momentWithPhoto(owner, eventId);
+    await t.finishAllScheduledFunctions(() => undefined);
+    const { mediaId: shelf } = await owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime: "image/png" });
+    await owner.mutation(api.media.confirmUpload, { mediaId: shelf });
+    await owner.mutation(api.journal.keepSticker, { mediaId: shelf });
+    const token = tokenOf(await owner.mutation(api.share.enable, { eventId }));
+
+    const book = await t.query(api.share.journal, { token });
+    expect(book?.pages.map((p) => p.label)).toEqual(["Untitled experience", "Lisbon"]);
+    expect(book?.pages[0]).not.toHaveProperty("elements");
+    const momentPage = book?.pages[1];
+    const page = await t.query(api.share.page, { token, pageId: momentPage!._id });
+    expect(page?.elements.find((e) => e.kind === "note")?.text).toBe("Tram 28");
+    expect(page?.elements.some((e) => e.mediaId === shelf)).toBe(false);
+    const stored = await t.run((ctx) => ctx.db.query("journalPages").take(10));
+    expect(JSON.stringify(stored)).not.toContain("Tram 28");
+
+    const other = await owner.mutation(api.events.createDraft, {});
+    const foreign = await owner.mutation(api.journal.addPage, { eventId: other });
+    expect(await t.query(api.share.page, { token, pageId: foreign })).toBeNull();
+    expect(await t.query(api.share.journal, { token: "A".repeat(32) })).toBeNull();
+    expect(await t.query(api.share.page, { token: "A".repeat(32), pageId: momentPage!._id })).toBeNull();
+    await owner.mutation(api.share.disable, { eventId });
+    expect(await t.query(api.share.journal, { token })).toBeNull();
+    expect(await t.query(api.share.page, { token, pageId: momentPage!._id })).toBeNull();
+  });
+
   test("a shared story carries each moment's offset, so its times read where it happened", async () => {
     const { t, owner, eventId } = await setup();
     await owner.mutation(api.moments.create, {

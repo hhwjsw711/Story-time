@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- A share link opens the journal as a book (PR #41). Play still starts the film. A sticker's bytes come through the link only when a page shows that sticker.
 - A moment's page is cut on the server when the moment is saved, cover included (PR #40). A journal that already has 400 pages says so on that moment's row instead of promising a page.
 - Journal review fixes (PR #39): a full book no longer skips moments that never got a page, a locked page stays put, a share link only fetches a sticker that is on a page, and a sticker can leave the shelf once every page lets it go.
 - Deleting an experience also removes a connection token that was limited to it (PR #37). Account-wide tokens stay until A2. The 1,500 media ceiling is unchanged.

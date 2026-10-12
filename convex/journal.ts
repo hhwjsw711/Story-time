@@ -62,7 +62,7 @@ type ElementIn = Infer<typeof vElement>;
 const fromLayout = (elements: JournalElement[]): ElementIn[] =>
   elements.map((e) => ({ ...e, mediaId: e.mediaId as Id<"media"> | undefined, momentId: e.momentId as Id<"moments"> | undefined }));
 
-const vPageView = v.object({
+export const vPageView = v.object({
   _id: v.id("journalPages"),
   order: v.number(),
   paper: v.string(),
@@ -219,7 +219,7 @@ async function labelOf(event: Doc<"events">, page: Doc<"journalPages">) {
   return (await decryptText(event._id, text)).replace(/\s+/g, " ").trim().slice(0, 80);
 }
 
-const vOutlinePage = v.object({
+export const vOutlinePage = v.object({
   _id: v.id("journalPages"),
   order: v.number(),
   paper: v.string(),
@@ -244,19 +244,32 @@ export const outline = query({
     const journal = await journalOf(ctx, event._id);
     const canEdit = role === "owner" && event.status !== "archived";
     const pending = canEdit && !journal?.locked ? await pendingOf(ctx, event, journal) : 0;
-    const pages = await Promise.all(
-      (await pagesOf(ctx, event._id)).slice(0, MAX_JOURNAL_PAGES).map(async (page) => ({
-        _id: page._id,
-        order: page.order,
-        paper: page.paper,
-        locked: page.locked ?? false,
-        momentId: page.momentId,
-        label: await labelOf(event, page),
-      })),
-    );
-    return { canEdit, locked: journal?.locked ?? false, pending, pages };
+    return { canEdit, locked: journal?.locked ?? false, pending, pages: await contentsOf(ctx, event) };
   },
 });
+
+// The contents of a book: one short label per page, not every word. The share
+// link uses this too, after the token has already picked the experience.
+export async function contentsOf(ctx: QueryCtx, event: Doc<"events">) {
+  return Promise.all(
+    (await pagesOf(ctx, event._id)).slice(0, MAX_JOURNAL_PAGES).map(async (page) => ({
+      _id: page._id,
+      order: page.order,
+      paper: page.paper,
+      locked: page.locked ?? false,
+      momentId: page.momentId,
+      label: await labelOf(event, page),
+    })),
+  );
+}
+
+// One page of this experience, decrypted. Null when the page is missing or
+// belongs to another experience, so a share token cannot name its way in.
+export async function pageInEvent(ctx: QueryCtx, event: Doc<"events">, pageId: Id<"journalPages">) {
+  const row = await ctx.db.get("journalPages", pageId);
+  if (row === null || row.eventId !== event._id) return null;
+  return await viewPage(event, row);
+}
 
 // One page, decrypted. The open page, a neighbour, or a page being printed.
 export const page = query({
