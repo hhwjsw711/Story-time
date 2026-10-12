@@ -8,10 +8,33 @@ import { createMoment, type MomentCreate } from "./moments";
 // A made-up trip to Japan to look at the app with: ten days in spring from
 // Tokyo to Osaka, real places and where they are, how they got between them,
 // and the notes, moods and labels a person would write. No photos: those are
-// added the usual way. Dev only, from the command line:
-//   pnpm exec convex run seed:japan            (the newest account)
+// added the usual way. Dev only. The function runtime is not told dev from
+// prod (only CONVEX_CLOUD_URL and CONVEX_SITE_URL), so the dev deployment
+// must set the same name the CLI keeps in .env.local:
+//   pnpm exec convex env set CONVEX_DEPLOYMENT dev:<name>
 //   pnpm exec convex run seed:japan '{"userId": "..."}'
 // Each run makes a new experience; delete it like any other.
+
+const PROD_DEPLOYMENT = "strong-stoat-772";
+
+function readEnv(name: string): string | undefined {
+  const value = (process.env as Record<string, string | undefined>)[name];
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+// Refuses unless this is a dev deployment that said so, and not production
+// even if that variable was copied onto it.
+function assertDevDeployment(): void {
+  const site = readEnv("CONVEX_SITE_URL") ?? "";
+  const cloud = readEnv("CONVEX_CLOUD_URL") ?? "";
+  if (site.includes(PROD_DEPLOYMENT) || cloud.includes(PROD_DEPLOYMENT)) {
+    throw new Error("seed:japan does not run on the production deployment.");
+  }
+  const deployment = readEnv("CONVEX_DEPLOYMENT");
+  if (deployment === undefined || !deployment.startsWith("dev:")) {
+    throw new Error("seed:japan only runs on a dev deployment. Set CONVEX_DEPLOYMENT to dev:<name> there, and pass userId.");
+  }
+}
 
 // Japan is UTC+9 all year.
 const JST = 9 * 60;
@@ -205,11 +228,12 @@ const TRIP: Moment[] = [
 ];
 
 export const japan = internalMutation({
-  args: { userId: v.optional(v.id("users")) },
+  args: { userId: v.id("users") },
   returns: v.id("events"),
   handler: async (ctx, args): Promise<Id<"events">> => {
-    const user = args.userId === undefined ? await ctx.db.query("users").order("desc").first() : await ctx.db.get("users", args.userId);
-    if (user === null) throw new Error("No account to give the trip to. Sign in once, or pass a userId.");
+    assertDevDeployment();
+    const user = await ctx.db.get("users", args.userId);
+    if (user === null) throw new Error("That account does not exist. Pass the userId of someone who has signed in on this dev deployment.");
     const title = "Spring in Japan";
     const eventId = await ctx.db.insert("events", {
       ownerId: user._id,

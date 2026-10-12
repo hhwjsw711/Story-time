@@ -142,6 +142,12 @@ describe("laying out pages", () => {
     // Saved at local midnight in UTC+3 and in UTC−5: the same calendar days.
     expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 21), endsAt: Date.UTC(2025, 3, 9, 21) })).toBe("1 Apr – 10 Apr 2025");
     expect(tripDates({ startsAt: Date.UTC(2025, 3, 1, 5), endsAt: Date.UTC(2025, 3, 10, 5) })).toBe("1 Apr – 10 Apr 2025");
+    // Local midnight in UTC+13 and just east of UTC+12 (Chatham, UTC+12:45).
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 11), endsAt: Date.UTC(2025, 3, 9, 11) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 11, 15), endsAt: Date.UTC(2025, 3, 9, 11, 15) })).toBe("1 Apr – 10 Apr 2025");
+    // Hawaii, UTC−10, keeps the day it picked. UTC+12 still rounds onto that day.
+    expect(tripDates({ startsAt: Date.UTC(2025, 3, 1, 10), endsAt: Date.UTC(2025, 3, 10, 10) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 12), endsAt: Date.UTC(2025, 3, 9, 12) })).toBe("1 Apr – 10 Apr 2025");
     expect(tripDates({})).toBeUndefined();
   });
 

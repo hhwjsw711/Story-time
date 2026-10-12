@@ -167,11 +167,19 @@ export function rangeLabel(from: number, to: number): string {
 type Dated = { startsAt: number; tzOffsetMinutes?: number };
 
 // The cover's date line. A trip's own start and end are calendar days the
-// app saved as the person's local midnight: the nearest UTC midnight is that
-// day for anyone from UTC−11 to UTC+11. A moment's day is the day where it
+// app saved as the person's local midnight. That instant sits up to 13 hours
+// before the UTC midnight of the day they picked (UTC+13, and Chatham at
+// UTC+12:45), so the day is the UTC midnight within 13 hours after it.
+// Hawaii (UTC−10) stays on its own day. A moment's day is the day where it
 // happened, in its own zone.
 export function tripDates(trip: { startsAt?: number; endsAt?: number }, first?: Dated, last?: Dated): string | undefined {
-  const tripDay = (ms: number) => Math.round(ms / 86_400_000) * 86_400_000;
+  const day = 86_400_000;
+  const thirteenHours = 13 * 3_600_000;
+  const tripDay = (ms: number) => {
+    const utcMidnight = Math.floor(ms / day) * day;
+    const next = utcMidnight + day;
+    return next - ms <= thirteenHours ? next : utcMidnight;
+  };
   const momentDay = (m: Dated) => m.startsAt + (m.tzOffsetMinutes ?? 0) * 60_000;
   const from = trip.startsAt !== undefined ? tripDay(trip.startsAt) : first && momentDay(first);
   if (from === undefined) return undefined;
