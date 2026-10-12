@@ -105,6 +105,8 @@ export const vChangeEntity = v.union(
   v.literal("invite"),
   v.literal("quota"),
   v.literal("user"),
+  v.literal("page"),
+  v.literal("guestNote"),
 );
 
 export const vChangeAction = v.union(
@@ -305,6 +307,20 @@ export default defineSchema({
   })
     .index("by_event_and_at", ["eventId", "at"])
     .index("by_entity", ["entity", "entityId", "at"]),
+
+  // When the owner last opened Activity, so the badge can count what is newer.
+  activityReads: defineTable({
+    userId: v.id("users"),
+    eventId: v.id("events"),
+    readAt: v.number(),
+  }).index("by_user_and_event", ["userId", "eventId"]),
+
+  // A short note from someone who was invited. The words sit under the event key.
+  guestNotes: defineTable({
+    eventId: v.id("events"),
+    authorId: v.id("users"),
+    text: vEncrypted,
+  }).index("by_event", ["eventId"]),
 
   // The journal of an experience: a book of A4 pages. `filledAt` is how far
   // the moments have been given pages, so a page taken out isn't made again.

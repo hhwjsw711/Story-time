@@ -22,6 +22,7 @@ import type * as auth from "../auth.js";
 import type * as changes from "../changes.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
+import type * as guestNotes from "../guestNotes.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as journal from "../journal.js";
@@ -66,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   changes: typeof changes;
   crons: typeof crons;
   events: typeof events;
+  guestNotes: typeof guestNotes;
   http: typeof http;
   invites: typeof invites;
   journal: typeof journal;

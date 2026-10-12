@@ -524,6 +524,8 @@ describe("the zone a moment happened in", () => {
       tzOffsetMinutes: 0,
       blocks: [{ type: "note", text: "Fushimi Inari" }],
     });
+    // Pages are cut after the moment, and each one is its own activity row.
+    await t.finishAllScheduledFunctions(() => undefined);
     const logBefore = (await t.run((ctx) => ctx.db.query("changes").take(500))).length;
     expect(dayOf((await owner.query(api.moments.list, { eventId }))[0]!)).toBe("2025-11-08");
 

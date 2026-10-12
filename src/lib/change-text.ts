@@ -45,6 +45,10 @@ export function describeChange(c: { entity: string; action: string; fields: stri
   switch (`${entity}.${action}`) {
     case "moment.create":
       return "Added a moment";
+    case "page.create":
+      return "Added a page";
+    case "guestNote.create":
+      return "Left a note in the guestbook";
     case "moment.update":
       return edited("a moment");
     case "moment.delete":

@@ -81,6 +81,13 @@ describe("more moments", () => {
   });
 });
 
+describe("pages and guestbook notes", () => {
+  test("read as their own sentences", () => {
+    expect(change("page", "create", ["order"])).toBe("Added a page");
+    expect(change("guestNote", "create", ["text"])).toBe("Left a note in the guestbook");
+  });
+});
+
 describe("anything else", () => {
   test("falls back to the action and the entity, capitalised", () => {
     expect(change("invite", "expire")).toBe("Expire invite");

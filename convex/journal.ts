@@ -6,6 +6,7 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { internal } from "./_generated/api";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { invalid } from "./lib/blocks";
+import { recordChange } from "./lib/changes";
 import { decryptText, encryptText } from "./lib/crypto";
 import {
   catchUpElements,
@@ -349,6 +350,30 @@ export const get = query({
 // (the cover and a handful of moments); the rest is scheduled.
 const PAGE_BATCH = 20;
 
+async function insertPage(
+  ctx: MutationCtx,
+  eventId: Id<"events">,
+  page: {
+    order: number;
+    paper: string;
+    elements: Doc<"journalPages">["elements"];
+    momentId?: Id<"moments">;
+    builtFrom?: number;
+  },
+  actorId?: Id<"users">,
+) {
+  const pageId = await ctx.db.insert("journalPages", { eventId, ...page });
+  await recordChange(ctx, {
+    eventId,
+    entity: "page",
+    entityId: pageId,
+    actorId,
+    action: "create",
+    fields: ["order"],
+  });
+  return pageId;
+}
+
 // Pages for moments made since `filledAt`, and the cover when the journal is
 // new. One batch per call. `more` means another batch should run: the book
 // still has room and a moment is still waiting. A locked journal changes
@@ -382,8 +407,7 @@ async function makePageBatch(ctx: MutationCtx, event: Doc<"events">): Promise<{ 
       dates: from === undefined ? undefined : rangeLabel(from, to ?? from),
       photo: photo?.type === "photo" ? photo.mediaId : undefined,
     });
-    await ctx.db.insert("journalPages", {
-      eventId: event._id,
+    await insertPage(ctx, event._id, {
       order: 0,
       paper: cover.paper,
       elements: await encodeElements(ctx, event, fromLayout(cover.elements)),
@@ -409,8 +433,7 @@ async function makePageBatch(ctx: MutationCtx, event: Doc<"events">): Promise<{ 
       }
       const moment = await viewMoment(ctx, event, row);
       const spec = momentPage({ ...moment, stops: moment.stops }, rows.indexOf(row));
-      await ctx.db.insert("journalPages", {
-        eventId: event._id,
+      await insertPage(ctx, event._id, {
         order: row.startsAt,
         paper: spec.paper,
         momentId: row._id,
@@ -693,7 +716,7 @@ export const addPage = mutation({
   },
   returns: v.id("journalPages"),
   handler: async (ctx, args) => {
-    const { event } = await requireEventAccess(ctx, args.eventId, "owner");
+    const { userId, event } = await requireEventAccess(ctx, args.eventId, "owner");
     assertNotArchived(event);
     if ((await journalOf(ctx, event._id))?.locked) throw new ConvexError({ code: "LOCKED", message: "This journal is locked. Unlock it to change it." });
     if (args.paper !== undefined && !PAPER_SET.has(args.paper)) invalid("paper", "That paper doesn't exist.");
@@ -702,7 +725,7 @@ export const addPage = mutation({
     const at = args.after === undefined ? pages.length - 1 : pages.findIndex((p) => p._id === args.after);
     const order = between(pages[at]?.order, pages[at + 1]?.order);
     const elements = args.elements === undefined ? [] : await encodeElements(ctx, event, args.elements);
-    return ctx.db.insert("journalPages", { eventId: event._id, order, paper: args.paper ?? "cream", elements });
+    return await insertPage(ctx, event._id, { order, paper: args.paper ?? "cream", elements }, userId);
   },
 });
 
@@ -759,7 +782,7 @@ export const importPages = mutation({
   args: { eventId: v.id("events"), pages: v.array(v.object({ paper: v.string(), elements: v.array(vElement) })) },
   returns: v.number(),
   handler: async (ctx, args) => {
-    const { event } = await requireEventAccess(ctx, args.eventId, "owner");
+    const { userId, event } = await requireEventAccess(ctx, args.eventId, "owner");
     assertNotArchived(event);
     if ((await journalOf(ctx, event._id))?.locked) throw new ConvexError({ code: "LOCKED", message: "This journal is locked. Unlock it to change it." });
     const pages = await pagesOf(ctx, event._id);
@@ -769,12 +792,16 @@ export const importPages = mutation({
     let order = pages.at(-1)?.order ?? 0;
     for (const p of args.pages) {
       order += 60_000;
-      await ctx.db.insert("journalPages", {
-        eventId: event._id,
-        order,
-        paper: PAPER_SET.has(p.paper) ? p.paper : "cream",
-        elements: await encodeElements(ctx, event, p.elements.slice(0, MAX_PAGE_ELEMENTS), true),
-      });
+      await insertPage(
+        ctx,
+        event._id,
+        {
+          order,
+          paper: PAPER_SET.has(p.paper) ? p.paper : "cream",
+          elements: await encodeElements(ctx, event, p.elements.slice(0, MAX_PAGE_ELEMENTS), true),
+        },
+        userId,
+      );
     }
     return args.pages.length;
   },

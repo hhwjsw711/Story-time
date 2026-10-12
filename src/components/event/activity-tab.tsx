@@ -1,7 +1,7 @@
-import { usePaginatedQuery } from "convex/react";
+import { useMutation, usePaginatedQuery } from "convex/react";
 import { format, formatDistanceToNow, isThisYear, isToday, isYesterday } from "date-fns";
 import { BotIcon, CogIcon, UserRoundIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { ActorBadge } from "@/components/event/actor-badge";
@@ -48,6 +48,11 @@ export function ActivityTab({ eventId, meId }: { eventId: Id<"events">; meId?: s
     { initialNumItems: 25 },
   );
   const [filter, setFilter] = useState<Filter>("everyone");
+  const markRead = useMutation(api.changes.markRead);
+  // Opening the list is looking at it. A later moment, page or note counts again.
+  useEffect(() => {
+    void markRead({ eventId });
+  }, [eventId, markRead, results.length]);
   if (status === "LoadingFirstPage") return <Skeleton className="mx-auto h-48 w-full max-w-3xl" />;
 
   if (results.length === 0) {

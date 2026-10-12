@@ -13,6 +13,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
@@ -34,6 +35,10 @@ export function AppSidebar() {
   const eventId = open?.[1];
   const section = open?.[2] ?? "";
   const event = useQuery(api.events.get, eventId ? { eventId } : "skip");
+  const unread = useQuery(
+    api.changes.unreadCount,
+    eventId && event?.role === "owner" ? { eventId } : "skip",
+  );
 
   return (
     <Sidebar collapsible="icon">
@@ -77,6 +82,9 @@ export function AppSidebar() {
                       <span>{s.label}</span>
                     </Link>
                   </SidebarMenuButton>
+                  {s.path === "/activity" && unread !== undefined && unread > 0 && (
+                    <SidebarMenuBadge aria-label={`${unread} new`}>{unread > 99 ? "99+" : unread}</SidebarMenuBadge>
+                  )}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
