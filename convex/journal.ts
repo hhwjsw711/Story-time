@@ -432,16 +432,16 @@ export const unpaged = query({
   }),
   handler: async (ctx, args) => {
     const { event } = await requireEventAccess(ctx, args.eventId, "viewer");
-    if ((await pagesOf(ctx, event._id)).length < MAX_JOURNAL_PAGES) return { full: false, momentIds: [] };
     const journal = await journalOf(ctx, event._id);
     const moments = await ctx.db
       .query("moments")
       .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
       .take(momentsToRead(event.momentCount));
-    return {
-      full: true,
-      momentIds: moments.filter((m) => journal?.filledAt === undefined || m._creationTime > journal.filledAt).map((m) => m._id),
-    };
+    const waiting = moments.filter((m) => journal?.filledAt === undefined || m._creationTime > journal.filledAt);
+    // Nothing waiting is the usual case: then the pages, which change on every
+    // save in the journal, are never read and this list doesn't re-run with them.
+    if (waiting.length === 0 || (await pagesOf(ctx, event._id)).length < MAX_JOURNAL_PAGES) return { full: false, momentIds: [] };
+    return { full: true, momentIds: waiting.map((m) => m._id) };
   },
 });
 
