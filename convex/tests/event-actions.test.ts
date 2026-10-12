@@ -106,6 +106,36 @@ describe("events.remove", () => {
     expect(left).toEqual([0, 0, 0, 0]);
   });
 
+  test("a token limited to the experience goes with it; an account-wide token stays", async () => {
+    const { t, owner, ownerId, eventId } = await setup();
+    const [scoped, account] = await t.run(async (ctx) => {
+      const scoped = await ctx.db.insert("agentTokens", {
+        userId: ownerId,
+        name: "Claude Desktop",
+        tokenKey: "scoped-key",
+        prefix: "scop",
+        eventId,
+        createdAt: 1,
+      });
+      const account = await ctx.db.insert("agentTokens", {
+        userId: ownerId,
+        name: "Claude Desktop",
+        tokenKey: "account-key",
+        prefix: "acco",
+        createdAt: 2,
+      });
+      return [scoped, account];
+    });
+    await owner.mutation(api.events.remove, { eventId });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await t.run(async (ctx) => ({
+      scoped: await ctx.db.get("agentTokens", scoped),
+      account: await ctx.db.get("agentTokens", account),
+    }));
+    expect(left.scoped).toBeNull();
+    expect(left.account?._id).toBe(account);
+  });
+
   test("a large activity log is deleted in batches", async () => {
     const { t, owner, ownerId, eventId } = await setup();
     await t.run(async (ctx) => {
