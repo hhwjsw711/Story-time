@@ -1,5 +1,8 @@
 // Moments an experience holds. One number, the same for everyone.
 export const MOMENT_LIMIT = 300;
+// How many moments to read for an experience: all of them. One given more
+// room before there was one limit can hold more than MOMENT_LIMIT (up to 500).
+export const momentsToRead = (momentCount: number) => Math.max(MOMENT_LIMIT, momentCount);
 // Photos and videos an experience holds live (reserved or ready).
 export const MAX_MEDIA_PER_EVENT = MOMENT_LIMIT * 5;
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
