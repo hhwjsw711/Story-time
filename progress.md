@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- Journal review fixes (PR #39): a full book no longer skips moments that never got a page, a locked page stays put, a share link only fetches a sticker that is on a page, and a sticker can leave the shelf once every page lets it go.
 - Deleting an experience also removes a connection token that was limited to it (PR #37). Account-wide tokens stay until A2. The 1,500 media ceiling is unchanged.
 - **#34 and #35 merged** to master (not deployed yet). The local `story-time` MCP connector is removed. The next features are planned in `tasks.md`.
 - **Moments page shows the journal (PR #35).** On a wide screen the space beside the list shows the picked moment's journal page, or the cover, with Play from here, Edit and Open in the journal (which opens on that page). On a phone a row still opens the editor or the story. The header lines up with the content.

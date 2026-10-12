@@ -1,5 +1,5 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -37,6 +37,8 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useSidebar } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
+import { deletePhotos } from "@/lib/actions";
+import { dayKey } from "@/lib/photo-groups";
 import { uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { newId, placed, type NewThing } from "./add";
@@ -44,7 +46,7 @@ import { StickerCutter } from "./cutter";
 import { PageEditor, writable } from "./editor";
 import { pathThrough, readDrawing, writeDrawing } from "./elements";
 import type { Idea } from "./ideas";
-import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile } from "./export";
+import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile, waitForPage } from "./export";
 import { DRAW_NAMES, DRAW_WIDTH, FONTS, GRAIN, INKS, paperLook } from "./look";
 import { JournalMenu, type Layer } from "./menu";
 import { JournalPage, type PageData } from "./page";
@@ -90,7 +92,9 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isConte
 // Read turns it into a book; the menu prints it, saves it as a file, or brings
 // one back.
 export function JournalBook({ event, momentId }: { event: EventView; momentId?: string }) {
-  const journal = useJournal(event._id);
+  const [index, setIndex] = useState(0);
+  const journal = useJournal(event._id, index);
+  const convex = useConvex();
   const moments = useQuery(api.moments.list, { eventId: event._id });
   const stickers = useQuery(api.journal.stickers, { eventId: event._id }) ?? [];
   const momentById = useMemo(() => new Map<string, MomentView>((moments ?? []).map((m) => [m._id, m])), [moments]);
@@ -114,15 +118,19 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
     // Once, when the journal opens.
   }, []);
 
-  const [index, setIndex] = useState(0);
-  // Asked for a moment's page: open on it once the pages are in.
+  // Asked for a moment's page: open on it once that page exists. An empty list
+  // while the book is still loading is not "there is no page".
   const opened = useRef(false);
   useEffect(() => {
-    if (opened.current || !momentId || !journal.pages) return;
-    opened.current = true;
+    if (opened.current || !momentId || !journal.ready) return;
     const at = journal.pages.findIndex((p) => p.momentId === momentId);
-    if (at >= 0) setIndex(at);
-  }, [momentId, journal.pages]);
+    if (at >= 0) {
+      opened.current = true;
+      setIndex(at);
+      return;
+    }
+    if (journal.pending === 0) opened.current = true;
+  }, [momentId, journal.ready, journal.pages, journal.pending]);
   const [selected, setSelected] = useState<string | null>(null);
   const [writing, setWriting] = useState<string | null>(null);
   // Read or make: owners make by default, everyone else reads.
@@ -133,13 +141,15 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
   const [removing, setRemoving] = useState<PageId | null>(null);
   // The panel as a sheet, on a phone.
   const [sheet, setSheet] = useState(false);
-  const [printing, setPrinting] = useState<{ index: number; done: number } | null>(null);
+  const [printing, setPrinting] = useState<{ done: number; total: number } | null>(null);
+  const [sheetPage, setSheetPage] = useState<PageData | null>(null);
   const importer = useRef<HTMLInputElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   // Where pictures picked from the device go: where the page was right-clicked, or the middle.
   const pickAt = useRef<{ x: number; y: number } | undefined>(undefined);
   const token = useAuthToken();
   const keepPicture = useMutation(api.journal.keepSticker);
+  const dropSticker = useMutation(api.journal.dropSticker);
   const previewLink = useAction(api.journal.linkPreview);
   // The pen, when drawing: what draws and in which ink. Strokes drawn in one go
   // gather into one drawing (`session`) until the pen is put down.
@@ -150,8 +160,9 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
     session.current = null;
   };
 
-  const pages = journal.pages as PageData[];
-  const page = pages[Math.min(index, pages.length - 1)];
+  const pages = journal.pages;
+  const summary = pages[Math.min(index, Math.max(0, pages.length - 1))];
+  const page = journal.open && summary && journal.open._id === summary._id ? (journal.open as PageData) : undefined;
   const editable = journal.canEdit && page !== undefined && !page.locked && !reading;
   const chosen = page?.elements.find((e) => e.id === selected);
 
@@ -447,45 +458,57 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
   // ---- Paper out ----------------------------------------------------------------
 
   const offstage = useRef<HTMLDivElement>(null);
-  async function printPdf() {
-    if (pages.length === 0) return;
-    setPrinting({ index: 0, done: 0 });
+  // Pages that share the open page's day. A page with no moment exports alone.
+  function pagesForDay(): PageId[] {
+    if (!summary) return [];
+    const moment = summary.momentId ? momentById.get(summary.momentId) : undefined;
+    if (!moment) return [summary._id as PageId];
+    const key = dayKey(moment.startsAt, moment.tzOffsetMinutes);
+    return pages.flatMap((p) => {
+      const onDay = p.momentId ? momentById.get(p.momentId) : undefined;
+      return onDay && dayKey(onDay.startsAt, onDay.tzOffsetMinutes) === key ? [p._id as PageId] : [];
+    });
+  }
+  async function drawPage(pageId: PageId) {
+    const loaded = await convex.query(api.journal.page, { pageId });
+    if (!loaded) throw new Error("The page couldn't be drawn.");
+    setSheetPage(loaded as PageData);
+    const node = await waitForPage(offstage.current, loaded._id);
+    return { node, hasMap: false, paper: paperLook(loaded.paper).color };
+  }
+  async function printPdf(ids: PageId[], done: string) {
+    if (ids.length === 0) return;
+    setPrinting({ done: 0, total: ids.length });
     try {
       const blob = await journalPdf(
-        pages.length,
+        ids.length,
         async (i) => {
-          setPrinting({ index: i, done: i });
-          // Drawn on the next frame, at full size, out of sight.
-          await new Promise((r) => setTimeout(r, 120));
-          const node = offstage.current?.querySelector<HTMLElement>("[data-journal-page]");
-          if (!node) throw new Error("The page couldn't be drawn.");
-          return { node, hasMap: pages[i]!.elements.some((e) => e.kind === "map"), paper: paperLook(pages[i]!.paper).color };
+          setPrinting({ done: i, total: ids.length });
+          return drawPage(ids[i]!);
         },
-        (done) => setPrinting((p) => (p ? { ...p, done } : p)),
+        (n) => setPrinting({ done: n, total: ids.length }),
       );
       download(blob, `${fileName(event.title)}.pdf`);
-      toast.success("Your journal is ready");
+      toast.success(done);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
       setPrinting(null);
+      setSheetPage(null);
     }
   }
   async function printPage() {
     if (!page) return;
-    setPrinting({ index, done: 0 });
+    setPrinting({ done: 0, total: 1 });
     try {
-      await new Promise((r) => setTimeout(r, 120));
-      const node = offstage.current?.querySelector<HTMLElement>("[data-journal-page]");
-      if (!node) throw new Error("The page couldn't be drawn.");
-      download(
-        await pagePng({ node, hasMap: page.elements.some((e) => e.kind === "map"), paper: paperLook(page.paper).color }),
-        `${fileName(event.title)}-page-${index + 1}.png`,
-      );
+      setSheetPage(page);
+      const node = await waitForPage(offstage.current, page._id);
+      download(await pagePng({ node, hasMap: false, paper: paperLook(page.paper).color }), `${fileName(event.title)}-page-${index + 1}.png`);
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
       setPrinting(null);
+      setSheetPage(null);
     }
   }
   async function bringBack(file: File | undefined) {
@@ -519,7 +542,18 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
     );
   }
 
-  const pageId = page!._id as PageId;
+  if (!page || !summary) {
+    return <div className="grid h-[calc(100svh-12rem)] place-items-center text-stone-500">Turning the page…</div>;
+  }
+  const pageId = page._id as PageId;
+  const removeSticker = async (id: string) => {
+    try {
+      await dropSticker({ mediaId: id as Id<"media"> });
+      if (token) await deletePhotos([id], token);
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const at = Math.min(index, pages.length - 1);
 
   // What to add, or what to do with the picked thing: the right column on a
@@ -553,6 +587,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
       }}
       onPaper={(paper) => change(page!.elements, paper)}
       onCut={() => setCutting({ open: true })}
+      onRemoveSticker={(id) => void removeSticker(id)}
       onIdea={(idea) => void addIdea(idea)}
       onUpload={() => {
         pickAt.current = undefined;
@@ -676,18 +711,31 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline" disabled={printing !== null}>
-                <DownloadIcon aria-hidden /> {printing ? `Printing ${printing.done}/${pages.length}…` : "Export"}
+                <DownloadIcon aria-hidden /> {printing ? `Printing ${printing.done}/${printing.total}…` : "Export"}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-60">
-              <DropdownMenuItem onSelect={() => void printPdf()}>
-                <FileDownIcon /> The journal as an A4 PDF
+              <DropdownMenuItem onSelect={() => void printPdf([pageId], "This page is ready")}>
+                <FileDownIcon /> This page as a PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void printPdf(pagesForDay(), "This day is ready")}>
+                <FileDownIcon /> This day as a PDF ({pagesForDay().length} {pagesForDay().length === 1 ? "page" : "pages"})
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void printPdf(pages.map((p) => p._id as PageId), "Your journal is ready")}>
+                <FileDownIcon /> The whole journal as a PDF ({pages.length} {pages.length === 1 ? "page" : "pages"})
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void printPage()}>
                 <ImageDownIcon /> This page as a picture
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => download(journalFile(event.title, pages), `${fileName(event.title)}.journal.json`)}>
+              <DropdownMenuItem
+                onSelect={() =>
+                  void convex.query(api.journal.get, { eventId: event._id }).then(
+                    (book) => download(journalFile(event.title, book.pages), `${fileName(event.title)}.journal.json`),
+                    (e: unknown) => toast.error(errorMessage(e)),
+                  )
+                }
+              >
                 <DownloadIcon /> Save a journal file
               </DropdownMenuItem>
               {journal.canEdit && (
@@ -739,7 +787,12 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
                     i === at ? "ring-2 ring-[#c4552f]" : "ring-1 ring-stone-300",
                   )}
                 >
-                  <JournalPage page={p} moments={momentById} scale={88 / PAGE.w} live={false} />
+                  <span
+                    className="block h-[7.5rem] overflow-hidden px-1.5 py-2 text-left text-[11px] leading-snug text-stone-700"
+                    style={{ background: paperLook(p.paper).color, fontFamily: FONTS.hand }}
+                  >
+                    {p.label || (i === 0 ? "Cover" : `Page ${i}`)}
+                  </span>
                 </button>
                 <div className="mt-0.5 flex items-center justify-between text-[11px] text-stone-600">
                   <span style={{ fontFamily: FONTS.typewriter }}>{i === 0 ? "cover" : i}</span>
@@ -929,10 +982,10 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
         }}
       />
       {/* Pages drawn at full size, out of sight, for printing. */}
-      {printing !== null &&
+      {sheetPage !== null &&
         createPortal(
           <div ref={offstage} aria-hidden className="pointer-events-none fixed top-0 -left-[3000px]">
-            <JournalPage page={pages[printing.index]!} moments={momentById} scale={1} />
+            <JournalPage page={sheetPage} moments={momentById} scale={1} print pageKey={sheetPage._id} />
           </div>,
           document.body,
         )}

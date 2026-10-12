@@ -96,8 +96,12 @@ export function StickerCutter({
   onMade: (mediaId: string) => void;
 }) {
   const [photo, setPhoto] = useState<string | undefined>(start);
+  const [point, setPoint] = useState({ x: 0.5, y: 0.5 });
   useEffect(() => {
-    if (open) setPhoto(start ?? photos[0]);
+    if (open) {
+      setPhoto(start ?? photos[0]);
+      setPoint({ x: 0.5, y: 0.5 });
+    }
   }, [open, start, photos]);
   const { url } = useMediaUrl(photo);
   const img = useRef<HTMLImageElement>(null);
@@ -122,21 +126,19 @@ export function StickerCutter({
       });
   }, [open]);
 
-  async function tap(ev: React.PointerEvent<HTMLImageElement>) {
+  async function cutAt(at: { x: number; y: number }) {
     const el = img.current;
     if (!el || phase !== "idle") return;
-    const r = el.getBoundingClientRect();
-    const point = { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height };
     setPhase("cutting");
     try {
       const seg = await segmenter();
       const blob = await new Promise<Blob>((resolve, reject) => {
-        seg.segment(el, { keypoint: point }, (result) => {
+        seg.segment(el, { keypoint: at }, (result) => {
           const masks = result.confidenceMasks ?? [];
           // The mask that is sure of the tapped spot is the thing; the other is the rest.
           const pick = masks
             .map((m) => ({ m, data: m.getAsFloat32Array() }))
-            .sort((a, b) => valueAt(b.data, b.m.width, b.m.height, point) - valueAt(a.data, a.m.width, a.m.height, point))[0];
+            .sort((a, b) => valueAt(b.data, b.m.width, b.m.height, at) - valueAt(a.data, a.m.width, a.m.height, at))[0];
           if (!pick) return reject(new Error("Nothing was picked there."));
           cutOut(el, pick.data, pick.m.width, pick.m.height).then(resolve, reject);
         });
@@ -147,6 +149,35 @@ export function StickerCutter({
       toast.error(errorMessage(e));
     } finally {
       setPhase("idle");
+    }
+  }
+
+  function tap(ev: React.PointerEvent<HTMLImageElement>) {
+    const el = img.current;
+    if (!el || phase !== "idle") return;
+    const r = el.getBoundingClientRect();
+    const at = { x: clamp((ev.clientX - r.left) / r.width), y: clamp((ev.clientY - r.top) / r.height) };
+    setPoint(at);
+    void cutAt(at);
+  }
+
+  function nudge(ev: React.KeyboardEvent<HTMLImageElement>) {
+    const step = ev.shiftKey ? 0.08 : 0.02;
+    const move: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    const dir = move[ev.key];
+    if (dir) {
+      ev.preventDefault();
+      setPoint((p) => ({ x: clamp(p.x + dir[0]), y: clamp(p.y + dir[1]) }));
+      return;
+    }
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      void cutAt(point);
     }
   }
 
@@ -172,19 +203,30 @@ export function StickerCutter({
       <DialogContent className="paper-scope max-w-2xl bg-[#f6efe0] text-[#1f1a16]">
         <DialogHeader>
           <DialogTitle style={{ fontFamily: FONTS.hand, fontSize: 30, fontWeight: 400 }}>Cut out a sticker</DialogTitle>
-          <DialogDescription>Tap the thing you want to keep. It is cut out here, on your device.</DialogDescription>
+          <DialogDescription>
+            Tap the thing you want to keep, or move the point with the arrow keys and press Enter. The scissors are a large download the first time, about 13 MB. The photo stays on this device until you keep the sticker.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-[1fr_12rem]">
           <div className="relative grid min-h-64 place-items-center overflow-hidden rounded-lg bg-[#e6dcc6]">
             {url ? (
-              <img
-                ref={img}
-                src={url}
-                alt="Tap what to cut out"
-                onPointerDown={(ev) => void tap(ev)}
-                className={cn("max-h-[50vh] w-auto cursor-crosshair select-none", phase !== "idle" && "opacity-60")}
-                draggable={false}
-              />
+              <span className="relative inline-grid">
+                <img
+                  ref={img}
+                  src={url}
+                  alt="Photo to cut. Arrow keys move the point, Enter cuts there."
+                  tabIndex={0}
+                  onPointerDown={tap}
+                  onKeyDown={nudge}
+                  className={cn("max-h-[50vh] w-auto cursor-crosshair select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c4552f]", phase !== "idle" && "opacity-60")}
+                  draggable={false}
+                />
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#c4552f] bg-white/40"
+                  style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+                />
+              </span>
             ) : (
               <span className="animate-pulse text-sm text-stone-500">Loading the photo…</span>
             )}
@@ -244,6 +286,8 @@ function ThumbOf({ id }: { id: string }) {
   const { url } = useMediaUrl(id);
   return url ? <img src={url} alt="" className="size-full object-cover" /> : <span className="block size-full animate-pulse bg-stone-200" />;
 }
+
+const clamp = (n: number) => Math.min(0.98, Math.max(0.02, n));
 
 const valueAt = (data: Float32Array, w: number, h: number, p: { x: number; y: number }) =>
   data[Math.min(h - 1, Math.floor(p.y * h)) * w + Math.min(w - 1, Math.floor(p.x * w))] ?? 0;

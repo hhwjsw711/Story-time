@@ -1,10 +1,21 @@
+import { useQuery } from "convex/react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { PAGE } from "../../../convex/lib/journal";
 import type { MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { FONTS } from "./look";
-import { JournalPage, type PageData } from "./page";
+import { JournalPage } from "./page";
+
+function SpreadPage({ pageId, moments, scale }: { pageId: string; moments: ReadonlyMap<string, MomentView>; scale: number }) {
+  const page = useQuery(api.journal.page, { pageId: pageId as Id<"journalPages"> });
+  if (page === undefined || page === null) {
+    return <div className="animate-pulse bg-[#efe6d2]" style={{ width: PAGE.w * scale, height: PAGE.h * scale }} />;
+  }
+  return <JournalPage page={page} moments={moments} scale={scale} reading />;
+}
 
 // Reading the journal like a book: the cover alone, then two pages at a time
 // (one on a phone), turned with the arrows, the keyboard or a swipe.
@@ -15,7 +26,7 @@ export function Reader({
   start,
   onPage,
 }: {
-  pages: PageData[];
+  pages: Array<{ _id: string }>;
   moments: ReadonlyMap<string, MomentView>;
   size: { w: number; h: number };
   start: number;
@@ -66,7 +77,7 @@ export function Reader({
           {pair && shown.length === 1 && at > 0 && <div style={{ width: PAGE.w * scale, height: PAGE.h * scale }} className="bg-[#efe6d2]" />}
           {shown.map((i, k) => (
             <div key={pages[i]!._id} className="relative">
-              <JournalPage page={pages[i]!} moments={moments} scale={scale} reading />
+              <SpreadPage pageId={pages[i]!._id} moments={moments} scale={scale} />
               {/* The fold down the middle of a spread. */}
               {pair && shown.length === 2 && (
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 w-10" style={{ [k === 0 ? "right" : "left"]: 0, background: `linear-gradient(${k === 0 ? "to left" : "to right"}, rgba(60,40,15,.28), transparent)` }} />

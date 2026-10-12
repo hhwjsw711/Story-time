@@ -76,6 +76,7 @@ export function AddTray({
   onAdd,
   onPaper,
   onCut,
+  onRemoveSticker,
   onIdea,
   onUpload,
   onLink,
@@ -87,6 +88,7 @@ export function AddTray({
   onAdd: (thing: NewThing) => void;
   onPaper: (paper: string) => void;
   onCut: () => void;
+  onRemoveSticker: (mediaId: string) => void;
   onIdea: (idea: Idea) => void;
   onUpload: () => void;
   onLink: (url: string) => void;
@@ -155,7 +157,7 @@ export function AddTray({
         {stickers.length > 0 && (
           <ul className="grid grid-cols-3 gap-1.5 pt-1">
             {stickers.map((id) => (
-              <li key={id}>
+              <li key={id} className="group relative">
                 <button
                   type="button"
                   aria-label="Put this sticker on the page"
@@ -165,6 +167,15 @@ export function AddTray({
                   <span className="size-full" style={{ filter: "drop-shadow(1.5px 0 0 #fff) drop-shadow(-1.5px 0 0 #fff) drop-shadow(0 1.5px 0 #fff) drop-shadow(0 -1.5px 0 #fff)" }}>
                     <Thumb mediaId={id} className="object-contain" />
                   </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label="Take this sticker off the shelf"
+                  title="Take this sticker off the shelf"
+                  onClick={() => onRemoveSticker(id)}
+                  className="absolute top-0.5 right-0.5 grid size-5 place-items-center rounded-full bg-[#1f1a16]/80 text-[10px] text-[#f3ead6] opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none"
+                >
+                  ×
                 </button>
               </li>
             ))}

@@ -6,7 +6,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
 import invitesSchema from "../components/invites/schema";
-import { previewFromHtml } from "../ai/unfurl";
+import { isPublicWebUrl, previewFromHtml, publicRedirect } from "../ai/unfurl";
 import { coverPage, momentPage, PAGE, rangeLabel, readLink } from "../lib/journal";
 import schema from "../schema";
 
@@ -148,6 +148,36 @@ describe("filling a journal", () => {
     expect(pages.map((p) => p.elements.find((e) => e.kind === "note")?.text)).toEqual([undefined, "Earlier, added later"]);
   });
 
+  test("a full book does not mark moments that never got a page as done", async () => {
+    const { t, owner, eventId, moment } = await setup();
+    await moment(JUNE_1, "Already");
+    await owner.mutation(api.journal.fill, { eventId });
+    await t.run(async (ctx) => {
+      const count = (await ctx.db.query("journalPages").take(500)).length;
+      for (let i = count; i < 400; i++) {
+        await ctx.db.insert("journalPages", { eventId, order: 1_000_000 + i, paper: "cream", elements: [] });
+      }
+    });
+    await moment(JUNE_1 + 86_400_000, "Left out");
+    expect((await owner.query(api.journal.get, { eventId })).pending).toBe(1);
+    expect(await owner.mutation(api.journal.fill, { eventId })).toBe(0);
+    expect((await owner.query(api.journal.get, { eventId })).pending).toBe(1);
+  });
+
+  test("the open book reads one page, and the contents list stays short", async () => {
+    const { owner, eventId, moment } = await setup();
+    const momentId = await moment(JUNE_1, "Pastéis by the river");
+    await owner.mutation(api.journal.fill, { eventId });
+    const outline = await owner.query(api.journal.outline, { eventId });
+    expect(outline.pages.map((p) => p.label)).toEqual(["A week in Lisbon", "Lisbon"]);
+    expect(outline.pages[1]).not.toHaveProperty("elements");
+    const one = await owner.query(api.journal.page, { pageId: outline.pages[1]!._id });
+    expect(one?.elements.find((e) => e.kind === "note")?.text).toBe("Pastéis by the river");
+    expect((await owner.query(api.journal.pageForMoment, { eventId, momentId }))?._id).toBe(outline.pages[1]!._id);
+    await owner.mutation(api.journal.removePage, { pageId: outline.pages[1]!._id });
+    expect(await owner.query(api.journal.pageForMoment, { eventId, momentId })).toBeNull();
+  });
+
   test("words are encrypted at rest", async () => {
     const { t, owner, eventId, moment } = await setup();
     await moment(JUNE_1, "secret-note");
@@ -189,7 +219,9 @@ describe("editing pages", () => {
     await owner.mutation(api.journal.setLock, { eventId, pageId, locked: true });
     await expect(owner.mutation(api.journal.savePage, { pageId, elements: [element()] })).rejects.toThrow(/locked/);
     await expect(owner.mutation(api.journal.removePage, { pageId })).rejects.toThrow(/locked/);
+    await expect(owner.mutation(api.journal.movePage, { pageId, before: null })).rejects.toThrow(/locked/);
     await owner.mutation(api.journal.setLock, { eventId, pageId, locked: false });
+    await owner.mutation(api.journal.movePage, { pageId, before: null });
     await owner.mutation(api.journal.savePage, { pageId, elements: [element()] });
 
     await owner.mutation(api.journal.setLock, { eventId, locked: true });
@@ -271,6 +303,21 @@ describe("drawings, links and new pages", () => {
     expect(previewFromHtml(`<meta property="og:image" content="https://127.0.0.1/a.png">`, "https://x.test").image).toBeUndefined();
     expect(previewFromHtml(`<title>Only a title</title>`, "https://x.test").title).toBe("Only a title");
   });
+
+  test("a preview will not follow a link to a private or local address", () => {
+    const allowed = (raw: string) => isPublicWebUrl(new URL(raw));
+    expect(allowed("https://example.com/day")).toBe(true);
+    expect(allowed("http://127.0.0.1/")).toBe(false);
+    expect(allowed("http://169.254.169.254/latest")).toBe(false);
+    expect(allowed("http://10.0.0.8/")).toBe(false);
+    expect(allowed("http://192.168.0.1/")).toBe(false);
+    expect(allowed("http://localhost/")).toBe(false);
+    expect(allowed("http://metadata.google.internal/")).toBe(false);
+    expect(allowed("https://user:pass@example.com/")).toBe(false);
+    expect(publicRedirect("https://example.com/a", "/b")).toBe("https://example.com/b");
+    expect(publicRedirect("https://example.com/a", "http://169.254.169.254/")).toBeUndefined();
+    expect(publicRedirect("https://example.com/a", "http://127.0.0.1/secret")).toBeUndefined();
+  });
 });
 
 describe("stickers", () => {
@@ -301,6 +348,23 @@ describe("stickers", () => {
     await owner.mutation(api.media.confirmUpload, { mediaId });
     await owner.mutation(api.journal.keepSticker, { mediaId });
     expect(await owner.query(api.journal.stickers, { eventId })).toEqual([mediaId]);
+  });
+
+  test("a sticker leaves the shelf only when no page still shows it", async () => {
+    const { owner, eventId, photo } = await setup();
+    const mediaId = await photo();
+    await owner.mutation(api.journal.keepSticker, { mediaId });
+    const sticker = element({ id: "s1", kind: "sticker", style: undefined, text: undefined, mediaId });
+    const first = await owner.mutation(api.journal.addPage, { eventId, elements: [sticker] });
+    const second = await owner.mutation(api.journal.addPage, { eventId, elements: [{ ...sticker, id: "s2" }] });
+    await expect(owner.mutation(api.journal.dropSticker, { mediaId })).rejects.toThrow(/still on a page/);
+    await expect(owner.mutation(api.media.markDeleted, { mediaId })).rejects.toThrow();
+    await owner.mutation(api.journal.savePage, { pageId: first, elements: [] });
+    await expect(owner.mutation(api.journal.dropSticker, { mediaId })).rejects.toThrow(/still on a page/);
+    await owner.mutation(api.journal.savePage, { pageId: second, elements: [] });
+    await owner.mutation(api.journal.dropSticker, { mediaId });
+    await owner.mutation(api.media.markDeleted, { mediaId });
+    expect(await owner.query(api.journal.stickers, { eventId })).toEqual([]);
   });
 });
 

@@ -145,6 +145,38 @@ describe("share links", () => {
     expect(await t.query(api.share.mediaForShare, { token, mediaId: elsewhere })).toBeNull();
   });
 
+  test("a sticker is readable through a link only when a page of that experience shows it", async () => {
+    const { t, owner, eventId } = await setup();
+    const upload = async (id: Id<"events">) => {
+      const { mediaId } = await owner.mutation(api.media.reserveUpload, { eventId: id, size: 100, mime: "image/png" });
+      await owner.mutation(api.media.confirmUpload, { mediaId });
+      await owner.mutation(api.journal.keepSticker, { mediaId });
+      return mediaId;
+    };
+    const onPage = await upload(eventId);
+    const shelf = await upload(eventId);
+    const pageId = await owner.mutation(api.journal.addPage, { eventId });
+    await owner.mutation(api.journal.savePage, {
+      pageId,
+      elements: [{ id: "s1", kind: "sticker", x: 10, y: 10, w: 80, h: 80, rotation: 0, z: 1, mediaId: onPage }],
+    });
+    const other = await owner.mutation(api.events.createDraft, {});
+    const foreign = await upload(other);
+    const foreignPage = await owner.mutation(api.journal.addPage, { eventId: other });
+    await owner.mutation(api.journal.savePage, {
+      pageId: foreignPage,
+      elements: [{ id: "s2", kind: "sticker", x: 10, y: 10, w: 80, h: 80, rotation: 0, z: 1, mediaId: foreign }],
+    });
+    const { mediaId: loose } = await owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime: "image/jpeg" });
+    await owner.mutation(api.media.confirmUpload, { mediaId: loose });
+    const token = tokenOf(await owner.mutation(api.share.enable, { eventId }));
+
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: onPage })).toMatchObject({ mime: "image/png", keyScope: eventId });
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: shelf })).toBeNull();
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: foreign })).toBeNull();
+    expect(await t.query(api.share.mediaForShare, { token, mediaId: loose })).toBeNull();
+  });
+
   test("only the owner can switch a link on, and archived experiences can't", async () => {
     const { owner, guest, eventId } = await setup();
     await expect(guest.mutation(api.share.enable, { eventId })).rejects.toThrow(/Event not found/);

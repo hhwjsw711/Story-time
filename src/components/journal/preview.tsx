@@ -1,31 +1,28 @@
 import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "../../../convex/_generated/api";
-import { coverPage, momentPage, PAGE, rangeLabel } from "../../../convex/lib/journal";
+import type { Id } from "../../../convex/_generated/dataModel";
+import { PAGE } from "../../../convex/lib/journal";
 import type { EventView, MomentView } from "@/components/event/types";
 import { JournalPage } from "./page";
 
-// One page of the journal, small: the picked moment's, else the cover. Until
-// the journal has that page (it is made when the owner opens the journal),
-// the page it will get.
+// One saved page, small: the picked moment's, else the cover. A page that was
+// taken out is not drawn from the moment again.
 export function JournalPreview({ event, momentId, scale }: { event: EventView; momentId?: string; scale: number }) {
-  const journal = useQuery(api.journal.get, { eventId: event._id });
+  const page = useQuery(api.journal.pageForMoment, {
+    eventId: event._id,
+    momentId: momentId as Id<"moments"> | undefined,
+  });
   const moments = useQuery(api.moments.list, { eventId: event._id });
   const byId = useMemo(() => new Map<string, MomentView>((moments ?? []).map((m) => [m._id, m])), [moments]);
-  if (journal === undefined || moments === undefined) return <div className="animate-pulse rounded-sm bg-muted" style={{ width: PAGE.w * scale, height: PAGE.h * scale }} />;
-
-  const index = moments.findIndex((m) => m._id === momentId);
-  const first = moments[0];
-  const from = event.startsAt ?? first?.startsAt;
-  const page =
-    index >= 0
-      ? (journal.pages.find((p) => p.momentId === momentId) ?? momentPage(moments[index]!, index))
-      : (journal.pages[0] ??
-        coverPage({
-          id: event._id,
-          title: event.title,
-          dates: from === undefined ? undefined : rangeLabel(from, event.endsAt ?? moments.at(-1)?.startsAt ?? from),
-          photo: first && [first.blocks, ...first.stops.map((s) => s.blocks)].flat().flatMap((b) => (b.type === "photo" ? [b.mediaId] : []))[0],
-        }));
-  return <JournalPage page={page} moments={byId} scale={scale} className="shadow-[0_14px_36px_rgba(40,28,10,.28)]" />;
+  const frame = { width: PAGE.w * scale, height: PAGE.h * scale };
+  if (page === undefined || moments === undefined) return <div className="animate-pulse rounded-sm bg-muted" style={frame} />;
+  if (page === null) {
+    return (
+      <div className="grid place-items-center rounded-sm bg-[#e9dfcb] px-4 text-center text-sm text-stone-600" style={frame}>
+        {momentId ? "This moment has no page yet." : "No journal yet."}
+      </div>
+    );
+  }
+  return <JournalPage page={page} moments={byId} scale={scale} live={false} className="shadow-[0_14px_36px_rgba(40,28,10,.28)]" />;
 }
