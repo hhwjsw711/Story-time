@@ -67,14 +67,14 @@ describe("journal files", () => {
 
 describe("the contents strip", () => {
   const day = { weekday: "short", month: "short", day: "numeric" } as const;
-  const moment = (id: string, startsAt: number) => ({ startsAt, tzOffsetMinutes: 0 });
+  const moment = (startsAt: number) => ({ startsAt, tzOffsetMinutes: 0 });
   test("pages gather under the cover and then each day, in book order", () => {
     const june3 = Date.UTC(2026, 5, 3, 9);
     const june4 = Date.UTC(2026, 5, 4, 9);
     const moments = new Map([
-      ["m1", moment("m1", june3)],
-      ["m2", moment("m2", june3 + 3_600_000)],
-      ["m3", moment("m3", june4)],
+      ["m1", moment(june3)],
+      ["m2", moment(june3 + 3_600_000)],
+      ["m3", moment(june4)],
     ]);
     const groups = contentsByDay(
       [
