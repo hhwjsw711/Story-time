@@ -372,7 +372,11 @@ export const pdf = query({
 // route gets. A moment's picture qualifies. A sticker qualifies only when a
 // page of this experience actually shows it.
 export const mediaForShare = query({
-  args: { token: v.string(), mediaId: v.id("media") },
+  args: {
+    token: v.string(),
+    mediaId: v.id("media"),
+    variant: v.optional(v.union(v.literal("full"), v.literal("thumb"))),
+  },
   returns: v.union(
     v.null(),
     v.object({
@@ -401,9 +405,10 @@ export const mediaForShare = query({
         .take(MAX_JOURNAL_PAGES);
       if (!pages.some((page) => page.elements.some((element) => element.mediaId === media._id))) return null;
     }
+    const thumbKey = args.variant === "thumb" ? media.thumbR2Key : undefined;
     return {
-      r2Key: media.r2Key,
-      mime: media.mime,
+      r2Key: thumbKey ?? media.r2Key,
+      mime: thumbKey !== undefined ? "image/jpeg" : media.mime,
       keyVersion: media.keyVersion,
       keyScope: event._id,
     };
