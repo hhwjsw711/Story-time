@@ -4,6 +4,9 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- **Journal gaps closed.** A title you retyped is yours: "Update this page" keeps it. A trip with no dates keeps its cover's dates in step as moments are added, moved or deleted. A moment page's title can "Try another" (Haiku, from the moment; nothing stored until you use it). Cover dates now print the calendar day people picked, or the day a moment happened where it happened (they were a day early east of UTC).
+- **Experiences in the sidebar.** Every experience is listed under a folding Experiences tab.
+- **A seeded trip to Japan** for trying the app: `pnpm exec convex run seed:japan` (dev) makes "Spring in Japan", ten days from Tokyo to Osaka with places, routes, notes, moods and labels, and its journal cuts itself. No photos.
 - Activity shows how many new moments, pages, and guestbook notes arrived since it was last opened. Deleting the trip removes those notes and the read mark. A burst of other changes cannot hide a new one.
 - A link preview will not open a hostname that resolves to a private address. The connection is pinned to the addresses just checked, so a later DNS answer cannot move it. Trailing dots, short numeric hosts, and local names are refused before any fetch.
 - Pressing / focuses the box only when moment search is not on the page. Search keeps /.
