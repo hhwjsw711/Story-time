@@ -9,7 +9,15 @@ import { newId } from "./add";
 // postcard. Each uses the trip's own photos (when it has them) and its title,
 // and words to write over.
 
-export type Idea = { id: string; name: string; hint: string; paper: Paper; make: (trip: Trip) => JournalElement[] };
+export type Idea = {
+  id: string;
+  name: string;
+  hint: string;
+  paper: Paper;
+  make: (trip: Trip) => JournalElement[];
+  // Further pages when one page cannot hold it (a long tier list).
+  more?: (trip: Trip) => JournalElement[][];
+};
 type Trip = { title: string; photos: string[]; dates?: string };
 
 type Part = Omit<JournalElement, "id" | "z" | "rotation"> & { rotation?: number };
@@ -152,40 +160,64 @@ export function dayIdea(day: Day): Idea {
 
 // A tier list: rows S to F, and below them what's still to rank (places as
 // label-maker strips, moments as their first photo) to drag up into a row.
-// ponytail: what doesn't fit under the rows is left off; a second page if people rank 30+ things.
+// What does not fit under the rows continues on the next page.
 export type TierItem = { text: string; mediaId?: string };
 
+const TIER_BOTTOM = PAGE.h - 12;
+
+function packTier(items: readonly TierItem[], startY: number): { placed: Part[]; rest: TierItem[] } {
+  const placed: Part[] = [];
+  let x = 40;
+  let y = startY;
+  let tallest = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    const w = item.mediaId ? 84 : 150;
+    const h = item.mediaId ? 84 : 40;
+    if (x + w > PAGE.w - 40) {
+      x = 40;
+      y += tallest + 8;
+      tallest = 0;
+    }
+    if (y + h > TIER_BOTTOM) return { placed, rest: items.slice(i) };
+    placed.push(
+      item.mediaId
+        ? { kind: "photo", style: "print", mediaId: item.mediaId, x, y, w, h, rotation: (placed.length % 3) - 1 }
+        : { kind: "title", style: "label", text: item.text.slice(0, 22), x, y, w, h },
+    );
+    x += w + 8;
+    tallest = Math.max(tallest, h);
+  }
+  return { placed, rest: [] };
+}
+
+function tierFollowUps(items: readonly TierItem[]): JournalElement[][] {
+  const pages: JournalElement[][] = [];
+  let rest = [...items];
+  while (rest.length > 0 && pages.length < 8) {
+    const packed = packTier(rest, 150);
+    if (packed.placed.length === 0) break;
+    pages.push(page([{ kind: "title", style: "hand", text: "still to rank", x: 40, y: 36, w: 500, h: 80 }, ...packed.placed]));
+    rest = packed.rest;
+  }
+  return pages;
+}
+
 export function tierIdea(id: string, hint: string, items: TierItem[]): Idea {
+  const first = () => packTier(items, 788);
   return {
     id: `tier-${id}`,
     name: "Tier list",
     hint,
     paper: "newsprint",
-    make: () => {
-      const pool: Part[] = [];
-      let x = 40;
-      let y = 788;
-      let tallest = 0;
-      for (const item of items) {
-        const w = item.mediaId ? 84 : 150;
-        const h = item.mediaId ? 84 : 40;
-        if (x + w > PAGE.w - 40) {
-          x = 40;
-          y += tallest + 8;
-          tallest = 0;
-        }
-        if (y + h > PAGE.h - 12) break;
-        pool.push(item.mediaId ? { kind: "photo", style: "print", mediaId: item.mediaId, x, y, w, h, rotation: (pool.length % 3) - 1 } : { kind: "title", style: "label", text: item.text.slice(0, 22), x, y, w, h });
-        x += w + 8;
-        tallest = Math.max(tallest, h);
-      }
-      return page([
+    make: () =>
+      page([
         ...["S", "A", "B", "C", "D", "F"].map((t, i): Part => ({ kind: "deco", style: "tier", text: t, x: 40, y: 140 + i * 98, w: PAGE.w - 80, h: 92 })),
         { kind: "title", style: "dada", text: "Tier list", x: 40, y: 20, w: 400, h: 106 },
         { kind: "title", style: "hand", text: hint, x: 450, y: 46, w: 304, h: 80, rotation: -3 },
         { kind: "title", style: "hand", text: "still to rank ↓", x: 40, y: 734, w: 300, h: 48, rotation: -2 },
-        ...pool,
-      ]);
-    },
+        ...first().placed,
+      ]),
+    more: () => tierFollowUps(first().rest),
   };
 }

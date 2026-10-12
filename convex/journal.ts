@@ -8,6 +8,7 @@ import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { invalid } from "./lib/blocks";
 import { decryptText, encryptText } from "./lib/crypto";
 import {
+  catchUpElements,
   coverPage,
   DECOS,
   DRAW_STYLES,
@@ -68,6 +69,11 @@ export const vPageView = v.object({
   paper: v.string(),
   locked: v.boolean(),
   momentId: v.optional(v.id("moments")),
+  // The owner has saved this page. A moment that changed since the layout
+  // was made is `stale`. `gone` means the moment itself was deleted.
+  edited: v.boolean(),
+  stale: v.boolean(),
+  gone: v.boolean(),
   elements: v.array(vElement),
 });
 
@@ -187,13 +193,25 @@ async function encodeElements(
   }
 }
 
-async function viewPage(event: Doc<"events">, page: Doc<"journalPages">) {
+// Whether this page still matches the moment it was laid out from. Comparing
+// stored times, never the clock, so a query can say so.
+async function catchUpState(ctx: QueryCtx, page: Doc<"journalPages">) {
+  const edited = page.edited ?? false;
+  if (page.momentId === undefined) return { edited, stale: false, gone: false };
+  const moment = await ctx.db.get("moments", page.momentId);
+  if (moment === null) return { edited, stale: false, gone: true };
+  const stamp = moment.lastEdit?.at ?? moment._creationTime;
+  return { edited, stale: page.builtFrom !== undefined && page.builtFrom !== stamp, gone: false };
+}
+
+async function viewPage(ctx: QueryCtx, event: Doc<"events">, page: Doc<"journalPages">) {
   return {
     _id: page._id,
     order: page.order,
     paper: page.paper,
     locked: page.locked ?? false,
     momentId: page.momentId,
+    ...(await catchUpState(ctx, page)),
     elements: await Promise.all(
       page.elements.map(async (e) => ({ ...e, text: e.text === undefined ? undefined : await decryptText(event._id, e.text) })),
     ),
@@ -226,6 +244,9 @@ export const vOutlinePage = v.object({
   locked: v.boolean(),
   momentId: v.optional(v.id("moments")),
   label: v.string(),
+  edited: v.boolean(),
+  stale: v.boolean(),
+  gone: v.boolean(),
 });
 
 // The book the screen keeps open: who may edit, how many pages are still owed,
@@ -259,6 +280,7 @@ export async function contentsOf(ctx: QueryCtx, event: Doc<"events">) {
       locked: page.locked ?? false,
       momentId: page.momentId,
       label: await labelOf(event, page),
+      ...(await catchUpState(ctx, page)),
     })),
   );
 }
@@ -268,7 +290,7 @@ export async function contentsOf(ctx: QueryCtx, event: Doc<"events">) {
 export async function pageInEvent(ctx: QueryCtx, event: Doc<"events">, pageId: Id<"journalPages">) {
   const row = await ctx.db.get("journalPages", pageId);
   if (row === null || row.eventId !== event._id) return null;
-  return await viewPage(event, row);
+  return await viewPage(ctx, event, row);
 }
 
 // One page, decrypted. The open page, a neighbour, or a page being printed.
@@ -279,7 +301,7 @@ export const page = query({
     const row = await ctx.db.get("journalPages", args.pageId);
     if (row === null) return null;
     const { event } = await requireEventAccess(ctx, row.eventId, "viewer");
-    return await viewPage(event, row);
+    return await viewPage(ctx, event, row);
   },
 });
 
@@ -297,7 +319,7 @@ export const pageForMoment = query({
             .query("journalPages")
             .withIndex("by_event_and_moment", (q) => q.eq("eventId", event._id).eq("momentId", args.momentId))
             .first();
-    return row === undefined || row === null ? null : await viewPage(event, row);
+    return row === undefined || row === null ? null : await viewPage(ctx, event, row);
   },
 });
 
@@ -316,7 +338,7 @@ export const get = query({
     const journal = await journalOf(ctx, event._id);
     const canEdit = role === "owner" && event.status !== "archived";
     const pending = canEdit && !journal?.locked ? await pendingOf(ctx, event, journal) : 0;
-    const pages = await Promise.all((await pagesOf(ctx, event._id)).slice(0, MAX_JOURNAL_PAGES).map((p) => viewPage(event, p)));
+    const pages = await Promise.all((await pagesOf(ctx, event._id)).slice(0, MAX_JOURNAL_PAGES).map((p) => viewPage(ctx, event, p)));
     return { canEdit, locked: journal?.locked ?? false, pending, pages };
   },
 });
@@ -392,6 +414,7 @@ async function makePageBatch(ctx: MutationCtx, event: Doc<"events">): Promise<{ 
         order: row.startsAt,
         paper: spec.paper,
         momentId: row._id,
+        builtFrom: row.lastEdit?.at ?? row._creationTime,
         elements: await encodeElements(ctx, event, fromLayout(spec.elements), true),
       });
       room--;
@@ -468,7 +491,89 @@ export const savePage = mutation({
     await ctx.db.patch("journalPages", page._id, {
       paper: args.paper ?? page.paper,
       elements: await encodeElements(ctx, event, args.elements),
+      edited: true,
     });
+    return null;
+  },
+});
+
+// Lays a moment's page out again from the moment as it is now. An untouched
+// page is replaced. A page the owner has saved keeps what they added and
+// replaces the layout's own pieces, and only when `force` (they asked).
+// A deleted moment is left on the page. Returns whether the page changed.
+async function refreshOne(ctx: MutationCtx, event: Doc<"events">, page: Doc<"journalPages">, force: boolean): Promise<boolean> {
+  if (page.momentId === undefined || page.locked) return false;
+  if (page.edited && !force) return false;
+  const moment = await ctx.db.get("moments", page.momentId);
+  if (moment === null || moment.eventId !== event._id) return false;
+  const stamp = moment.lastEdit?.at ?? moment._creationTime;
+  // A page made before this field existed is left alone: we cannot tell a
+  // handmade page from one that simply predates the stamp.
+  if (page.builtFrom === undefined || page.builtFrom === stamp) return false;
+  const rows = await ctx.db
+    .query("moments")
+    .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
+    .take(momentsToRead(event.momentCount));
+  const view = await viewMoment(ctx, event, moment);
+  const spec = momentPage({ ...view, stops: view.stops }, Math.max(0, rows.findIndex((row) => row._id === moment._id)));
+  const fresh = fromLayout(spec.elements);
+  const next = page.edited ? catchUpElements((await viewPage(ctx, event, page)).elements, fresh, moment._id) : fresh;
+  await ctx.db.patch("journalPages", page._id, {
+    elements: await encodeElements(ctx, event, next, true),
+    builtFrom: stamp,
+  });
+  return true;
+}
+
+// Untouched stale pages, one batch. `more` means another batch should run.
+async function refreshBatch(ctx: MutationCtx, event: Doc<"events">): Promise<{ made: number; more: boolean }> {
+  if ((await journalOf(ctx, event._id))?.locked) return { made: 0, more: false };
+  const pages = await pagesOf(ctx, event._id);
+  let made = 0;
+  let more = false;
+  for (const page of pages) {
+    if (page.edited || page.momentId === undefined || page.locked) continue;
+    if (made >= PAGE_BATCH) {
+      more = true;
+      break;
+    }
+    if (await refreshOne(ctx, event, page, false)) made++;
+  }
+  return { made, more };
+}
+
+// Brings pages up to their moments. With a page, that page, even if the owner
+// has saved it. Without one, every untouched stale page, and the rest follows.
+export const refresh = mutation({
+  args: { eventId: v.id("events"), pageId: v.optional(v.id("journalPages")) },
+  returns: v.number(),
+  handler: async (ctx, args): Promise<number> => {
+    const { event } = await requireEventAccess(ctx, args.eventId, "owner");
+    assertNotArchived(event);
+    if ((await journalOf(ctx, event._id))?.locked) {
+      throw new ConvexError({ code: "LOCKED", message: "This journal is locked. Unlock it to change it." });
+    }
+    if (args.pageId !== undefined) {
+      const { page } = await editablePage(ctx, args.pageId);
+      if (page.eventId !== event._id) throw notFound();
+      return (await refreshOne(ctx, event, page, true)) ? 1 : 0;
+    }
+    const { made, more } = await refreshBatch(ctx, event);
+    if (more) await ctx.scheduler.runAfter(0, internal.journal.refreshPages, { eventId: event._id });
+    return made;
+  },
+});
+
+// The next batch of untouched pages. Scheduled from `refresh` until the book
+// has caught up or nothing untouched is still stale.
+export const refreshPages = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const event = await ctx.db.get("events", args.eventId);
+    if (event === null || event.status === "archived") return null;
+    const { more } = await refreshBatch(ctx, event);
+    if (more) await ctx.scheduler.runAfter(0, internal.journal.refreshPages, { eventId: event._id });
     return null;
   },
 });

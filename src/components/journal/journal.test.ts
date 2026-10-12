@@ -124,11 +124,16 @@ describe("page ideas", () => {
     expect(onThePage(els)).toBe(true);
   });
 
-  test("a tier list has rows S to F and keeps what's still to rank on the page", () => {
+  test("a tier list has rows S to F and continues what doesn't fit on the next page", () => {
     const items = Array.from({ length: 40 }, (_, i) => ({ text: `Place ${i}`, mediaId: i % 3 === 0 ? `p${i}` : undefined }));
-    const els = tierIdea("places", "every place", items).make(trip);
-    expect(els.filter((e) => e.style === "tier").map((e) => e.text)).toEqual(["S", "A", "B", "C", "D", "F"]);
-    expect(els.filter((e) => e.kind === "photo" || e.style === "label").length).toBeGreaterThan(10);
-    expect(onThePage(els)).toBe(true);
+    const idea = tierIdea("places", "every place", items);
+    const first = idea.make(trip);
+    const rest = idea.more?.(trip) ?? [];
+    expect(first.filter((e) => e.style === "tier").map((e) => e.text)).toEqual(["S", "A", "B", "C", "D", "F"]);
+    const ranked = [...first, ...rest.flat()].filter((e) => e.kind === "photo" || e.style === "label");
+    expect(ranked).toHaveLength(items.length);
+    expect(rest.length).toBeGreaterThan(0);
+    expect(onThePage(first)).toBe(true);
+    for (const els of rest) expect(onThePage(els)).toBe(true);
   });
 });

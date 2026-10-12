@@ -16,7 +16,24 @@ function SpreadPage({ pageId, moments, scale, token }: { pageId: string; moments
   if (page === undefined || page === null) {
     return <div className="animate-pulse bg-[#efe6d2]" style={{ width: PAGE.w * scale, height: PAGE.h * scale }} />;
   }
-  return <JournalPage page={page} moments={moments} scale={scale} reading />;
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <JournalPage page={page} moments={moments} scale={scale} reading />
+      <PageNotice page={page} />
+    </div>
+  );
+}
+
+// A page that no longer matches its moment. The words only; the button lives
+// in make mode, where the owner can ask.
+function PageNotice({ page }: { page: { gone: boolean; stale: boolean } }) {
+  const line = page.gone ? "This moment was taken out of the trip." : page.stale ? "The moment changed." : null;
+  if (line === null) return null;
+  return (
+    <p className="max-w-sm text-center text-stone-700" style={{ fontFamily: FONTS.hand, fontSize: 22 }}>
+      {line}
+    </p>
+  );
 }
 
 // Reading the journal like a book: the cover alone, then two pages at a time
