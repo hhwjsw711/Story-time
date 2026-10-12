@@ -267,9 +267,11 @@ export function layoutPrefix(momentId: string): string {
 
 // A fresh layout, plus whatever the owner put on the page themselves.
 // The layout's own pieces (its prints, its note, its title) are replaced.
-export function catchUpElements<T extends { id: string }>(existing: readonly T[], fresh: readonly T[], momentId: string): T[] {
+// A thing locked in place is kept, even when the layout would have redrawn it.
+export function catchUpElements<T extends { id: string; locked?: boolean }>(existing: readonly T[], fresh: readonly T[], momentId: string): T[] {
   const prefix = layoutPrefix(momentId);
-  return [...fresh, ...existing.filter((e) => !e.id.startsWith(prefix))];
+  const locked = new Set(existing.filter((e) => e.locked === true).map((e) => e.id));
+  return [...fresh.filter((e) => !locked.has(e.id)), ...existing.filter((e) => locked.has(e.id) || !e.id.startsWith(prefix))];
 }
 
 // The cover: the trip's name cut from letters, its dates typed, the first

@@ -481,6 +481,38 @@ export const unpaged = query({
   },
 });
 
+function wordsOf(text: string | undefined): string | undefined {
+  if (text === undefined || text.trim() === "") return undefined;
+  return text;
+}
+
+// A thing locked in place may be unlocked, and nothing else about it may change.
+// Taking it off the page, or moving it in the same save as the unlock, is refused.
+async function lockedStay(event: Doc<"events">, stored: Doc<"journalPages">["elements"], incoming: ElementIn[]) {
+  const byId = new Map(incoming.map((e) => [e.id, e]));
+  for (const old of stored) {
+    if (old.locked !== true) continue;
+    const next = byId.get(old.id);
+    if (next === undefined) throw new ConvexError({ code: "LOCKED", message: "That is locked in place." });
+    const storedText = wordsOf(old.text === undefined ? undefined : await decryptText(event._id, old.text));
+    const same =
+      next.kind === old.kind &&
+      next.x === old.x &&
+      next.y === old.y &&
+      next.w === old.w &&
+      next.h === old.h &&
+      next.rotation % 360 === old.rotation &&
+      next.z === old.z &&
+      next.style === old.style &&
+      next.tone === old.tone &&
+      next.color === old.color &&
+      next.mediaId === old.mediaId &&
+      next.momentId === old.momentId &&
+      wordsOf(next.text) === storedText;
+    if (!same) throw new ConvexError({ code: "LOCKED", message: "That is locked in place." });
+  }
+}
+
 // Saves what is on a page (all of it: a page is small), and its paper.
 export const savePage = mutation({
   args: { pageId: v.id("journalPages"), paper: v.optional(v.string()), elements: v.array(vElement) },
@@ -488,6 +520,7 @@ export const savePage = mutation({
   handler: async (ctx, args) => {
     const { page, event } = await editablePage(ctx, args.pageId);
     if (args.paper !== undefined && !PAPER_SET.has(args.paper)) invalid("paper", "That paper doesn't exist.");
+    await lockedStay(event, page.elements, args.elements);
     await ctx.db.patch("journalPages", page._id, {
       paper: args.paper ?? page.paper,
       elements: await encodeElements(ctx, event, args.elements),
