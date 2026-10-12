@@ -6,7 +6,7 @@ import { formatDay } from "@/lib/local-time";
 import { groupByDay } from "@/lib/timeline";
 import { contentsByDay } from "./contents";
 import { behind, placed, sizeOf, tapedTo } from "./add";
-import { journalFile, readJournalFile } from "./export";
+import { journalFile, readJournalFile, wholeJournalPdfLabel } from "./export";
 import { dayIdea, IDEAS, tierIdea } from "./ideas";
 
 const el = (over: Partial<JournalElement>): JournalElement => ({ id: "x", kind: "photo", x: 100, y: 100, w: 300, h: 300, rotation: 0, z: 5, mediaId: "m", ...over });
@@ -62,6 +62,14 @@ describe("journal files", () => {
     const back = await readJournalFile(file);
     expect(back).toHaveLength(1);
     expect(back[0]!.elements.map((e) => e.id)).toEqual(["ok"]);
+  });
+});
+
+describe("printing", () => {
+  test("the whole journal is the long choice past a few dozen pages", () => {
+    expect(wholeJournalPdfLabel(1)).toBe("The whole journal as a PDF (1 page)");
+    expect(wholeJournalPdfLabel(12)).toBe("The whole journal as a PDF (12 pages)");
+    expect(wholeJournalPdfLabel(37)).toBe("The whole journal as a PDF (37 pages, a long one)");
   });
 });
 

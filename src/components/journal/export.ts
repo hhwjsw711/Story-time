@@ -83,6 +83,13 @@ export function download(href: string | Blob, name: string) {
 
 export const fileName = (title: string) => title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").toLowerCase() || "journal";
 
+// The sitting (this page, this day) is the ordinary print. Past a few dozen
+// pages, the whole journal is the unusual one, and the menu says so.
+export function wholeJournalPdfLabel(pages: number): string {
+  const count = `${pages} ${pages === 1 ? "page" : "pages"}`;
+  return pages > 36 ? `The whole journal as a PDF (${count}, a long one)` : `The whole journal as a PDF (${count})`;
+}
+
 // ---- The journal as a file ----------------------------------------------------------------
 
 const KIND = "story-time-journal";

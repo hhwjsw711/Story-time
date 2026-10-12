@@ -46,7 +46,7 @@ import { StickerCutter } from "./cutter";
 import { PageEditor, writable } from "./editor";
 import { pathThrough, readDrawing, writeDrawing } from "./elements";
 import type { Idea } from "./ideas";
-import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile, waitForPage } from "./export";
+import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile, waitForPage, wholeJournalPdfLabel } from "./export";
 import { DRAW_NAMES, DRAW_WIDTH, FONTS, GRAIN, INKS, paperLook } from "./look";
 import { JournalMenu, type Layer } from "./menu";
 import { contentsByDay } from "./contents";
@@ -728,7 +728,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
                 <FileDownIcon /> This day as a PDF ({pagesForDay().length} {pagesForDay().length === 1 ? "page" : "pages"})
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void printPdf(pages.map((p) => p._id as PageId), "Your journal is ready")}>
-                <FileDownIcon /> The whole journal as a PDF ({pages.length} {pages.length === 1 ? "page" : "pages"})
+                <FileDownIcon /> {wholeJournalPdfLabel(pages.length)}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void printPage()}>
                 <ImageDownIcon /> This page as a picture
