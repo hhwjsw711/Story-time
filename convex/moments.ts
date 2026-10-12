@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Infer, ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { MOMENT_LIMIT } from "./lib/limits";
+import { MOMENT_LIMIT, momentsToRead } from "./lib/limits";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { changeFields, lastEditOf, type Actor } from "./lib/actors";
 import {
@@ -245,7 +245,7 @@ export async function listForEvent(
   const moments = await ctx.db
     .query("moments")
     .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-    .take(MOMENT_LIMIT);
+    .take(momentsToRead(event.momentCount));
   return Promise.all(moments.map((m) => viewMoment(ctx, event, m)));
 }
 

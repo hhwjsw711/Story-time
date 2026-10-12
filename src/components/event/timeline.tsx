@@ -76,10 +76,13 @@ export function Timeline({
   if (moments === undefined) {
     if (event.momentCount === 0) return <Empty event={event} />;
     return (
-      <div aria-hidden className="space-y-3">
-        <Skeleton className="h-8 w-full" />
+      <div className="space-y-3">
+        <p role="status" className="sr-only">
+          Loading moments…
+        </p>
+        <Skeleton aria-hidden className="h-8 w-full" />
         {Array.from({ length: Math.min(6, event.momentCount) }, (_, i) => (
-          <Skeleton key={i} className="h-10 w-full" />
+          <Skeleton key={i} aria-hidden className="h-10 w-full" />
         ))}
       </div>
     );

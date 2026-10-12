@@ -5,7 +5,7 @@ What is next, in order. Done items move to `progress.md`.
 ## Now
 
 1. **Simplification A**: merge PR #34 (verified on dev; checks green).
-2. **Deploy A** to production: Convex first (`pnpm exec convex deploy --yes`), then the Worker. Needs the production Google and GitHub sign-in apps pointed at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback` (Sara).
+2. **Deploy A** to production: Convex first (`pnpm exec convex deploy --yes`), then the Worker. Needs the production Google and GitHub sign-in apps pointed at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback` (Sara). First look in the prod dashboard at the largest `momentCount` and the most media any one experience holds: 300 moments and 1,500 photos per experience is the new ceiling (2 GB of live uploads per person still applies).
 3. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `agentTokens`, `quotaRequests` in the dashboard (dev, then prod after A is live there), remove them from `convex/schema.ts`, push.
 4. **Journal**: merge PR #35 after #34 (it is stacked on it). Dev has a test journal; prod gets the two new tables on deploy.
 5. **Journal, next**: the shared link shows the journal too (read-only book); Haiku offers fun page titles; a tier list with more than about 20 things to rank needs a second page.

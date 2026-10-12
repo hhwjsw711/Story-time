@@ -10,7 +10,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internalAction, internalQuery } from "../_generated/server";
 import { decryptGeo, decryptText, type Encrypted, type Geo } from "../lib/crypto";
 import { distanceMeters } from "../lib/geo";
-import { MOMENT_LIMIT } from "../lib/limits";
+import { momentsToRead } from "../lib/limits";
 import { vTransport } from "../schema";
 import { jevModel, skipReason } from "./models";
 
@@ -117,7 +117,7 @@ export const legsOf = internalQuery({
     const everyMoment = await ctx.db
       .query("moments")
       .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-      .take(MOMENT_LIMIT);
+      .take(momentsToRead(event.momentCount));
     const labels = new Set<string>();
     for (const m of everyMoment) {
       for (const label of m.labels ?? []) labels.add(await decryptText(event._id, label));

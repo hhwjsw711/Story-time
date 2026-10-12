@@ -31,7 +31,7 @@ async function setup() {
   await t.run((ctx) =>
     ctx.db.insert("sessions", { eventId, userId: viewerId, grantedBy: ownerId, role: "viewer" }),
   );
-  return { t, eventId, owner, helper: as(helperId), helperId, viewer: as(viewerId) };
+  return { t, eventId, owner, ownerId, helper: as(helperId), helperId, viewer: as(viewerId) };
 }
 
 type Caller = Awaited<ReturnType<typeof setup>>["owner"];
@@ -172,6 +172,16 @@ describe("moments.remove", () => {
 
     expect((await owner.query(api.events.get, { eventId }))?.momentCount).toBe(MOMENT_LIMIT - 1);
     await addMoment(owner, eventId, "fits again");
+  });
+
+  test("an experience holding more than the limit (from before it) lists every moment", async () => {
+    const { t, owner, ownerId, eventId } = await setup();
+    await t.run(async (ctx) => {
+      for (let i = 0; i <= MOMENT_LIMIT; i++) await ctx.db.insert("moments", { eventId, authorId: ownerId, startsAt: i, blocks: [] });
+      await ctx.db.patch("events", eventId, { momentCount: MOMENT_LIMIT + 1 });
+    });
+    expect(await owner.query(api.moments.list, { eventId })).toHaveLength(MOMENT_LIMIT + 1);
+    await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
   });
 
   test("returns the moment's photos and detaches them", async () => {
