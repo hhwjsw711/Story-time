@@ -1,7 +1,7 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { decryptText, encryptText } from "./crypto";
-import { MAX_JOURNAL_PAGES, rangeLabel } from "./journal";
+import { MAX_JOURNAL_PAGES, tripDates } from "./journal";
 
 // The words on a journal's cover that follow the trip until someone retypes
 // them: its name, and its dates. Kept apart from journal.ts so the moment
@@ -13,13 +13,12 @@ export type CoverWords = { title: string; dates: string | undefined };
 export const coverTitle = (event: Doc<"events">) => (event.title || "Our trip").slice(0, 60);
 
 // The date line the cover is given: the trip's dates, or its first moment to
-// its last when it has none. Two reads, one at each end of the index.
+// its last when it has none. At most two reads, one at each end of the index.
 export async function coverDates(ctx: QueryCtx, event: Doc<"events">): Promise<string | undefined> {
   const moments = () => ctx.db.query("moments").withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id));
-  const from = event.startsAt ?? (await moments().first())?.startsAt;
-  if (from === undefined) return undefined;
-  const to = event.endsAt ?? (await moments().order("desc").first())?.startsAt ?? from;
-  return rangeLabel(from, to);
+  const first = event.startsAt === undefined ? ((await moments().first()) ?? undefined) : undefined;
+  const last = event.endsAt === undefined ? ((await moments().order("desc").first()) ?? undefined) : undefined;
+  return tripDates(event, first, last);
 }
 
 export async function coverWords(ctx: QueryCtx, event: Doc<"events">): Promise<CoverWords> {

@@ -218,10 +218,9 @@ export const japan = internalMutation({
       visibility: "private",
       momentCount: 0,
       keyVersion: 1,
-      // Trip dates are a calendar day, saved by the app as local midnight. Noon
-      // UTC is that day almost anywhere it is read.
-      startsAt: Date.UTC(2025, 3, 1, 12),
-      endsAt: Date.UTC(2025, 3, 10, 12),
+      // Trip dates are calendar days (see `tripDates`).
+      startsAt: Date.UTC(2025, 3, 1),
+      endsAt: Date.UTC(2025, 3, 10),
     });
     await ctx.db.patch("events", eventId, {
       description: await encryptText(eventId, 1, "Ten days from Tokyo to Osaka in cherry blossom season: markets, temples, a mountain lake and far too much food."),

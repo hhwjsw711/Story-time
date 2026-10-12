@@ -7,7 +7,7 @@ import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
 import invitesSchema from "../components/invites/schema";
 import { isPublicWebUrl, previewFromHtml, publicRedirect } from "../ai/unfurl";
-import { catchUpElements, coverPage, type JournalElement, momentPage, PAGE, rangeLabel, readLink } from "../lib/journal";
+import { catchUpElements, coverPage, type JournalElement, momentPage, PAGE, rangeLabel, readLink, tripDates } from "../lib/journal";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
@@ -132,6 +132,17 @@ describe("laying out pages", () => {
     const merged = catchUpElements(retitled, fresh, "moment1");
     expect(merged.filter((e) => e.kind === "title").map((e) => e.text)).toEqual(["Our best day"]);
     expect(merged.find((e) => e.kind === "note")?.text).toBe("Better");
+  });
+
+  test("a cover's dates are the trip's calendar days, or the days its moments happened where they happened", () => {
+    // 07:10 on 1 April in Tokyo is still 31 March in UTC.
+    const tokyo = { startsAt: Date.UTC(2025, 2, 31, 22, 10), tzOffsetMinutes: 540 };
+    const osaka = { startsAt: Date.UTC(2025, 3, 10, 4, 40), tzOffsetMinutes: 540 };
+    expect(tripDates({}, tokyo, osaka)).toBe("1 Apr – 10 Apr 2025");
+    // Saved at local midnight in UTC+3 and in UTC−5: the same calendar days.
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 21), endsAt: Date.UTC(2025, 3, 9, 21) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({ startsAt: Date.UTC(2025, 3, 1, 5), endsAt: Date.UTC(2025, 3, 10, 5) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({})).toBeUndefined();
   });
 
   test("dates read as a range, or one day", () => {
@@ -392,7 +403,8 @@ describe("filling a journal", () => {
     expect(await words()).toContain("A week in Porto");
     expect(await words()).not.toContain("A week in Lisbon");
 
-    await owner.mutation(api.events.update, { eventId, startsAt: JUNE_1, endsAt: JUNE_1 + 6 * 86_400_000 });
+    // What a browser at UTC+3 saves for 1 and 7 June: their local midnights.
+    await owner.mutation(api.events.update, { eventId, startsAt: Date.UTC(2026, 4, 31, 21), endsAt: Date.UTC(2026, 5, 6, 21) });
     expect(await words()).toContain("1 Jun – 7 Jun 2026");
     expect(await words()).not.toContain("1 Jun 2026");
 

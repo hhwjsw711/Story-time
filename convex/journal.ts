@@ -26,7 +26,7 @@ import {
   onPage,
   PAPERS,
   PRINT_STYLES,
-  rangeLabel,
+  tripDates,
   readLink,
   TITLE_STYLES,
   TONES,
@@ -401,12 +401,10 @@ async function makePageBatch(ctx: MutationCtx, event: Doc<"events">): Promise<{ 
   if (existing === null && room > 0) {
     const views = [await viewMoment(ctx, event, rows[0]!)];
     const photo = [views[0]!.blocks, ...views[0]!.stops.map((s) => s.blocks)].flat().find((b) => b.type === "photo");
-    const from = event.startsAt ?? rows[0]?.startsAt;
-    const to = event.endsAt ?? rows.at(-1)?.startsAt ?? from;
     const cover = coverPage({
       id: event._id,
       title: event.title,
-      dates: from === undefined ? undefined : rangeLabel(from, to ?? from),
+      dates: tripDates(event, rows[0], rows.at(-1)),
       photo: photo?.type === "photo" ? photo.mediaId : undefined,
     });
     await insertPage(ctx, event._id, {

@@ -164,6 +164,21 @@ export function rangeLabel(from: number, to: number): string {
   return `${day(a)} – ${day(b)} ${b.getUTCFullYear()}`;
 }
 
+type Dated = { startsAt: number; tzOffsetMinutes?: number };
+
+// The cover's date line. A trip's own start and end are calendar days the
+// app saved as the person's local midnight: the nearest UTC midnight is that
+// day for anyone from UTC−11 to UTC+11. A moment's day is the day where it
+// happened, in its own zone.
+export function tripDates(trip: { startsAt?: number; endsAt?: number }, first?: Dated, last?: Dated): string | undefined {
+  const tripDay = (ms: number) => Math.round(ms / 86_400_000) * 86_400_000;
+  const momentDay = (m: Dated) => m.startsAt + (m.tzOffsetMinutes ?? 0) * 60_000;
+  const from = trip.startsAt !== undefined ? tripDay(trip.startsAt) : first && momentDay(first);
+  if (from === undefined) return undefined;
+  const to = trip.endsAt !== undefined ? tripDay(trip.endsAt) : last !== undefined ? momentDay(last) : from;
+  return rangeLabel(from, to);
+}
+
 const shortPlace = (place: string | undefined) => place?.split(",")[0]?.trim() || undefined;
 
 // The photos, words and places of a moment, from every stop.
