@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- Moments that never got a page get one when the journal is opened, and once a day if nobody opens it. A page taken out on purpose stays out.
 - A thing locked in place on a journal page stays put. A save cannot move it, rewrite it, or take it off; unlocking it is its own save, and catching a page up leaves it where it was.
 - The day it is, for the person reading, is marked Today in the moments list and in the journal's contents.
 - Play opens the journal (PR #46). The film is still there, behind Play. A moment with no page falls back to the story, and a page that clipped the note offers "Read the moment". Taking a sticker back was already in PR #39; the smaller on-device model is still to try.

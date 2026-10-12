@@ -14,4 +14,8 @@ crons.cron(
 // Abandoned upload reservations count toward an experience's cap until swept.
 crons.interval("sweep reserved uploads", { hours: 1 }, internal.media.sweepReservedUploads, {});
 
+// Pages still owed to moments. Opening the journal also cuts them; this
+// catches a trip nobody has opened. Minute 23, off the hour.
+crons.cron("backfill journal pages", "23 4 * * *", internal.journal.backfillWaiting, {});
+
 export default crons;

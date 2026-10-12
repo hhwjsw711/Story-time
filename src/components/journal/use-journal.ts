@@ -35,6 +35,7 @@ export function useJournal(eventId: Id<"events">, index: number) {
   const setLock = useMutation(api.journal.setLock);
   const importPages = useMutation(api.journal.importPages);
   const refresh = useMutation(api.journal.refresh);
+  const fill = useMutation(api.journal.fill);
 
   const fail = useCallback((e: unknown) => toast.error(errorMessage(e)), []);
 
@@ -51,6 +52,17 @@ export function useJournal(eventId: Id<"events">, index: number) {
     asked.current = ids;
     void refresh({ eventId }).catch(fail);
   }, [data, eventId, refresh, fail]);
+
+  // Moments saved before paging ran still owe a page. Opening the book cuts
+  // them; a full book is asked once, so it doesn't keep trying.
+  const owed = useRef("");
+  useEffect(() => {
+    if (!data?.canEdit || data.locked || data.pending === 0) return;
+    const key = `${eventId}:${data.pending}`;
+    if (owed.current === key) return;
+    owed.current = key;
+    void fill({ eventId }).catch(fail);
+  }, [data, eventId, fill, fail]);
 
   const openRef = useRef(open);
   openRef.current = open;

@@ -443,6 +443,25 @@ export const makePages = internalMutation({
   },
 });
 
+// Moments that were saved before paging ran, or while the book was locked,
+// still owe a page. This walks experiences and cuts the next batch for each.
+// A page taken out on purpose stays out: it is already behind `filledAt`.
+export const backfillWaiting = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const page = await ctx.db.query("events").paginate({ numItems: 20, cursor: args.cursor ?? null });
+    for (const event of page.page) {
+      if (event.status === "archived") continue;
+      await ctx.scheduler.runAfter(0, internal.journal.makePages, { eventId: event._id });
+    }
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.journal.backfillWaiting, { cursor: page.continueCursor });
+    }
+    return null;
+  },
+});
+
 // The same batch, run now, for the owner. A long trip continues in `makePages`.
 // Safe to call twice: the second finds nothing new.
 export const fill = mutation({
