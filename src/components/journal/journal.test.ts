@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import { type JournalElement, PAGE } from "../../../convex/lib/journal";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { MomentView } from "@/components/event/types";
+import { formatDay } from "@/lib/local-time";
 import { groupByDay } from "@/lib/timeline";
+import { contentsByDay } from "./contents";
 import { behind, placed, sizeOf, tapedTo } from "./add";
 import { journalFile, readJournalFile } from "./export";
 import { dayIdea, IDEAS, tierIdea } from "./ideas";
@@ -60,6 +62,35 @@ describe("journal files", () => {
     const back = await readJournalFile(file);
     expect(back).toHaveLength(1);
     expect(back[0]!.elements.map((e) => e.id)).toEqual(["ok"]);
+  });
+});
+
+describe("the contents strip", () => {
+  const day = { weekday: "short", month: "short", day: "numeric" } as const;
+  const moment = (startsAt: number) => ({ startsAt, tzOffsetMinutes: 0 });
+  test("pages gather under the cover and then each day, in book order", () => {
+    const june3 = Date.UTC(2026, 5, 3, 9);
+    const june4 = Date.UTC(2026, 5, 4, 9);
+    const moments = new Map([
+      ["m1", moment(june3)],
+      ["m2", moment(june3 + 3_600_000)],
+      ["m3", moment(june4)],
+    ]);
+    const groups = contentsByDay(
+      [
+        { _id: "cover" },
+        { _id: "p1", momentId: "m1" },
+        { _id: "blank" },
+        { _id: "p2", momentId: "m2" },
+        { _id: "p3", momentId: "m3" },
+      ],
+      moments,
+    );
+    expect(groups.map((g) => g.label)).toEqual(["Cover", formatDay(june3, 0, day), formatDay(june4, 0, day)]);
+    expect(groups[0]!.pages.map((p) => p.index)).toEqual([0]);
+    // A page with no moment stays with the day before it.
+    expect(groups[1]!.pages.map((p) => p.index)).toEqual([1, 2, 3]);
+    expect(groups[2]!.pages.map((p) => p.index)).toEqual([4]);
   });
 });
 

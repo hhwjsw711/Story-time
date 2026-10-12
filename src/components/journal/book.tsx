@@ -49,6 +49,7 @@ import type { Idea } from "./ideas";
 import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile, waitForPage } from "./export";
 import { DRAW_NAMES, DRAW_WIDTH, FONTS, GRAIN, INKS, paperLook } from "./look";
 import { JournalMenu, type Layer } from "./menu";
+import { contentsByDay } from "./contents";
 import { JournalPage, type PageData } from "./page";
 import { AddTray, Inspector } from "./panel";
 import { Reader } from "./reader";
@@ -772,46 +773,49 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* The pages, as a strip of thumbnails. */}
-        {!reading && (
-          <nav aria-label="Pages" className="hidden w-28 shrink-0 flex-col gap-2 overflow-y-auto border-r border-stone-300/80 bg-[#efe6d2]/80 p-2 sm:flex">
-            {pages.map((p, i) => (
-              <div key={p._id} className="group relative">
-                <button
-                  type="button"
-                  aria-label={i === 0 ? "Cover" : `Page ${i}`}
-                  aria-current={i === at ? "page" : undefined}
-                  onClick={() => setIndex(i)}
-                  className={cn(
-                    "block overflow-hidden rounded-sm shadow-sm ring-offset-2 ring-offset-[#efe6d2] transition hover:-translate-y-0.5",
-                    i === at ? "ring-2 ring-[#c4552f]" : "ring-1 ring-stone-300",
-                  )}
-                >
-                  <span
-                    className="block h-[7.5rem] overflow-hidden px-1.5 py-2 text-left text-[11px] leading-snug text-stone-700"
-                    style={{ background: paperLook(p.paper).color, fontFamily: FONTS.hand }}
-                  >
-                    {p.label || (i === 0 ? "Cover" : `Page ${i}`)}
-                  </span>
-                </button>
-                <div className="mt-0.5 flex items-center justify-between text-[11px] text-stone-600">
-                  <span style={{ fontFamily: FONTS.typewriter }}>{i === 0 ? "cover" : i}</span>
-                  {p.locked && <LockIcon aria-label="Locked" className="size-3" />}
-                </div>
-              </div>
-            ))}
-            {journal.canEdit && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-dashed"
-                onClick={() => void journal.addPage(pageId).then((id) => id && setIndex(at + 1))}
-              >
-                <PlusIcon aria-hidden /> Page
-              </Button>
-            )}
-          </nav>
-        )}
+        {/* Contents, by day. The open page and its neighbours are drawn small;
+            the rest stay a label, so the strip does not decode every photo. */}
+        <nav aria-label="Pages" className="hidden w-32 shrink-0 flex-col gap-3 overflow-y-auto border-r border-stone-300/80 bg-[#efe6d2]/80 p-2 sm:flex">
+          {contentsByDay(pages, momentById).map((group) => (
+            <section key={group.key} className="space-y-2">
+              <h2 className="sticky top-0 z-10 bg-[#efe6d2]/95 py-0.5 font-mono text-[10px] tracking-[0.12em] text-stone-500 uppercase">{group.label}</h2>
+              {group.pages.map(({ index: i }) => {
+                const p = pages[i]!;
+                const name = p.label || (i === 0 ? "Cover" : `Page ${i}`);
+                return (
+                  <div key={p._id}>
+                    <button
+                      type="button"
+                      aria-label={`${group.label}, ${name}`}
+                      aria-current={i === at ? "page" : undefined}
+                      onClick={() => setIndex(i)}
+                      className={cn(
+                        "block overflow-hidden rounded-sm shadow-sm ring-offset-2 ring-offset-[#efe6d2] transition hover:-translate-y-0.5",
+                        i === at ? "ring-2 ring-[#c4552f]" : "ring-1 ring-stone-300",
+                      )}
+                    >
+                      <StripFace pageId={p._id} paper={p.paper} label={name} draw={Math.abs(i - at) <= 1} moments={momentById} />
+                    </button>
+                    <div className="mt-0.5 flex items-center justify-between text-[11px] text-stone-600">
+                      <span style={{ fontFamily: FONTS.typewriter }}>{i === 0 ? "cover" : i}</span>
+                      {p.locked && <LockIcon aria-label="Locked" className="size-3" />}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+          {journal.canEdit && !reading && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-dashed"
+              onClick={() => void journal.addPage(pageId).then((id) => id && setIndex(at + 1))}
+            >
+              <PlusIcon aria-hidden /> Page
+            </Button>
+          )}
+        </nav>
 
         {/* The open page, or the book. */}
         <div
@@ -990,5 +994,34 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
           document.body,
         )}
     </div>
+  );
+}
+
+const THUMB = 96 / PAGE.w;
+
+// The open page and the one on either side are drawn. Every other contents
+// entry stays the paper colour and its label.
+function StripFace({
+  pageId,
+  paper,
+  label,
+  draw,
+  moments,
+}: {
+  pageId: string;
+  paper: string;
+  label: string;
+  draw: boolean;
+  moments: ReadonlyMap<string, MomentView>;
+}) {
+  const loaded = useQuery(api.journal.page, draw ? { pageId: pageId as PageId } : "skip");
+  if (draw && loaded) return <JournalPage page={loaded} moments={moments} scale={THUMB} live={false} />;
+  return (
+    <span
+      className="block overflow-hidden px-1.5 py-2 text-left text-[11px] leading-snug text-stone-700"
+      style={{ background: paperLook(paper).color, fontFamily: FONTS.hand, width: PAGE.w * THUMB, height: PAGE.h * THUMB }}
+    >
+      {label}
+    </span>
   );
 }
