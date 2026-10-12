@@ -241,7 +241,7 @@ export function AddTray({
             <span className="block text-sm text-stone-800" style={{ fontFamily: FONTS.hand }}>
               Tier list
             </span>
-            <span className="block text-[11px] text-stone-600">Rows S to D; drag each one up into its row</span>
+            <span className="block text-[11px] text-stone-600">Rows S to F; drag each one up into its row</span>
             <div className="flex flex-wrap gap-1 pt-1.5">
               {tiers.map((idea) => (
                 <Button key={idea.id} size="xs" variant="outline" className="bg-white/70" onClick={() => onIdea(idea)}>

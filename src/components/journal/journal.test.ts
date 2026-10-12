@@ -93,10 +93,10 @@ describe("page ideas", () => {
     expect(onThePage(els)).toBe(true);
   });
 
-  test("a tier list has rows S to D and keeps what's still to rank on the page", () => {
+  test("a tier list has rows S to F and keeps what's still to rank on the page", () => {
     const items = Array.from({ length: 40 }, (_, i) => ({ text: `Place ${i}`, mediaId: i % 3 === 0 ? `p${i}` : undefined }));
     const els = tierIdea("places", "every place", items).make(trip);
-    expect(els.filter((e) => e.style === "tier").map((e) => e.text)).toEqual(["S", "A", "B", "C", "D"]);
+    expect(els.filter((e) => e.style === "tier").map((e) => e.text)).toEqual(["S", "A", "B", "C", "D", "F"]);
     expect(els.filter((e) => e.kind === "photo" || e.style === "label").length).toBeGreaterThan(10);
     expect(onThePage(els)).toBe(true);
   });

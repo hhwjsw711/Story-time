@@ -150,7 +150,7 @@ export function dayIdea(day: Day): Idea {
   };
 }
 
-// A tier list: rows S to D, and below them what's still to rank (places as
+// A tier list: rows S to F, and below them what's still to rank (places as
 // label-maker strips, moments as their first photo) to drag up into a row.
 // ponytail: what doesn't fit under the rows is left off; a second page if people rank 30+ things.
 export type TierItem = { text: string; mediaId?: string };
@@ -164,7 +164,7 @@ export function tierIdea(id: string, hint: string, items: TierItem[]): Idea {
     make: () => {
       const pool: Part[] = [];
       let x = 40;
-      let y = 762;
+      let y = 788;
       let tallest = 0;
       for (const item of items) {
         const w = item.mediaId ? 84 : 150;
@@ -180,10 +180,10 @@ export function tierIdea(id: string, hint: string, items: TierItem[]): Idea {
         tallest = Math.max(tallest, h);
       }
       return page([
-        ...["S", "A", "B", "C", "D"].map((t, i): Part => ({ kind: "deco", style: "tier", text: t, x: 40, y: 140 + i * 112, w: PAGE.w - 80, h: 104 })),
+        ...["S", "A", "B", "C", "D", "F"].map((t, i): Part => ({ kind: "deco", style: "tier", text: t, x: 40, y: 140 + i * 98, w: PAGE.w - 80, h: 92 })),
         { kind: "title", style: "dada", text: "Tier list", x: 40, y: 20, w: 400, h: 106 },
         { kind: "title", style: "hand", text: hint, x: 450, y: 46, w: 304, h: 80, rotation: -3 },
-        { kind: "title", style: "hand", text: "still to rank ↓", x: 40, y: 704, w: 300, h: 52, rotation: -2 },
+        { kind: "title", style: "hand", text: "still to rank ↓", x: 40, y: 734, w: 300, h: 48, rotation: -2 },
         ...pool,
       ]);
     },
