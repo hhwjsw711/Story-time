@@ -306,7 +306,9 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_event_and_at", ["eventId", "at"])
-    .index("by_entity", ["entity", "entityId", "at"]),
+    .index("by_entity", ["entity", "entityId", "at"])
+    // Unread counts one kind of create at a time, so other changes cannot crowd them out.
+    .index("by_event_entity_action_at", ["eventId", "entity", "action", "at"]),
 
   // When the owner last opened Activity, so the badge can count what is newer.
   activityReads: defineTable({

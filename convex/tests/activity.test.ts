@@ -60,4 +60,28 @@ describe("activity badge", () => {
     await expect(stranger.mutation(api.guestNotes.leave, { eventId, text: "Hello" })).rejects.toThrow(/Event not found/);
     await expect(viewer.mutation(api.guestNotes.leave, { eventId, text: "   " })).rejects.toThrow(/500/);
   });
+
+  test("a burst of other changes does not hide a new note", async () => {
+    const { t, owner, viewer, eventId } = await setup();
+    await owner.mutation(api.changes.markRead, { eventId });
+    const readAt = await t.run(async (ctx) => {
+      const read = await ctx.db.query("activityReads").first();
+      if (read === null) throw new Error("missing read mark");
+      return read.readAt;
+    });
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 200; i++) {
+        await ctx.db.insert("changes", {
+          eventId,
+          entity: "media",
+          entityId: `media-${i}`,
+          action: "update",
+          fields: [],
+          at: readAt + 1,
+        });
+      }
+    });
+    await viewer.mutation(api.guestNotes.leave, { eventId, text: "Still here" });
+    expect(await owner.query(api.changes.unreadCount, { eventId })).toBe(1);
+  });
 });

@@ -1,12 +1,32 @@
 import { paginationOptsValidator, paginationResultValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type QueryCtx } from "./_generated/server";
 import { requireEventAccess } from "./lib/access";
 import schema from "./schema";
 
 // What the Activity badge counts: new moments, new pages, and guestbook notes.
-const NOTABLE = new Set(["moment", "page", "guestNote"]);
+const NOTABLE = ["moment", "page", "guestNote"] as const;
+
+// Per kind, not a shared window. A trip holds at most 400 pages and a few
+// hundred moments, so this covers a burst of creates of one kind. Edits of
+// other kinds are not in the index range and cannot crowd a note out.
+const UNREAD_SCAN = 1000;
+
+async function countCreates(
+  ctx: QueryCtx,
+  eventId: Id<"events">,
+  entity: (typeof NOTABLE)[number],
+  since: number,
+): Promise<number> {
+  const rows = await ctx.db
+    .query("changes")
+    .withIndex("by_event_entity_action_at", (q) =>
+      q.eq("eventId", eventId).eq("entity", entity).eq("action", "create").gt("at", since),
+    )
+    .take(UNREAD_SCAN);
+  return rows.length;
+}
 
 const vChange = v.object({
   _id: v.id("changes"),
@@ -31,11 +51,9 @@ export const unreadCount = query({
       .withIndex("by_user_and_event", (q) => q.eq("userId", userId).eq("eventId", eventId))
       .unique();
     const since = read?.readAt ?? 0;
-    const rows = await ctx.db
-      .query("changes")
-      .withIndex("by_event_and_at", (q) => q.eq("eventId", eventId).gt("at", since))
-      .take(200);
-    return rows.filter((row) => row.action === "create" && NOTABLE.has(row.entity)).length;
+    let total = 0;
+    for (const entity of NOTABLE) total += await countCreates(ctx, eventId, entity, since);
+    return total;
   },
 });
 
