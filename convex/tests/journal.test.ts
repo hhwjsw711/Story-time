@@ -120,6 +120,10 @@ describe("laying out pages", () => {
     expect(merged.find((e) => e.kind === "note")?.text).toBe("Better");
     expect(merged.find((e) => e.id === "mine")).toEqual(sticker);
     expect(merged.filter((e) => e.kind === "note")).toHaveLength(1);
+    const locked = old.find((e) => e.kind === "note");
+    const kept = catchUpElements([{ ...locked!, locked: true }, sticker], fresh, "moment1");
+    expect(kept.find((e) => e.kind === "note")?.text).toBe("Old");
+    expect(kept.filter((e) => e.kind === "note")).toHaveLength(1);
   });
 
   test("dates read as a range, or one day", () => {
@@ -485,6 +489,25 @@ describe("drawings, links and new pages", () => {
       image: undefined,
       site: "example.com",
     });
+  });
+
+  test("a locked thing cannot be moved or removed until it is unlocked", async () => {
+    const { owner, eventId } = await setup();
+    const pageId = await owner.mutation(api.journal.addPage, { eventId });
+    const locked = element({ locked: true });
+    const beside = element({ id: "e2", x: 400, text: "Beside" });
+    await owner.mutation(api.journal.savePage, { pageId, elements: [locked] });
+    await expect(owner.mutation(api.journal.savePage, { pageId, elements: [{ ...locked, x: 80 }] })).rejects.toThrow(/locked in place/);
+    await expect(owner.mutation(api.journal.savePage, { pageId, elements: [] })).rejects.toThrow(/locked in place/);
+    await expect(owner.mutation(api.journal.savePage, { pageId, elements: [{ ...locked, locked: undefined, x: 80 }] })).rejects.toThrow(/locked in place/);
+    await owner.mutation(api.journal.savePage, { pageId, elements: [locked, beside] });
+    const saved = (await owner.query(api.journal.get, { eventId })).pages.find((p) => p._id === pageId);
+    expect(saved?.elements.find((e) => e.id === "e1")).toMatchObject({ x: 10, locked: true, text: "Hello" });
+    await owner.mutation(api.journal.savePage, { pageId, elements: [{ ...locked, locked: undefined }, beside] });
+    await owner.mutation(api.journal.savePage, { pageId, elements: [{ ...locked, locked: undefined, x: 80 }, beside] });
+    const moved = (await owner.query(api.journal.get, { eventId })).pages.find((p) => p._id === pageId);
+    expect(moved?.elements.find((e) => e.id === "e1")).toMatchObject({ x: 80 });
+    expect(moved?.elements.find((e) => e.id === "e1")?.locked).toBeUndefined();
   });
 
   test("a page can start with things on it", async () => {
