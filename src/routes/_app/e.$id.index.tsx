@@ -62,13 +62,13 @@ function EventPage() {
         return (
           /* The moments, and beside them whatever is being edited. Stacked on
              narrow screens, the editor first. */
-          <div className={cn("grid gap-6", panel !== "outline" && "lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-start")}>
+          <div className={cn("grid gap-6", panel !== "outline" && "max-w-[80rem] lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-start")}>
             {panel !== "outline" && (
-              <div className="min-w-0 lg:sticky lg:top-4 lg:order-2">
+              <div className="min-w-0 lg:sticky lg:top-4 lg:order-2 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto lg:overscroll-contain">
                 <EditorPanel event={event} panel={panel} momentId={editId} canEditMoment={canEditMoment} onClose={() => openPanel("outline")} />
               </div>
             )}
-            <div className="min-w-0 max-w-3xl space-y-4 lg:order-1">
+            <div className={cn("min-w-0 space-y-4 lg:order-1", panel === "outline" && "max-w-3xl")}>
               <CommandBar event={event} openMomentId={momentId} />
               <Timeline event={event} meId={me?.id} selectedMomentId={momentId} onPick={pick} />
             </div>
