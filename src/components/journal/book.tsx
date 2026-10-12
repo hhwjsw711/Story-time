@@ -27,6 +27,7 @@ import { type JournalElement, PAGE } from "../../../convex/lib/journal";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { EventView, MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useSidebar } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,12 +38,16 @@ import { StickerCutter } from "./cutter";
 import { PageEditor, writable } from "./editor";
 import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile } from "./export";
 import { FONTS, GRAIN, paperLook } from "./look";
+import { JournalMenu, type Layer } from "./menu";
 import { JournalPage, type PageData } from "./page";
 import { AddTray, Inspector } from "./panel";
 import { Reader } from "./reader";
 import { useJournal } from "./use-journal";
 
 type PageId = Id<"journalPages">;
+
+// What was copied or cut, for pasting on any page of any journal open here.
+let clipboard: JournalElement | null = null;
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea, select") !== null);
 
@@ -122,28 +127,61 @@ export function JournalBook({ event }: { event: EventView }) {
   const changeOne = (id: string, patch: Partial<JournalElement>) =>
     page && change(page.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)));
 
-  const add = (thing: NewThing) => {
+  const add = (thing: NewThing, at?: { x: number; y: number }) => {
     if (!page || !editable) return;
     const id = newId();
-    change([...page.elements, placed(thing, page.elements, id)]);
+    const made = placed(thing, page.elements, id);
+    change([...page.elements, at ? { ...made, x: Math.round(at.x - made.w / 2), y: Math.round(at.y - made.h / 2) } : made]);
     setSelected(id);
   };
-  const remove = () => {
-    if (!page || !selected) return;
-    change(page.elements.filter((e) => e.id !== selected));
+  const remove = (e = chosen) => {
+    if (!page || !e) return;
+    change(page.elements.filter((x) => x.id !== e.id));
     setSelected(null);
   };
-  const duplicate = () => {
-    if (!page || !chosen) return;
+  const duplicate = (e = chosen) => {
+    if (!page || !e) return;
     const id = newId();
-    change([...page.elements, { ...chosen, id, x: chosen.x + 24, y: chosen.y + 24, z: Math.max(...page.elements.map((e) => e.z)) + 1, locked: undefined }]);
+    change([...page.elements, { ...e, id, x: e.x + 24, y: e.y + 24, z: Math.max(...page.elements.map((x) => x.z)) + 1, locked: undefined }]);
     setSelected(id);
   };
-  const restack = (to: "front" | "back") => {
-    if (!page || !chosen) return;
-    const zs = page.elements.map((e) => e.z);
-    changeOne(chosen.id, { z: to === "front" ? Math.max(...zs) + 1 : Math.min(...zs) - 1 });
+  // To the very front or back, or one step past its nearest neighbour.
+  const layer = (e: JournalElement | undefined, to: Layer) => {
+    if (!page || !e) return;
+    const others = page.elements.filter((x) => x.id !== e.id).map((x) => x.z);
+    if (others.length === 0) return;
+    const above = others.filter((z) => z > e.z);
+    const below = others.filter((z) => z < e.z);
+    const z =
+      to === "front" ? Math.max(...others) + 1
+      : to === "back" ? Math.min(...others) - 1
+      : to === "forward" ? (above.length ? Math.min(...above) + 0.5 : e.z)
+      : below.length ? Math.max(...below) - 0.5 : e.z;
+    changeOne(e.id, { z });
   };
+  const restack = (to: "front" | "back") => layer(chosen, to);
+  const copy = (e = chosen) => {
+    if (e) clipboard = { ...e, locked: undefined };
+  };
+  const cut = (e = chosen) => {
+    if (!e || e.locked) return;
+    copy(e);
+    remove(e);
+  };
+  // A copy of what was copied: at `at`, or a little off where it was.
+  const paste = (at?: { x: number; y: number }) => {
+    if (!page || !editable || !clipboard) return;
+    const id = newId();
+    const c = clipboard;
+    const spot = at ? { x: Math.round(at.x - c.w / 2), y: Math.round(at.y - c.h / 2) } : { x: c.x + 24, y: c.y + 24 };
+    change([...page.elements, { ...c, id, ...spot, z: Math.max(0, ...page.elements.map((x) => x.z)) + 1 }]);
+    clipboard = { ...c, ...spot };
+    setSelected(id);
+  };
+
+  // What the last right-click was on, and where on the page.
+  const [menu, setMenu] = useState<{ id?: string; at: { x: number; y: number } }>({ at: { x: PAGE.w / 2, y: PAGE.h / 2 } });
+  const menuOn = page?.elements.find((e) => e.id === menu.id);
 
   // The keys, while the journal is open and nobody is typing.
   useEffect(() => {
@@ -154,6 +192,9 @@ export function JournalBook({ event }: { event: EventView }) {
         e.preventDefault();
         if (e.shiftKey) journal.redo();
         else journal.undo();
+      } else if (mod && e.key.toLowerCase() === "v" && editable && clipboard) {
+        e.preventDefault();
+        paste();
       } else if (!editable || !chosen) {
         return;
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -162,6 +203,11 @@ export function JournalBook({ event }: { event: EventView }) {
       } else if (mod && e.key.toLowerCase() === "d") {
         e.preventDefault();
         duplicate();
+      } else if (mod && e.key.toLowerCase() === "c") {
+        copy();
+      } else if (mod && e.key.toLowerCase() === "x") {
+        e.preventDefault();
+        cut();
       } else if (e.key === "Escape") {
         setSelected(null);
       } else if (e.key === "Enter" && writable(chosen)) {
@@ -275,8 +321,8 @@ export function JournalBook({ event }: { event: EventView }) {
       onChange={(patch) => changeOne(chosen.id, patch)}
       onWrite={() => setWriting(chosen.id)}
       onRestack={restack}
-      onDuplicate={duplicate}
-      onDelete={remove}
+      onDuplicate={() => duplicate()}
+      onDelete={() => remove()}
       onCut={() => setCutting({ open: true, photo: chosen.mediaId })}
     />
   ) : (
@@ -429,19 +475,57 @@ export function JournalBook({ event }: { event: EventView }) {
             <Reader pages={pages} moments={momentById} size={size} start={at} onPage={setIndex} />
           ) : (
             <div className="flex min-h-full items-center justify-center p-4">
-              <div className="shadow-[0_18px_40px_rgba(40,28,10,.32)]">
-                <PageEditor
-                  page={page!}
-                  moments={momentById}
-                  scale={scale}
-                  editable={editable}
-                  selected={selected}
-                  writing={writing}
-                  onSelect={setSelected}
-                  onWrite={setWriting}
-                  onChange={(els) => change(els)}
+              <ContextMenu>
+                <ContextMenuTrigger asChild>
+                  <div
+                    className="shadow-[0_18px_40px_rgba(40,28,10,.32)]"
+                    onContextMenu={(ev) => {
+                      // What is under the pointer, and where on the page.
+                      const root = ev.currentTarget.querySelector<HTMLElement>("[data-journal-page]");
+                      const r = root?.getBoundingClientRect();
+                      const id = (ev.target as HTMLElement).closest<HTMLElement>("[data-el]")?.dataset.el;
+                      setMenu({ id, at: r ? { x: (ev.clientX - r.left) / scale, y: (ev.clientY - r.top) / scale } : { x: PAGE.w / 2, y: PAGE.h / 2 } });
+                      setWriting(null);
+                      if (id && editable) setSelected(id);
+                    }}
+                  >
+                    <PageEditor
+                      page={page!}
+                      moments={momentById}
+                      scale={scale}
+                      editable={editable}
+                      selected={selected}
+                      writing={writing}
+                      onSelect={setSelected}
+                      onWrite={setWriting}
+                      onChange={(els) => change(els)}
+                    />
+                  </div>
+                </ContextMenuTrigger>
+                <JournalMenu
+                  e={menuOn}
+                  paper={page!.paper}
+                  pageLocked={page!.locked || journal.locked}
+                  can={{ paste: clipboard !== null && editable, edit: journal.owner && !journal.locked }}
+                  act={{
+                    write: (e) => setWriting(e.id),
+                    copy,
+                    cut,
+                    paste: () => paste(menuOn ? undefined : menu.at),
+                    duplicate,
+                    layer,
+                    change: (e, patch) => changeOne(e.id, patch),
+                    sticker: (e) => setCutting({ open: true, photo: e.mediaId }),
+                    remove,
+                    addHere: (thing) => add(thing, menu.at),
+                    paper: (paper) => change(page!.elements, paper),
+                    addPage: () => void journal.addPage(pageId).then((id) => id && setIndex(at + 1)),
+                    lockPage: () => void journal.lockPage(pageId, !page!.locked),
+                    picture: () => void printPage(),
+                    read: () => setReading(true),
+                  }}
                 />
-              </div>
+              </ContextMenu>
             </div>
           )}
         </div>

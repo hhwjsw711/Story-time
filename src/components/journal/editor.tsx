@@ -63,7 +63,8 @@ export function PageEditor({
 
   // Pressing a thing picks it up and starts a drag in the same gesture.
   const press = (ev: ReactPointerEvent<HTMLDivElement>) => {
-    if (!editable || writing) return;
+    // Only the main button picks up; a right-click opens the menu instead.
+    if (!editable || writing || ev.button !== 0) return;
     const node = (ev.target as HTMLElement).closest<HTMLElement>("[data-el]");
     if ((ev.target as HTMLElement).closest("[data-no-drag]")) return;
     const id = node?.dataset.el ?? null;
