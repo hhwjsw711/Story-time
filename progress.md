@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- Deleting an experience also removes a connection token that was limited to it. Account-wide tokens stay until A2. The 1,500 media ceiling is unchanged.
 - **Simplification, part A (PR #34, open).** The product is cut back to one way in and one way out: Add photos or a sentence in the box; a story scroll with the film behind Play. Gone: the canvas editor (its paper visuals stay for the story), MCP assistants, quota requests, the itinerary table with its filters, three views and bulk select, the review sheet, the "Add moment" form path and per-row menus. New: a plain timeline by day with search; the form edits and deletes one moment. Backend: five tables stop being written (removed in part A2), `MOMENT_LIMIT = 300` replaces per-experience limits, `http.ts` is empty (auth routes come from `convex.config.ts`).
 - PR #33 (canvas enhancements) closed unmerged; its box restyle was redone in part A.
 - Decided with Sara: scroll with film as Play; auto scrapbook with no editor; photos + one box; MCP, quota and itinerary filters go, Activity stays.
