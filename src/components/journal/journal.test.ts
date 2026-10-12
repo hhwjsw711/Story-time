@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
-import type { JournalElement } from "../../../convex/lib/journal";
+import { type JournalElement, PAGE } from "../../../convex/lib/journal";
+import type { Id } from "../../../convex/_generated/dataModel";
+import type { MomentView } from "@/components/event/types";
+import { groupByDay } from "@/lib/timeline";
 import { behind, placed, sizeOf, tapedTo } from "./add";
 import { journalFile, readJournalFile } from "./export";
+import { dayIdea, IDEAS, tierIdea } from "./ideas";
 
 const el = (over: Partial<JournalElement>): JournalElement => ({ id: "x", kind: "photo", x: 100, y: 100, w: 300, h: 300, rotation: 0, z: 5, mediaId: "m", ...over });
 
@@ -56,5 +60,44 @@ describe("journal files", () => {
     const back = await readJournalFile(file);
     expect(back).toHaveLength(1);
     expect(back[0]!.elements.map((e) => e.id)).toEqual(["ok"]);
+  });
+});
+
+describe("page ideas", () => {
+  const trip = { title: "Lisbon", photos: ["p1", "p2"], dates: "June 2026" };
+  const onThePage = (els: JournalElement[]) => els.filter((e) => e.kind !== "deco").every((e) => e.x >= 0 && e.y >= 0 && e.x + e.w <= PAGE.w && e.y + e.h <= PAGE.h);
+
+  test("every idea makes a page of its own ids, inside the page", () => {
+    for (const idea of IDEAS) {
+      const els = idea.make(trip);
+      expect(new Set(els.map((e) => e.id)).size).toBe(els.length);
+      expect(onThePage(els)).toBe(true);
+    }
+  });
+
+  test("what we did that day lists the day's moments in order, with its photos", () => {
+    const m = (id: string, hour: number, text: string, photo?: string): MomentView => ({
+      _id: id as MomentView["_id"],
+      authorId: "u1" as MomentView["authorId"],
+      startsAt: Date.UTC(2026, 5, 3, hour),
+      tzOffsetMinutes: 0,
+      blocks: [...(photo ? [{ type: "photo" as const, mediaId: photo as Id<"media"> }] : []), { type: "note" as const, text }],
+      stops: [],
+      labels: [],
+    });
+    const [day] = groupByDay([m("b", 15, "Tram 28", "p2"), m("a", 9, "Coffee", "p1")]);
+    const els = dayIdea(day!).make(trip);
+    const list = els.find((e) => e.kind === "note")!.text!;
+    expect(list.indexOf("Coffee")).toBeLessThan(list.indexOf("Tram 28"));
+    expect(els.filter((e) => e.kind === "photo").map((e) => e.mediaId)).toEqual(["p1", "p2"]);
+    expect(onThePage(els)).toBe(true);
+  });
+
+  test("a tier list has rows S to D and keeps what's still to rank on the page", () => {
+    const items = Array.from({ length: 40 }, (_, i) => ({ text: `Place ${i}`, mediaId: i % 3 === 0 ? `p${i}` : undefined }));
+    const els = tierIdea("places", "every place", items).make(trip);
+    expect(els.filter((e) => e.style === "tier").map((e) => e.text)).toEqual(["S", "A", "B", "C", "D"]);
+    expect(els.filter((e) => e.kind === "photo" || e.style === "label").length).toBeGreaterThan(10);
+    expect(onThePage(els)).toBe(true);
   });
 });

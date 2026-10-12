@@ -1,12 +1,15 @@
-import { ArrowDownToLineIcon, ArrowUpToLineIcon, CopyIcon, LockIcon, PenLineIcon, ScissorsIcon, Trash2Icon, UnlockIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { ArrowDownToLineIcon, ArrowUpToLineIcon, CopyIcon, ImagePlusIcon, LinkIcon, LockIcon, PencilIcon, PenLineIcon, ScissorsIcon, Trash2Icon, UnlockIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { DECOS, type JournalElement, NOTE_STYLES, PAPERS, PRINT_STYLES, TITLE_STYLES } from "../../../convex/lib/journal";
 import type { MomentView } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { firstLine, groupByDay } from "@/lib/timeline";
 import { useMediaUrl } from "@/lib/use-media-url";
 import { cn } from "@/lib/utils";
-import { type NewThing } from "./add";
+import { type NewThing, sizeOf, WORDED } from "./add";
 import { Deco, Note, Title } from "./elements";
+import { dayIdea, type Idea, IDEAS, type TierItem, tierIdea } from "./ideas";
 import { DECO_NAMES, FONTS, INK, NOTE_NAMES, PAPER_LOOKS, PRINT_NAMES, TITLE_NAMES } from "./look";
 
 // The side of the journal: what you can put on a page, or, with something
@@ -50,8 +53,9 @@ function Sample({ children, label, on, onClick }: { children: ReactNode; label: 
 const sample = (kind: JournalElement["kind"], style: string, text?: string): JournalElement => ({ id: `sample-${kind}-${style}`, kind, style, text, x: 0, y: 0, w: 120, h: 50, rotation: 0, z: 0 });
 
 // Draws a title, note or bit at a small size inside a sample.
-function Mini({ e, w, h }: { e: JournalElement; w: number; h: number }) {
-  const scale = Math.min(118 / w, 56 / h);
+// `room` is how wide the sample is.
+function Mini({ e, w, h, room = 118 }: { e: JournalElement; w: number; h: number; room?: number }) {
+  const scale = Math.min(room / w, 56 / h);
   return (
     <div style={{ width: w * scale, height: h * scale }}>
       <div style={{ width: w, height: h, transform: `scale(${scale})`, transformOrigin: "0 0" }}>
@@ -63,6 +67,8 @@ function Mini({ e, w, h }: { e: JournalElement; w: number; h: number }) {
 
 // ---- What to add -----------------------------------------------------------------------
 
+const photosOf = (m: MomentView): string[] => [m.blocks, ...m.stops.map((s) => s.blocks)].flat().flatMap((b) => (b.type === "photo" ? [b.mediaId] : []));
+
 export function AddTray({
   moments,
   stickers,
@@ -70,6 +76,10 @@ export function AddTray({
   onAdd,
   onPaper,
   onCut,
+  onIdea,
+  onUpload,
+  onLink,
+  onDraw,
 }: {
   moments: MomentView[];
   stickers: string[];
@@ -77,8 +87,23 @@ export function AddTray({
   onAdd: (thing: NewThing) => void;
   onPaper: (paper: string) => void;
   onCut: () => void;
+  onIdea: (idea: Idea) => void;
+  onUpload: () => void;
+  onLink: (url: string) => void;
+  onDraw: () => void;
 }) {
-  const photos = moments.flatMap((m) => [m.blocks, ...m.stops.map((s) => s.blocks)].flat().flatMap((b) => (b.type === "photo" ? [b.mediaId as string] : [])));
+  const [url, setUrl] = useState("");
+  const days = groupByDay(moments);
+  // What can be ranked: every place, every moment, or one moment's stops.
+  const placeName = (p?: string) => p?.split(",")[0]!.trim() || undefined;
+  const placesOf = (m: MomentView) => [m.place, ...m.stops.map((s) => s.place)].map(placeName).filter((p): p is string => p !== undefined);
+  const asItems = (names: string[]): TierItem[] => [...new Set(names)].map((text) => ({ text }));
+  const tiers = [
+    tierIdea("places", "every place we went", asItems(moments.flatMap(placesOf))),
+    tierIdea("moments", "every moment", moments.map((m) => ({ text: firstLine(m) ?? "A moment", mediaId: photosOf(m)[0] }))),
+    ...moments.filter((m) => new Set(placesOf(m)).size >= 2).map((m) => tierIdea(m._id, `the stops in ${placesOf(m)[0]}`, asItems(placesOf(m)))),
+  ];
+  const photos = moments.flatMap(photosOf);
   const mapped = moments.filter((m) => [m.geo, ...m.stops.map((s) => s.geo)].filter(Boolean).length >= 1);
   return (
     <div>
@@ -100,6 +125,9 @@ export function AddTray({
       </Section>
 
       <Section title={`Photos · ${photos.length}`}>
+        <Button size="sm" variant="outline" className="w-full" onClick={onUpload}>
+          <ImagePlusIcon aria-hidden /> A picture from your device
+        </Button>
         {photos.length === 0 ? (
           <p className="text-xs text-stone-500">Photos you add to moments show up here.</p>
         ) : (
@@ -147,11 +175,31 @@ export function AddTray({
       <Section title="Bits and pieces">
         <div className="grid grid-cols-3 gap-1.5">
           {DECOS.map((d) => (
-            <Sample key={d} label={`Add ${DECO_NAMES[d]}`} onClick={() => onAdd({ kind: "deco", style: d, text: d === "ticket" ? "ADMIT ONE" : d === "postmark" ? "HELLO" : undefined, w: 0, h: 0 })}>
-              <Mini e={sample("deco", d, d === "ticket" ? "ONE" : d === "postmark" ? "HI" : undefined)} w={d.startsWith("tape") ? 150 : d === "ticket" ? 250 : 120} h={d.startsWith("tape") ? 38 : d === "ticket" ? 100 : 120} />
+            <Sample key={d} label={`Add ${DECO_NAMES[d]}`} onClick={() => onAdd({ kind: "deco", style: d, text: WORDED[d], w: 0, h: 0 })}>
+              <Mini e={sample("deco", d, WORDED[d])} {...sizeOf("deco", d)} room={56} />
             </Sample>
           ))}
         </div>
+      </Section>
+
+      <Section title="Draw or link">
+        <Button size="sm" variant="outline" className="w-full" onClick={onDraw}>
+          <PencilIcon aria-hidden /> Draw on the page
+        </Button>
+        <form
+          className="flex gap-1.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!url.trim()) return;
+            onLink(url.trim());
+            setUrl("");
+          }}
+        >
+          <Input value={url} onChange={(e) => setUrl(e.target.value)} type="url" inputMode="url" placeholder="Paste a link" aria-label="A link to put on the page" className="h-8 bg-white/70 text-xs" />
+          <Button size="sm" variant="outline" type="submit" aria-label="Add the link" disabled={!url.trim()}>
+            <LinkIcon aria-hidden />
+          </Button>
+        </form>
       </Section>
 
       {mapped.length > 0 && (
@@ -171,6 +219,56 @@ export function AddTray({
           </ul>
         </Section>
       )}
+
+      <Section title="Page ideas">
+        {days.length > 0 && (
+          <div className="rounded-md border border-stone-300 bg-[#fffdf6] px-2 py-1.5">
+            <span className="block text-sm text-stone-800" style={{ fontFamily: FONTS.hand }}>
+              What we did that day
+            </span>
+            <span className="block text-[11px] text-stone-600">That day's moments in order, with its photos</span>
+            <div className="flex flex-wrap gap-1 pt-1.5">
+              {days.map((d) => (
+                <Button key={d.day} size="xs" variant="outline" className="bg-white/70" onClick={() => onIdea(dayIdea(d))}>
+                  {d.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+        {moments.length > 0 && (
+          <div className="rounded-md border border-stone-300 bg-[#efe6d2] px-2 py-1.5">
+            <span className="block text-sm text-stone-800" style={{ fontFamily: FONTS.hand }}>
+              Tier list
+            </span>
+            <span className="block text-[11px] text-stone-600">Rows S to D; drag each one up into its row</span>
+            <div className="flex flex-wrap gap-1 pt-1.5">
+              {tiers.map((idea) => (
+                <Button key={idea.id} size="xs" variant="outline" className="bg-white/70" onClick={() => onIdea(idea)}>
+                  {idea.hint[0]!.toUpperCase() + idea.hint.slice(1)}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+        <ul className="space-y-1">
+          {IDEAS.map((idea) => (
+            <li key={idea.id}>
+              <button
+                type="button"
+                onClick={() => onIdea(idea)}
+                className="w-full rounded-md border border-stone-300 px-2 py-1.5 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-[#c4552f] focus-visible:outline-none"
+                style={{ ...PAPER_LOOKS[idea.paper]!.style, backgroundSize: undefined }}
+              >
+                <span className="block text-sm text-stone-800" style={{ fontFamily: FONTS.hand }}>
+                  {idea.name}
+                </span>
+                <span className="block text-[11px] text-stone-600">{idea.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Section>
 
       <Section title="Paper">
         <div className="grid grid-cols-4 gap-1.5">
@@ -194,7 +292,7 @@ export function AddTray({
 
 // ---- What to do with the picked thing ------------------------------------------------------
 
-const NAMES: Record<JournalElement["kind"], string> = { photo: "Photo", sticker: "Sticker", title: "Title", note: "Note", deco: "Decoration", map: "Map" };
+const NAMES: Record<JournalElement["kind"], string> = { photo: "Photo", sticker: "Sticker", title: "Title", note: "Note", deco: "Decoration", map: "Map", drawing: "Drawing", link: "Link" };
 
 export function Inspector({
   e,

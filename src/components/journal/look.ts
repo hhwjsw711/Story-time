@@ -141,4 +141,55 @@ export const DECO_NAMES: Record<string, string> = {
   flower: "Daisy",
   butterfly: "Butterfly",
   arrow: "Arrow",
+  airmail: "Par avion label",
+  "luggage-tag": "Luggage tag",
+  camera: "Camera",
+  suitcase: "Suitcase",
+  plane: "Little plane",
+  film: "Film strip",
+  heart: "Heart",
+  sun: "Sun",
+  moon: "Moon",
+  cloud: "Cloud",
+  leaf: "Leaf",
+  coffee: "Coffee cup",
+  paperclip: "Paper clip",
+  pin: "Map pin",
+  compass: "Compass",
+  ribbon: "Ribbon banner",
+  speech: "Speech bubble",
+  "tape-gingham": "Gingham tape",
+  sushi: "Sushi",
+  ramen: "Ramen",
+  onigiri: "Onigiri",
+  dumpling: "Dumpling",
+  boba: "Bubble tea",
+  "ice-cream": "Ice cream",
+  croissant: "Croissant",
+  pretzel: "Pretzel",
+  beer: "Beer",
+  pizza: "Pizza slice",
+  sakura: "Cherry blossom",
+  mountains: "Mountains",
+  tram: "Tram",
+  tier: "Tier row",
+};
+
+// The inks a drawing can be made in.
+export const INKS = [
+  { name: "Ink", color: "#1f1a16" },
+  { name: "Rust", color: "#c4552f" },
+  { name: "Teal", color: "#3f8a82" },
+  { name: "Mustard", color: "#d29a1f" },
+  { name: "Rose", color: "#d9707a" },
+  { name: "Navy", color: "#2f3b63" },
+  { name: "White", color: "#fffdf6" },
+] as const;
+
+export const DRAW_NAMES: Record<string, string> = { pen: "Pen", marker: "Marker", highlighter: "Highlighter" };
+// How thick each makes a line, in page units, and how see-through.
+export const DRAW_WIDTH: Record<string, { width: number; opacity: number }> = {
+  pen: { width: 3.5, opacity: 1 },
+  marker: { width: 10, opacity: 0.95 },
+  highlighter: { width: 26, opacity: 0.35 },
 };

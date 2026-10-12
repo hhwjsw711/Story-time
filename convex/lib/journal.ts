@@ -8,7 +8,7 @@ import { seeded } from "./seeded";
 // A4 at 96 dots an inch. Everything on a page is placed in these units.
 export const PAGE = { w: 794, h: 1123 } as const;
 
-export const ELEMENT_KINDS = ["photo", "sticker", "title", "note", "deco", "map"] as const;
+export const ELEMENT_KINDS = ["photo", "sticker", "title", "note", "deco", "map", "drawing", "link"] as const;
 export type ElementKind = (typeof ELEMENT_KINDS)[number];
 
 // What a page is printed on.
@@ -39,15 +39,54 @@ export const DECOS = [
   "flower",
   "butterfly",
   "arrow",
+  "airmail",
+  "luggage-tag",
+  "camera",
+  "suitcase",
+  "plane",
+  "film",
+  "heart",
+  "sun",
+  "moon",
+  "cloud",
+  "leaf",
+  "coffee",
+  "paperclip",
+  "pin",
+  "compass",
+  "ribbon",
+  "speech",
+  "tape-gingham",
+  "sushi",
+  "ramen",
+  "onigiri",
+  "dumpling",
+  "boba",
+  "ice-cream",
+  "croissant",
+  "pretzel",
+  "beer",
+  "pizza",
+  "sakura",
+  "mountains",
+  "tram",
+  "tier",
 ] as const;
 export const TONES = ["sepia", "mono"] as const;
+// What a drawing is made with.
+export const DRAW_STYLES = ["pen", "marker", "highlighter"] as const;
+// How a link shows: a card with its picture, or a luggage tag.
+export const LINK_STYLES = ["card", "tag"] as const;
 
-export const DECO_WORDS = new Set<string>(["ticket", "postmark"]);
+export const DECO_WORDS = new Set<string>(["ticket", "postmark", "luggage-tag", "ribbon", "speech", "tier"]);
 
 // How much a journal holds.
 export const MAX_JOURNAL_PAGES = 400;
 export const MAX_PAGE_ELEMENTS = 120;
 export const MAX_ELEMENT_TEXT = 1000;
+// A drawing keeps its strokes as SVG path data; a link keeps its preview.
+export const MAX_DRAWING_TEXT = 40_000;
+export const MAX_LINK_TEXT = 4000;
 
 // One thing on a page. `x`/`y` is its top-left corner before it turns.
 export type JournalElement = {
@@ -62,6 +101,8 @@ export type JournalElement = {
   style?: string;
   text?: string;
   tone?: string;
+  // An ink, as #rrggbb (a drawing's, or a title's).
+  color?: string;
   mediaId?: string;
   momentId?: string;
   locked?: boolean;
@@ -244,3 +285,24 @@ export function coverPage(trip: { id: string; title: string; dates?: string; pho
 // Whether a number is a sane coordinate or size on a page (things may hang
 // over the edge, but not wander off to infinity).
 export const onPage = (n: number) => Number.isFinite(n) && Math.abs(n) <= 5000;
+
+export type LinkCard = { url: string; title?: string; description?: string; image?: string; site?: string };
+
+// A link's text is its address and what the page says about itself, as JSON.
+// Only web addresses open, and only https pictures load.
+export function readLink(text: string | undefined): LinkCard | undefined {
+  try {
+    const p: unknown = JSON.parse(text ?? "");
+    if (typeof p !== "object" || p === null) return undefined;
+    const field = (k: string) => {
+      const value: unknown = Reflect.get(p, k);
+      return typeof value === "string" && value.trim() ? value : undefined;
+    };
+    const url = new URL(field("url") ?? "");
+    if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+    const image = field("image");
+    return { url: url.href, title: field("title"), description: field("description"), image: image?.startsWith("https://") ? image : undefined, site: field("site") ?? url.hostname.replace(/^www\./, "") };
+  } catch {
+    return undefined;
+  }
+}

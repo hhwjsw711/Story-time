@@ -8,8 +8,9 @@ What is next, in order. Done items move to `progress.md`.
 2. **Deploy A** to production: Convex first (`pnpm exec convex deploy --yes`), then the Worker. Needs the production Google and GitHub sign-in apps pointed at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback` (Sara).
 3. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `agentTokens`, `quotaRequests` in the dashboard (dev, then prod after A is live there), remove them from `convex/schema.ts`, push.
 4. **Journal**: merge PR #35 after #34 (it is stacked on it). Dev has a test journal; prod gets the two new tables on deploy.
-5. **Journal, next**: the shared link shows the journal too (read-only book); Haiku offers fun page titles; a photo-less page still feels empty at the bottom when it has no ticket.
-6. **Simplification B**: the story scroll's day sections take the journal's paper look. Smaller now the journal exists; may merge into "the shared link shows the journal".
+5. **Journal, next**: the shared link shows the journal too (read-only book); Haiku offers fun page titles; a tier list with more than about 20 things to rank needs a second page.
+6. **Moments page**: the empty right side shows the picked moment's journal page, with Edit, Open in the journal and Play from here.
+7. **Simplification B**: the story scroll's day sections take the journal's paper look. Smaller now the journal exists; may merge into "the shared link shows the journal".
 
 ## Later
 

@@ -9,6 +9,9 @@ import {
   CopyPlusIcon,
   FilePlusIcon,
   ImageDownIcon,
+  ImagePlusIcon,
+  LinkIcon,
+  PencilIcon,
   LockIcon,
   PaletteIcon,
   PenLineIcon,
@@ -34,7 +37,7 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
-import type { NewThing } from "./add";
+import { type NewThing, WORDED } from "./add";
 import { writable } from "./editor";
 import { DECO_NAMES, NOTE_NAMES, PAPER_LOOKS, PRINT_NAMES, TITLE_NAMES } from "./look";
 
@@ -58,8 +61,11 @@ export type MenuActions = {
   paper: (paper: string) => void;
   addPage: () => void;
   lockPage: () => void;
-  picture: () => void;
+  savePicture: () => void;
   read: () => void;
+  draw: () => void;
+  picture: () => void;
+  link: () => void;
 };
 
 const mod = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
@@ -190,14 +196,10 @@ const QUICK: Array<{ label: string; thing: NewThing }> = [
   { label: "A title", thing: { kind: "title", style: "typewriter", text: "Our trip", w: 0, h: 0 } },
   { label: "A typed note", thing: { kind: "note", style: "typed", text: "", w: 0, h: 0 } },
   { label: "A handwritten note", thing: { kind: "note", style: "hand", text: "", w: 0, h: 0 } },
-  { label: "A ticket", thing: { kind: "deco", style: "ticket", text: "ADMIT ONE", w: 0, h: 0 } },
-  { label: "A postmark", thing: { kind: "deco", style: "postmark", text: "HELLO", w: 0, h: 0 } },
-  { label: "A strip of tape", thing: { kind: "deco", style: "tape", w: 0, h: 0 } },
-  { label: "A star", thing: { kind: "deco", style: "star", w: 0, h: 0 } },
-  { label: "A daisy", thing: { kind: "deco", style: "flower", w: 0, h: 0 } },
-  { label: "A butterfly", thing: { kind: "deco", style: "butterfly", w: 0, h: 0 } },
-  { label: "An arrow", thing: { kind: "deco", style: "arrow", w: 0, h: 0 } },
+  { label: "A label", thing: { kind: "title", style: "label", text: "Hello", w: 0, h: 0 } },
+  { label: "A rubber stamp", thing: { kind: "title", style: "stamp", text: "Approved", w: 0, h: 0 } },
 ];
+
 
 function PaperMenu({ paper, locked, can, act }: { paper: string; locked: boolean; can: { paste: boolean }; act: MenuActions }) {
   return (
@@ -214,8 +216,30 @@ function PaperMenu({ paper, locked, can, act }: { paper: string; locked: boolean
                   {q.label}
                 </ContextMenuItem>
               ))}
+              <ContextMenuSeparator />
+              <ContextMenuItem onSelect={act.picture}>
+                <ImagePlusIcon /> A picture from your device…
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={act.link}>
+                <LinkIcon /> A link…
+              </ContextMenuItem>
             </ContextMenuSubContent>
           </ContextMenuSub>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <StickerIcon /> A sticker here
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="paper-scope max-h-80">
+              {DECOS.map((d) => (
+                <ContextMenuItem key={d} onSelect={() => act.addHere({ kind: "deco", style: d, text: WORDED[d], w: 0, h: 0 })}>
+                  {DECO_NAMES[d] ?? d}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuItem onSelect={act.draw}>
+            <PencilIcon /> Draw
+          </ContextMenuItem>
           <ContextMenuItem disabled={!can.paste} onSelect={act.paste}>
             <ClipboardPasteIcon /> Paste here
             <ContextMenuShortcut>{mod}V</ContextMenuShortcut>
@@ -244,7 +268,7 @@ function PaperMenu({ paper, locked, can, act }: { paper: string; locked: boolean
         {locked ? <UnlockIcon /> : <LockIcon />} {locked ? "Unlock this page" : "Lock this page"}
       </ContextMenuItem>
       <ContextMenuSeparator />
-      <ContextMenuItem onSelect={act.picture}>
+      <ContextMenuItem onSelect={act.savePicture}>
         <ImageDownIcon /> Save this page as a picture
       </ContextMenuItem>
       <ContextMenuItem onSelect={act.read}>
@@ -279,7 +303,7 @@ export function JournalMenu({
         <PaperMenu paper={paper} locked={pageLocked} can={can} act={act} />
       ) : (
         <>
-          <ContextMenuItem onSelect={act.picture}>
+          <ContextMenuItem onSelect={act.savePicture}>
             <ImageDownIcon /> Save this page as a picture
           </ContextMenuItem>
           <ContextMenuItem onSelect={act.read}>

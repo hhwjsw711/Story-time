@@ -98,7 +98,8 @@ export function useJournal(eventId: Id<"events">) {
     redo,
     canUndo: past.current.length > 0,
     canRedo: future.current.length > 0,
-    addPage: (after?: PageId, paper?: string) => addPage({ eventId, after, paper }).catch((e: unknown) => (fail(e), undefined)),
+    addPage: (after?: PageId, paper?: string, elements?: JournalElement[]) =>
+      addPage({ eventId, after, paper, elements: elements?.map(asArg) }).catch((e: unknown) => (fail(e), undefined)),
     removePage: (pageId: PageId) => removePage({ pageId }).catch(fail),
     movePage: (pageId: PageId, before: PageId | null) => movePage({ pageId, before }).catch(fail),
     lockPage: (pageId: PageId, locked: boolean) => setLock({ eventId, pageId, locked }).catch(fail),

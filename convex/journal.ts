@@ -2,15 +2,20 @@ import { ConvexError, v } from "convex/values";
 import type { Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { action, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { invalid } from "./lib/blocks";
 import { decryptText, encryptText } from "./lib/crypto";
 import {
   coverPage,
   DECOS,
+  DRAW_STYLES,
   type JournalElement,
+  LINK_STYLES,
+  MAX_DRAWING_TEXT,
   MAX_ELEMENT_TEXT,
+  MAX_LINK_TEXT,
   MAX_JOURNAL_PAGES,
   MAX_PAGE_ELEMENTS,
   momentPage,
@@ -19,10 +24,13 @@ import {
   PAPERS,
   PRINT_STYLES,
   rangeLabel,
+  readLink,
   TITLE_STYLES,
   TONES,
 } from "./lib/journal";
-import { MOMENT_LIMIT } from "./lib/limits";
+import { IMAGE_MIME_TYPES, MOMENT_LIMIT } from "./lib/limits";
+import { rateLimiter } from "./lib/rateLimit";
+import { type LinkPreview, previewOf } from "./ai/unfurl";
 import { viewMoment } from "./moments";
 import { vJournalKind } from "./schema";
 
@@ -43,6 +51,7 @@ const vElement = v.object({
   style: v.optional(v.string()),
   text: v.optional(v.string()),
   tone: v.optional(v.string()),
+  color: v.optional(v.string()),
   mediaId: v.optional(v.id("media")),
   momentId: v.optional(v.id("moments")),
   locked: v.optional(v.boolean()),
@@ -69,6 +78,8 @@ const STYLES: Record<ElementIn["kind"], ReadonlySet<string> | null> = {
   note: new Set(NOTE_STYLES),
   deco: new Set(DECOS),
   map: null,
+  drawing: new Set(DRAW_STYLES),
+  link: new Set(LINK_STYLES),
 };
 const PAPER_SET = new Set<string>(PAPERS);
 const TONE_SET = new Set<string>(TONES);
@@ -144,7 +155,11 @@ async function encodeElements(
     const styles = STYLES[e.kind];
     if (e.style !== undefined && (styles === null || !styles.has(e.style))) return `There is no ${e.kind} style called "${e.style}".`;
     if (e.tone !== undefined && !TONE_SET.has(e.tone)) return "That tone doesn't exist.";
-    if (e.text !== undefined && e.text.length > MAX_ELEMENT_TEXT) return `Words on a page are at most ${MAX_ELEMENT_TEXT} characters.`;
+    const most = e.kind === "drawing" ? MAX_DRAWING_TEXT : e.kind === "link" ? MAX_LINK_TEXT : MAX_ELEMENT_TEXT;
+    if (e.text !== undefined && e.text.length > most) return e.kind === "drawing" ? "That drawing is too big. Start another one." : `Words on a page are at most ${most} characters.`;
+    if ((e.kind === "drawing" || e.kind === "link") && !e.text?.trim()) return e.kind === "drawing" ? "A drawing needs its strokes." : "A link needs its address.";
+    if (e.kind === "link" && !readLink(e.text)) return "A link needs a web address.";
+    if (e.color !== undefined && !/^#[0-9a-f]{6}$/i.test(e.color)) return "That colour isn't one.";
     const pictured = e.kind === "photo" || e.kind === "sticker";
     if (pictured !== (e.mediaId !== undefined)) return pictured ? "A photo needs a picture." : "Only photos and stickers show a picture.";
     if (e.mediaId !== undefined) {
@@ -292,9 +307,15 @@ export const savePage = mutation({
 const between = (before: number | undefined, after: number | undefined) =>
   before === undefined ? (after === undefined ? 0 : after - 60_000) : after === undefined ? before + 60_000 : (before + after) / 2;
 
-// A blank page after `after` (or at the end).
+// A page after `after` (or at the end): blank, or with `elements` on it (a
+// ready-made page idea).
 export const addPage = mutation({
-  args: { eventId: v.id("events"), after: v.optional(v.id("journalPages")), paper: v.optional(v.string()) },
+  args: {
+    eventId: v.id("events"),
+    after: v.optional(v.id("journalPages")),
+    paper: v.optional(v.string()),
+    elements: v.optional(v.array(vElement)),
+  },
   returns: v.id("journalPages"),
   handler: async (ctx, args) => {
     const { event } = await requireEventAccess(ctx, args.eventId, "owner");
@@ -305,7 +326,8 @@ export const addPage = mutation({
     if (pages.length >= MAX_JOURNAL_PAGES) throw new ConvexError({ code: "FULL", message: `A journal holds up to ${MAX_JOURNAL_PAGES} pages.` });
     const at = args.after === undefined ? pages.length - 1 : pages.findIndex((p) => p._id === args.after);
     const order = between(pages[at]?.order, pages[at + 1]?.order);
-    return ctx.db.insert("journalPages", { eventId: event._id, order, paper: args.paper ?? "cream", elements: [] });
+    const elements = args.elements === undefined ? [] : await encodeElements(ctx, event, args.elements);
+    return ctx.db.insert("journalPages", { eventId: event._id, order, paper: args.paper ?? "cream", elements });
   },
 });
 
@@ -381,8 +403,8 @@ export const importPages = mutation({
   },
 });
 
-// Keeps an uploaded cut-out as a sticker of this experience: on its shelf, and
-// visible to everyone who can see the journal.
+// Keeps an uploaded picture (a cut-out, or any picture put on a page) as the
+// journal's: on its shelf, and visible to everyone who can see the journal.
 export const keepSticker = mutation({
   args: { mediaId: v.id("media") },
   returns: v.null(),
@@ -391,8 +413,8 @@ export const keepSticker = mutation({
     if (media === null || media.eventId === undefined) throw notFound();
     const { userId, event } = await requireEventAccess(ctx, media.eventId, "owner");
     assertNotArchived(event);
-    if (media.uploaderId !== userId || media.status !== "ready" || media.momentId !== undefined || media.mime !== "image/png") {
-      invalid("mediaId", "Only a cut-out you just made can become a sticker.");
+    if (media.uploaderId !== userId || media.status !== "ready" || media.momentId !== undefined || !IMAGE_MIME_TYPES.includes(media.mime)) {
+      invalid("mediaId", "Only a picture you just added can go in the journal.");
     }
     await ctx.db.patch("media", media._id, { purpose: "sticker" });
     return null;
@@ -414,3 +436,45 @@ export const stickers = query({
   },
 });
 
+
+const vPreview = v.object({
+  url: v.string(),
+  title: v.optional(v.string()),
+  description: v.optional(v.string()),
+  image: v.optional(v.string()),
+  site: v.optional(v.string()),
+});
+
+// Who may ask for a preview: the journal's owner.
+export const previewer = internalQuery({
+  args: { eventId: v.id("events") },
+  returns: v.id("users"),
+  handler: async (ctx, args) => {
+    const { userId, event } = await requireEventAccess(ctx, args.eventId, "owner");
+    assertNotArchived(event);
+    return userId;
+  },
+});
+
+// What a link looks like as a card: its title, description, picture and site,
+// read from the page's first 256 KB. A page that can't be read gives just the
+// address, so the card still has something on it.
+export const linkPreview = action({
+  args: { eventId: v.id("events"), url: v.string() },
+  returns: vPreview,
+  handler: async (ctx, args): Promise<LinkPreview> => {
+    const userId: Id<"users"> = await ctx.runQuery(internal.journal.previewer, { eventId: args.eventId });
+    let url: URL;
+    try {
+      url = new URL(args.url.trim());
+    } catch {
+      throw new ConvexError({ code: "INVALID", message: "That isn't a web address." });
+    }
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || args.url.length > 2000) {
+      throw new ConvexError({ code: "INVALID", message: "That isn't a web address." });
+    }
+    const { ok } = await rateLimiter.limit(ctx, "enrich", { key: userId });
+    if (!ok) throw new ConvexError({ code: "RATE_LIMITED", message: "That's a lot of links this hour. Try again a little later." });
+    return (await previewOf(url.href)) ?? { url: url.href, site: url.hostname.replace(/^www\./, "") };
+  },
+});

@@ -17,10 +17,12 @@ export const JournalPage = forwardRef<
     scale: number;
     // Maps can be played and photos shown at full size; off in thumbnails.
     live?: boolean;
+    // Being read: links open.
+    reading?: boolean;
     className?: string;
     children?: ReactNode;
   }
->(function JournalPage({ page, moments, scale, live = true, className, children }, ref) {
+>(function JournalPage({ page, moments, scale, live = true, reading = false, className, children }, ref) {
   const look = paperLook(page.paper);
   const elements = [...page.elements].sort((a, b) => a.z - b.z);
   return (
@@ -39,7 +41,7 @@ export const JournalPage = forwardRef<
                 <div className="grid size-full place-items-center bg-[#dfe7df] text-stone-500">map</div>
               </div>
             ) : (
-              <ElementView e={e} ink={look.ink} moment={e.momentId ? moments.get(e.momentId) : undefined} />
+              <ElementView e={e} ink={look.ink} moment={e.momentId ? moments.get(e.momentId) : undefined} interactive={reading} />
             )}
           </div>
         ))}

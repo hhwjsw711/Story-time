@@ -1,4 +1,5 @@
-import { useQuery } from "convex/react";
+import { useAuthToken } from "@convex-dev/auth/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -9,7 +10,9 @@ import {
   FileDownIcon,
   FileUpIcon,
   ImageDownIcon,
+  Maximize2Icon,
   LockIcon,
+  PencilIcon,
   PencilRulerIcon,
   PlusIcon,
   SlidersHorizontalIcon,
@@ -17,8 +20,10 @@ import {
   Trash2Icon,
   Undo2Icon,
   UnlockIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
@@ -32,12 +37,15 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { useSidebar } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
+import { uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { newId, placed, type NewThing } from "./add";
 import { StickerCutter } from "./cutter";
 import { PageEditor, writable } from "./editor";
+import { pathThrough, readDrawing, writeDrawing } from "./elements";
+import type { Idea } from "./ideas";
 import { download, fileName, journalFile, journalPdf, pagePng, readJournalFile } from "./export";
-import { FONTS, GRAIN, paperLook } from "./look";
+import { DRAW_NAMES, DRAW_WIDTH, FONTS, GRAIN, INKS, paperLook } from "./look";
 import { JournalMenu, type Layer } from "./menu";
 import { JournalPage, type PageData } from "./page";
 import { AddTray, Inspector } from "./panel";
@@ -48,6 +56,32 @@ type PageId = Id<"journalPages">;
 
 // What was copied or cut, for pasting on any page of any journal open here.
 let clipboard: JournalElement | null = null;
+
+// A picture's size, and whether it has see-through parts (then it is a
+// sticker, not a photo).
+async function measure(file: File): Promise<{ w: number; h: number; clear: boolean }> {
+  const bitmap = await createImageBitmap(file);
+  const { width: w, height: h } = bitmap;
+  let clear = false;
+  if (file.type === "image/png" || file.type === "image/webp" || file.type === "image/gif") {
+    const canvas = document.createElement("canvas");
+    canvas.width = 48;
+    canvas.height = 48;
+    const ctx = canvas.getContext("2d");
+    ctx?.drawImage(bitmap, 0, 0, 48, 48);
+    const data = ctx?.getImageData(0, 0, 48, 48).data;
+    for (let i = 3; data && i < data.length; i += 4) {
+      if (data[i]! < 230) {
+        clear = true;
+        break;
+      }
+    }
+  }
+  bitmap.close();
+  return { w, h, clear };
+}
+
+const isUrl = (text: string) => /^https?:\/\/\S+$/i.test(text.trim());
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || t.closest("input, textarea, select") !== null);
 
@@ -93,6 +127,20 @@ export function JournalBook({ event }: { event: EventView }) {
   const [sheet, setSheet] = useState(false);
   const [printing, setPrinting] = useState<{ index: number; done: number } | null>(null);
   const importer = useRef<HTMLInputElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  // Where pictures picked from the device go: where the page was right-clicked, or the middle.
+  const pickAt = useRef<{ x: number; y: number } | undefined>(undefined);
+  const token = useAuthToken();
+  const keepPicture = useMutation(api.journal.keepSticker);
+  const previewLink = useAction(api.journal.linkPreview);
+  // The pen, when drawing: what draws and in which ink. Strokes drawn in one go
+  // gather into one drawing (`session`) until the pen is put down.
+  const [pen, setPen] = useState<{ style: string; color: string } | null>(null);
+  const session = useRef<{ page: string; id: string } | null>(null);
+  const putPenDown = () => {
+    setPen(null);
+    session.current = null;
+  };
 
   const pages = journal.pages as PageData[];
   const page = pages[Math.min(index, pages.length - 1)];
@@ -111,11 +159,66 @@ export function JournalBook({ event }: { event: EventView }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, [reading]);
-  const scale = Math.max(0.2, Math.min((size.w - 32) / PAGE.w, (size.h - 32) / PAGE.h));
+  // The page fits the space; zoom multiplies that, from a fifth to three times A4.
+  const fit = Math.max(0.15, Math.min((size.w - 32) / PAGE.w, (size.h - 32) / PAGE.h));
+  const [zoom, setZoom] = useState(1);
+  const scale = Math.min(3, Math.max(0.15, fit * zoom));
+  // Where to keep still while zooming (a point in the stage, and the page point under it).
+  const anchor = useRef<{ sx: number; sy: number; px: number; py: number } | null>(null);
+  const zoomBy = (factor: number, at?: { clientX: number; clientY: number }) => {
+    const el = stage.current;
+    if (el && at) {
+      const r = el.getBoundingClientRect();
+      const sx = at.clientX - r.left;
+      const sy = at.clientY - r.top;
+      anchor.current = { sx, sy, px: (el.scrollLeft + sx) / scale, py: (el.scrollTop + sy) / scale };
+    }
+    setZoom((z) => Math.min(3 / fit, Math.max(0.15 / fit, z * factor)));
+  };
+  // After a zoom at a point, scroll so that point stays under the pointer.
+  useLayoutEffect(() => {
+    const el = stage.current;
+    const a = anchor.current;
+    if (!el || !a) return;
+    anchor.current = null;
+    el.scrollLeft = a.px * scale - a.sx;
+    el.scrollTop = a.py * scale - a.sy;
+  }, [scale]);
+  // A pinch, or ⌘/Ctrl and the wheel, zooms the page and not the browser.
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomBy(Math.exp(-e.deltaY * 0.01), e);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  });
+  // Holding Space turns the pointer into a hand that moves a zoomed-in page around.
+  const [hand, setHand] = useState(false);
+  const panning = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !typing(e.target) && !e.repeat) {
+        e.preventDefault();
+        setHand(true);
+      }
+    };
+    const up = (e: KeyboardEvent) => e.code === "Space" && setHand(false);
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
 
   useEffect(() => {
     setSelected(null);
     setWriting(null);
+    session.current = null;
   }, [index]);
 
   const change = useCallback(
@@ -169,7 +272,7 @@ export function JournalBook({ event }: { event: EventView }) {
     remove(e);
   };
   // A copy of what was copied: at `at`, or a little off where it was.
-  const paste = (at?: { x: number; y: number }) => {
+  const pasteCopied = (at?: { x: number; y: number }) => {
     if (!page || !editable || !clipboard) return;
     const id = newId();
     const c = clipboard;
@@ -179,6 +282,105 @@ export function JournalBook({ event }: { event: EventView }) {
     setSelected(id);
   };
 
+  // A stroke of the pen joins this session's drawing (growing its frame), or
+  // starts one. A drawing someone moved or sized since is left as it is.
+  const stroke = (points: Array<{ x: number; y: number }>) => {
+    if (!page || !pen || points.length === 0) return;
+    const pad = (DRAW_WIDTH[pen.style]?.width ?? 4) / 2 + 2;
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const box = { x0: Math.min(...xs) - pad, y0: Math.min(...ys) - pad, x1: Math.max(...xs) + pad, y1: Math.max(...ys) + pad };
+    const line = { style: pen.style, color: pen.color, d: pathThrough(points) };
+    const current = session.current?.page === page._id ? page.elements.find((e) => e.id === session.current?.id) : undefined;
+    const data = current ? readDrawing(current.text) : undefined;
+    const untouched = current && data && current.x === data.x && current.y === data.y && current.w === data.w && current.h === data.h;
+    if (current && data && untouched) {
+      const x = Math.floor(Math.min(data.x, box.x0));
+      const y = Math.floor(Math.min(data.y, box.y0));
+      const w = Math.ceil(Math.max(data.x + data.w, box.x1)) - x;
+      const h = Math.ceil(Math.max(data.y + data.h, box.y1)) - y;
+      const text = writeDrawing({ x, y, w, h, strokes: [...data.strokes, line] });
+      if (text.length < 38_000) {
+        changeOne(current.id, { x, y, w, h, text });
+        return;
+      }
+    }
+    const x = Math.floor(box.x0);
+    const y = Math.floor(box.y0);
+    const w = Math.ceil(box.x1) - x;
+    const h = Math.ceil(box.y1) - y;
+    const id = newId();
+    change([...page.elements, { id, kind: "drawing", style: pen.style, color: pen.color, x, y, w, h, rotation: 0, z: Math.max(0, ...page.elements.map((e) => e.z)) + 1, text: writeDrawing({ x, y, w, h, strokes: [line] }) }]);
+    session.current = { page: page._id, id };
+  };
+
+  // Pictures from the device: each is saved with the journal and put on the
+  // page as a photo, or as a sticker when it has see-through parts.
+  const addPictures = async (files: File[], at?: { x: number; y: number }) => {
+    const pictures = files.filter((f) => f.type.startsWith("image/")).slice(0, 12);
+    if (!page || !editable || !token || pictures.length === 0) return;
+    const toastId = toast.loading(pictures.length === 1 ? "Adding the picture…" : `Adding ${pictures.length} pictures…`);
+    let placedHere = at;
+    try {
+      for (const file of pictures) {
+        const size = await measure(file);
+        const mediaId = await uploadMedia(file, event._id, token);
+        await keepPicture({ mediaId: mediaId as Id<"media"> });
+        const w = size.clear ? 260 : 340;
+        const h = Math.round((w * size.h) / Math.max(1, size.w)) + (size.clear ? 0 : Math.round(w * 0.12));
+        add(size.clear ? { kind: "sticker", mediaId, w, h } : { kind: "photo", style: "polaroid", mediaId, w, h }, placedHere);
+        // The next one lands a little further along.
+        if (placedHere) placedHere = { x: placedHere.x + 30, y: placedHere.y + 30 };
+      }
+      toast.success(pictures.length === 1 ? "Picture added" : `${pictures.length} pictures added`, { id: toastId });
+    } catch (e) {
+      toast.error(errorMessage(e), { id: toastId });
+    }
+  };
+
+  // A link as a card, read from the page it points to.
+  const addLink = async (url: string, at?: { x: number; y: number }) => {
+    if (!page || !editable || !isUrl(url)) return;
+    const toastId = toast.loading("Reading the link…");
+    try {
+      const preview = await previewLink({ eventId: event._id, url: url.trim() });
+      add({ kind: "link", style: "card", text: JSON.stringify(preview), w: 300, h: preview.image ? 340 : 170 }, at);
+      toast.success("Link added", { id: toastId });
+    } catch (e) {
+      toast.error(errorMessage(e), { id: toastId });
+    }
+  };
+
+  // A ready-made page from the references, after this one.
+  const addIdea = async (idea: Idea) => {
+    if (!page || !journal.canEdit) return;
+    const from = event.startsAt;
+    const dates = from === undefined ? undefined : new Date(from).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const id = await journal.addPage(page._id as PageId, idea.paper, idea.make({ title: event.title, photos, dates }));
+    if (id) setIndex(Math.min(index, pages.length - 1) + 1);
+  };
+
+  // Pasting: a picture or a link from anywhere, else what was copied here.
+  useEffect(() => {
+    const paste = (ev: ClipboardEvent) => {
+      if (typing(ev.target) || reading || !editable) return;
+      const files = [...(ev.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      const text = ev.clipboardData?.getData("text/plain") ?? "";
+      if (files.length > 0) {
+        ev.preventDefault();
+        void addPictures(files);
+      } else if (isUrl(text)) {
+        ev.preventDefault();
+        void addLink(text);
+      } else if (clipboard) {
+        ev.preventDefault();
+        pasteCopied();
+      }
+    };
+    window.addEventListener("paste", paste);
+    return () => window.removeEventListener("paste", paste);
+  });
+
   // What the last right-click was on, and where on the page.
   const [menu, setMenu] = useState<{ id?: string; at: { x: number; y: number } }>({ at: { x: PAGE.w / 2, y: PAGE.h / 2 } });
   const menuOn = page?.elements.find((e) => e.id === menu.id);
@@ -186,15 +388,22 @@ export function JournalBook({ event }: { event: EventView }) {
   // The keys, while the journal is open and nobody is typing.
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
-      if (typing(e.target) || reading || !journal.canEdit) return;
+      if (typing(e.target) || reading) return;
       const mod = e.metaKey || e.ctrlKey;
+      // Zoom, instead of the browser's.
+      if (mod && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+        e.preventDefault();
+        if (e.key === "0") setZoom(1);
+        else zoomBy(e.key === "-" ? 0.8 : 1.25);
+        return;
+      }
+      if (!journal.canEdit) return;
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) journal.redo();
         else journal.undo();
-      } else if (mod && e.key.toLowerCase() === "v" && editable && clipboard) {
-        e.preventDefault();
-        paste();
+      } else if (e.key === "Escape" && pen) {
+        putPenDown();
       } else if (!editable || !chosen) {
         return;
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -336,6 +545,13 @@ export function JournalBook({ event }: { event: EventView }) {
       }}
       onPaper={(paper) => change(page!.elements, paper)}
       onCut={() => setCutting({ open: true })}
+      onIdea={(idea) => void addIdea(idea)}
+      onUpload={() => {
+        pickAt.current = undefined;
+        picker.current?.click();
+      }}
+      onLink={(url) => addLink(url)}
+      onDraw={() => setPen({ style: "pen", color: INKS[0].color })}
     />
   );
 
@@ -365,6 +581,61 @@ export function JournalBook({ event }: { event: EventView }) {
               <Redo2Icon aria-hidden />
             </Button>
           </>
+        )}
+        {!reading && (
+          <div className="flex items-center rounded-lg bg-white/60 p-0.5">
+            <Button size="icon-sm" variant="ghost" aria-label="Zoom out" title="Zoom out (⌘−)" onClick={() => zoomBy(0.8)}>
+              <ZoomOutIcon aria-hidden />
+            </Button>
+            <button
+              type="button"
+              title="Fit the page (⌘0)"
+              onClick={() => setZoom(1)}
+              className="w-12 rounded-md text-center font-mono text-xs tabular-nums hover:bg-white focus-visible:ring-2 focus-visible:ring-[#c4552f] focus-visible:outline-none"
+            >
+              {Math.round(scale * 100)}%
+            </button>
+            <Button size="icon-sm" variant="ghost" aria-label="Zoom in" title="Zoom in (⌘+)" onClick={() => zoomBy(1.25)}>
+              <ZoomInIcon aria-hidden />
+            </Button>
+            <Button size="icon-sm" variant="ghost" aria-label="Fit the page" title="Fit the page (⌘0)" disabled={zoom === 1} onClick={() => setZoom(1)}>
+              <Maximize2Icon aria-hidden />
+            </Button>
+          </div>
+        )}
+        {!reading && journal.canEdit && (
+          <Button
+            size="sm"
+            variant={pen ? "default" : "outline"}
+            aria-pressed={pen !== null}
+            title={pen ? "Put the pen down (Esc)" : "Draw on the page"}
+            disabled={!editable}
+            onClick={() => (pen ? putPenDown() : setPen({ style: "pen", color: INKS[0].color }))}
+          >
+            <PencilIcon aria-hidden /> {pen ? "Drawing" : "Draw"}
+          </Button>
+        )}
+        {pen && (
+          <div className="flex items-center gap-1 rounded-lg bg-white/70 p-0.5" aria-label="Pen">
+            {Object.keys(DRAW_WIDTH).map((style) => (
+              <Button key={style} size="sm" variant={pen.style === style ? "default" : "ghost"} onClick={() => setPen({ ...pen, style })}>
+                {DRAW_NAMES[style]}
+              </Button>
+            ))}
+            <span aria-hidden className="mx-0.5 h-5 w-px bg-stone-300" />
+            {INKS.map((ink) => (
+              <button
+                key={ink.color}
+                type="button"
+                aria-label={`${ink.name} ink`}
+                aria-pressed={pen.color === ink.color}
+                title={ink.name}
+                onClick={() => setPen({ ...pen, color: ink.color })}
+                className={cn("size-6 rounded-full border shadow-sm focus-visible:ring-2 focus-visible:ring-[#c4552f] focus-visible:outline-none", pen.color === ink.color ? "ring-2 ring-[#c4552f] ring-offset-1" : "border-stone-300")}
+                style={{ background: ink.color }}
+              />
+            ))}
+          </div>
         )}
         {/* On a phone the page strip and the panel are folded away: arrows turn
             the pages, and the panel opens as a sheet. */}
@@ -419,6 +690,18 @@ export function JournalBook({ event }: { event: EventView }) {
             </DropdownMenuContent>
           </DropdownMenu>
           <input
+            ref={picker}
+            type="file"
+            accept="image/*"
+            multiple
+            className="sr-only"
+            tabIndex={-1}
+            onChange={(e) => {
+              void addPictures([...(e.target.files ?? [])], pickAt.current);
+              e.target.value = "";
+            }}
+          />
+          <input
             ref={importer}
             type="file"
             accept="application/json,.json"
@@ -470,11 +753,46 @@ export function JournalBook({ event }: { event: EventView }) {
         )}
 
         {/* The open page, or the book. */}
-        <div ref={stage} className="relative min-w-0 flex-1 overflow-auto">
+        <div
+          ref={stage}
+          className={cn("relative min-w-0 flex-1 overflow-auto", hand && "cursor-grab active:cursor-grabbing")}
+          onPointerDownCapture={(e) => {
+            if (!hand || !stage.current) return;
+            // The hand moves the page; nothing on it is picked up.
+            e.stopPropagation();
+            e.preventDefault();
+            panning.current = { x: e.clientX, y: e.clientY, left: stage.current.scrollLeft, top: stage.current.scrollTop };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const p = panning.current;
+            if (!p || !stage.current) return;
+            stage.current.scrollLeft = p.left - (e.clientX - p.x);
+            stage.current.scrollTop = p.top - (e.clientY - p.y);
+          }}
+          onPointerUp={() => (panning.current = null)}
+          onPointerCancel={() => (panning.current = null)}
+          // Pictures dropped on the page land where they were let go.
+          onDragOver={(e) => {
+            if (editable && e.dataTransfer.types.includes("Files")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }
+          }}
+          onDrop={(e) => {
+            const files = [...e.dataTransfer.files];
+            if (!editable || files.length === 0) return;
+            e.preventDefault();
+            const r = stage.current?.querySelector<HTMLElement>("[data-journal-page]")?.getBoundingClientRect();
+            void addPictures(files, r ? { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale } : undefined);
+          }}
+        >
           {reading ? (
             <Reader pages={pages} moments={momentById} size={size} start={at} onPage={setIndex} />
           ) : (
-            <div className="flex min-h-full items-center justify-center p-4">
+            // Centred while it fits; scrollable to every edge once it doesn't.
+            <div className="flex min-h-full min-w-max p-4">
+              <div className="m-auto">
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div
@@ -499,6 +817,8 @@ export function JournalBook({ event }: { event: EventView }) {
                       onSelect={setSelected}
                       onWrite={setWriting}
                       onChange={(els) => change(els)}
+                      pen={pen}
+                      onStroke={stroke}
                     />
                   </div>
                 </ContextMenuTrigger>
@@ -511,7 +831,16 @@ export function JournalBook({ event }: { event: EventView }) {
                     write: (e) => setWriting(e.id),
                     copy,
                     cut,
-                    paste: () => paste(menuOn ? undefined : menu.at),
+                    paste: () => pasteCopied(menuOn ? undefined : menu.at),
+                    draw: () => setPen({ style: "pen", color: INKS[0].color }),
+                    picture: () => {
+                      pickAt.current = menu.at;
+                      picker.current?.click();
+                    },
+                    link: () => {
+                      const url = window.prompt("The link to put on the page");
+                      if (url) void addLink(url, menu.at);
+                    },
                     duplicate,
                     layer,
                     change: (e, patch) => changeOne(e.id, patch),
@@ -521,11 +850,12 @@ export function JournalBook({ event }: { event: EventView }) {
                     paper: (paper) => change(page!.elements, paper),
                     addPage: () => void journal.addPage(pageId).then((id) => id && setIndex(at + 1)),
                     lockPage: () => void journal.lockPage(pageId, !page!.locked),
-                    picture: () => void printPage(),
+                    savePicture: () => void printPage(),
                     read: () => setReading(true),
                   }}
                 />
               </ContextMenu>
+              </div>
             </div>
           )}
         </div>

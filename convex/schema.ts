@@ -90,6 +90,7 @@ export const vJournalElement = v.object({
   style: v.optional(v.string()),
   text: v.optional(vEncrypted),
   tone: v.optional(v.string()),
+  color: v.optional(v.string()),
   mediaId: v.optional(v.id("media")),
   momentId: v.optional(v.id("moments")),
   locked: v.optional(v.boolean()),

@@ -6,7 +6,8 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
 import invitesSchema from "../components/invites/schema";
-import { coverPage, momentPage, PAGE, rangeLabel } from "../lib/journal";
+import { previewFromHtml } from "../ai/unfurl";
+import { coverPage, momentPage, PAGE, rangeLabel, readLink } from "../lib/journal";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
@@ -226,6 +227,52 @@ describe("editing pages", () => {
   });
 });
 
+describe("drawings, links and new pages", () => {
+  test("a drawing needs strokes, a link a web address, and colours are colours", async () => {
+    const { owner, eventId } = await setup();
+    const pageId = await owner.mutation(api.journal.addPage, { eventId });
+    const save = (e: ElementArg) => owner.mutation(api.journal.savePage, { pageId, elements: [e] });
+    await save(element({ kind: "drawing", style: "marker", text: "0 0 100 100\nmarker #c4552f M0 0L10 10", color: "#c4552f" }));
+    await expect(save(element({ kind: "drawing", style: "pen", text: " " }))).rejects.toThrow(/strokes/);
+    await expect(save(element({ kind: "drawing", style: "pen", text: "0 0 1 1", color: "red" }))).rejects.toThrow(/colour/);
+    await save(element({ kind: "link", style: "card", text: JSON.stringify({ url: "https://example.com/a", title: "A" }) }));
+    await expect(save(element({ kind: "link", style: "card", text: JSON.stringify({ url: "javascript:alert(1)" }) }))).rejects.toThrow(/web address/);
+    await expect(save(element({ kind: "link", style: "card", text: "not json" }))).rejects.toThrow(/web address/);
+  });
+
+  test("a link card keeps only https pictures and names its site", () => {
+    expect(readLink(JSON.stringify({ url: "https://www.example.com/x", image: "http://evil.test/p.png" }))).toEqual({
+      url: "https://www.example.com/x",
+      title: undefined,
+      description: undefined,
+      image: undefined,
+      site: "example.com",
+    });
+  });
+
+  test("a page can start with things on it", async () => {
+    const { owner, eventId } = await setup();
+    const pageId = await owner.mutation(api.journal.addPage, { eventId, paper: "blush", elements: [element({ text: "Greetings" })] });
+    const page = (await owner.query(api.journal.get, { eventId })).pages.find((p) => p._id === pageId);
+    expect(page).toMatchObject({ paper: "blush", elements: [{ text: "Greetings" }] });
+  });
+
+  test("a link's preview comes from its page's tags", () => {
+    const html = `<head><title>Fallback</title><meta property="og:title" content="Tiles &amp; trams"><meta name="description" content="A  day   out"><meta property="og:image" content="/pic.jpg"></head>`;
+    expect(previewFromHtml(html, "https://www.lisbon.test/day")).toEqual({
+      url: "https://www.lisbon.test/day",
+      title: "Tiles & trams",
+      description: "A day out",
+      image: "https://www.lisbon.test/pic.jpg",
+      site: "lisbon.test",
+    });
+    // Pictures only over https, and never from a private address.
+    expect(previewFromHtml(`<meta property="og:image" content="http://x.test/a.png">`, "https://x.test").image).toBeUndefined();
+    expect(previewFromHtml(`<meta property="og:image" content="https://127.0.0.1/a.png">`, "https://x.test").image).toBeUndefined();
+    expect(previewFromHtml(`<title>Only a title</title>`, "https://x.test").title).toBe("Only a title");
+  });
+});
+
 describe("stickers", () => {
   test("a cut-out kept as a sticker is on the shelf and on pages, and everyone with access sees it", async () => {
     const { t, owner, viewer, eventId, photo } = await setup();
@@ -246,6 +293,14 @@ describe("stickers", () => {
     await moment(JUNE_1, "on a moment", used);
     await expect(owner.mutation(api.journal.keepSticker, { mediaId: used })).rejects.toThrow();
     await expect(viewer.mutation(api.journal.keepSticker, { mediaId: await photo() })).rejects.toThrow();
+  });
+
+  test("any picture of your own can be kept, a JPEG too", async () => {
+    const { owner, eventId } = await setup();
+    const { mediaId } = await owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime: "image/jpeg" });
+    await owner.mutation(api.media.confirmUpload, { mediaId });
+    await owner.mutation(api.journal.keepSticker, { mediaId });
+    expect(await owner.query(api.journal.stickers, { eventId })).toEqual([mediaId]);
   });
 });
 

@@ -1,6 +1,6 @@
 import { PlayIcon, SquareIcon } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
-import type { JournalElement } from "../../../convex/lib/journal";
+import { type JournalElement, readLink } from "../../../convex/lib/journal";
 import { seeded } from "../../../convex/lib/seeded";
 import type { MomentView } from "@/components/event/types";
 import { type MapStop, StickyMap } from "@/components/story/memoir/sticky-map";
@@ -8,7 +8,8 @@ import { tornPolygon, TAPE_ENDS } from "@/lib/paper/look";
 import { placeLabel, stopsOf } from "@/lib/story-steps";
 import { useMediaUrl } from "@/lib/use-media-url";
 import { cn } from "@/lib/utils";
-import { DIE_CUT, DISTRESS, FONTS, GRAIN, INK, LIFT, MUSTARD, NAVY, ROSE, RUST, TEAL, TONE_FILTER } from "./look";
+import { GINGHAM, MoreSticker } from "./stickers";
+import { DIE_CUT, DISTRESS, DRAW_WIDTH, FONTS, GRAIN, INK, LIFT, MUSTARD, NAVY, ROSE, RUST, TEAL, TONE_FILTER } from "./look";
 
 // Everything that can sit on a journal page, drawn to fill the box it is
 // given. Randomness comes from the element's id, so a page looks the same on
@@ -413,6 +414,7 @@ const TAPE_COLORS: Record<string, { color: string; pattern?: string }> = {
   "tape-rose": { color: "rgba(232,163,166,.8)", pattern: "repeating-linear-gradient(90deg, rgba(255,255,255,.45) 0 6px, transparent 6px 14px)" },
   "tape-teal": { color: "rgba(95,158,151,.78)", pattern: "radial-gradient(circle, rgba(255,255,255,.55) 2px, transparent 2.5px) 0 0 / 10px 10px" },
   "tape-mustard": { color: "rgba(224,172,58,.8)", pattern: "repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 4px, transparent 4px 10px)" },
+  "tape-gingham": { color: "rgba(250,244,232,.85)", pattern: GINGHAM },
 };
 
 function Ticket({ e }: { e: JournalElement }) {
@@ -470,6 +472,8 @@ function Postmark({ e }: { e: JournalElement }) {
     </svg>
   );
 }
+
+const SHAPES = new Set(["circle-teal", "circle-mustard", "circle-rust", "triangles", "dots", "star", "flower", "butterfly", "arrow"]);
 
 function Shape({ name }: { name: string }) {
   switch (name) {
@@ -550,7 +554,7 @@ export function Deco({ e }: { e: JournalElement }) {
   }
   if (name === "ticket") return <Ticket e={e} />;
   if (name === "postmark") return <Postmark e={e} />;
-  return <Shape name={name} />;
+  return SHAPES.has(name) ? <Shape name={name} /> : <MoreSticker e={e} />;
 }
 
 // ---- A moment's stops on a map -------------------------------------------------------------
@@ -626,6 +630,131 @@ export function MapCard({ e, moment, interactive }: { e: JournalElement; moment:
   );
 }
 
+// ---- Drawings ---------------------------------------------------------------------------
+
+// A drawing is kept as text: its first line the area of the page it was
+// drawn in (x y w h), then a line for each stroke: what drew it, its ink, and
+// its path in page units. Drawn into its box, it moves and scales with it.
+export type Stroke = { style: string; color: string; d: string };
+export type DrawingData = { x: number; y: number; w: number; h: number; strokes: Stroke[] };
+
+export function readDrawing(text: string | undefined): DrawingData | undefined {
+  const [head, ...lines] = (text ?? "").split("\n");
+  const nums = (head ?? "").split(" ").map(Number);
+  const [x, y, w, h] = nums.length >= 4 ? nums : [0, 0, nums[0], nums[1]];
+  if (!w || !h || !Number.isFinite(x) || !Number.isFinite(y)) return undefined;
+  const strokes = lines.flatMap((line): Stroke[] => {
+    const [style, color, ...rest] = line.split(" ");
+    return style && color && rest.length > 0 ? [{ style, color, d: rest.join(" ") }] : [];
+  });
+  return { x: x!, y: y!, w, h, strokes };
+}
+
+export const writeDrawing = ({ x, y, w, h, strokes }: DrawingData) =>
+  [`${Math.round(x)} ${Math.round(y)} ${Math.round(w)} ${Math.round(h)}`, ...strokes.map((s) => `${s.style} ${s.color} ${s.d}`)].join("\n");
+
+// A smooth path through points, rounded to tenths.
+export function pathThrough(points: Array<{ x: number; y: number }>): string {
+  const r = (n: number) => Math.round(n * 10) / 10;
+  const [first, ...rest] = points;
+  if (!first) return "";
+  if (rest.length === 0) return `M${r(first.x)} ${r(first.y)}l0.1 0`;
+  let d = `M${r(first.x)} ${r(first.y)}`;
+  for (let i = 0; i < rest.length - 1; i++) {
+    const p = rest[i]!;
+    const q = rest[i + 1]!;
+    d += `Q${r(p.x)} ${r(p.y)} ${r((p.x + q.x) / 2)} ${r((p.y + q.y) / 2)}`;
+  }
+  const last = rest.at(-1)!;
+  return `${d}L${r(last.x)} ${r(last.y)}`;
+}
+
+export function StrokePath({ stroke }: { stroke: Stroke }) {
+  const look = DRAW_WIDTH[stroke.style] ?? DRAW_WIDTH.pen!;
+  return (
+    <path
+      d={stroke.d}
+      fill="none"
+      stroke={stroke.color}
+      strokeWidth={look.width}
+      strokeOpacity={look.opacity}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={stroke.style === "highlighter" ? { mixBlendMode: "multiply" } : undefined}
+    />
+  );
+}
+
+export function Drawing({ e }: { e: JournalElement }) {
+  const drawing = readDrawing(e.text);
+  if (!drawing) return null;
+  return (
+    <svg viewBox={`${drawing.x} ${drawing.y} ${drawing.w} ${drawing.h}`} preserveAspectRatio="none" className="size-full overflow-visible">
+      {drawing.strokes.map((s, i) => (
+        <StrokePath key={i} stroke={s} />
+      ))}
+    </svg>
+  );
+}
+
+// ---- Links ------------------------------------------------------------------------------
+
+// A link as a little card: its picture, its title in Caslon, a line about it,
+// and where it is from, typed. Opens in a new tab when the journal is read.
+export function LinkCard({ e, open }: { e: JournalElement; open: boolean }) {
+  const link = readLink(e.text);
+  if (!link) return null;
+  const { w, h } = e;
+  const site = link.site ?? "";
+  const body =
+    e.style === "tag" ? (
+      <svg viewBox="0 0 240 110" className="size-full overflow-visible" style={LIFT}>
+        <path d="M46,6 H232 V104 H46 L8,74 V36 Z" fill="#e8d3a8" stroke={INK} strokeWidth="2" />
+        <circle cx="34" cy="55" r="7" fill="#f6ecd6" stroke={INK} strokeWidth="2" />
+        <text x="140" y="44" textAnchor="middle" fontFamily={FONTS.caslon} fontStyle="italic" fontSize={Math.min(24, 300 / Math.max(8, (link.title ?? site).length))} fill={INK}>
+          {(link.title ?? site).slice(0, 40)}
+        </text>
+        <text x="140" y="78" textAnchor="middle" fontFamily={FONTS.typewriter} fontSize="13" fill={RUST}>
+          {site}
+        </text>
+      </svg>
+    ) : (
+      <div className="flex size-full flex-col overflow-hidden bg-[#fffdf6]" style={{ ...LIFT, padding: Math.max(6, w * 0.035) }}>
+        {link.image && (
+          <img
+            src={link.image}
+            alt=""
+            draggable={false}
+            referrerPolicy="no-referrer"
+            className="min-h-0 w-full flex-1 object-cover"
+            style={{ maxHeight: h * 0.55, filter: "saturate(.9)" }}
+            onError={(ev) => (ev.currentTarget.style.display = "none")}
+          />
+        )}
+        <div className="flex min-h-0 flex-col gap-1 pt-2 text-[#1f1a16]">
+          <span className="line-clamp-2 font-bold" style={{ fontFamily: FONTS.caslon, fontSize: Math.max(13, Math.min(26, w / 15)), lineHeight: 1.15 }}>
+            {link.title ?? link.url}
+          </span>
+          {link.description && (
+            <span className="line-clamp-2 text-stone-600" style={{ fontSize: Math.max(11, Math.min(16, w / 26)), lineHeight: 1.3 }}>
+              {link.description}
+            </span>
+          )}
+          <span className="truncate" style={{ fontFamily: FONTS.typewriter, fontSize: Math.max(11, Math.min(15, w / 28)), color: RUST }}>
+            ↗ {site}
+          </span>
+        </div>
+      </div>
+    );
+  return open ? (
+    <a href={link.url} target="_blank" rel="noopener noreferrer" className="block size-full" title={link.url}>
+      {body}
+    </a>
+  ) : (
+    body
+  );
+}
+
 // ---- One element, whatever it is --------------------------------------------------------
 
 export function ElementView({ e, ink, moment, interactive = false }: { e: JournalElement; ink: string; moment?: MomentView; interactive?: boolean }): ReactNode {
@@ -640,6 +769,10 @@ export function ElementView({ e, ink, moment, interactive = false }: { e: Journa
       return <Note e={e} />;
     case "map":
       return <MapCard e={e} moment={moment} interactive={interactive} />;
+    case "drawing":
+      return <Drawing e={e} />;
+    case "link":
+      return <LinkCard e={e} open={interactive} />;
     default:
       return <Deco e={e} />;
   }

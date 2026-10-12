@@ -66,7 +66,7 @@ export function Reader({
           {pair && shown.length === 1 && at > 0 && <div style={{ width: PAGE.w * scale, height: PAGE.h * scale }} className="bg-[#efe6d2]" />}
           {shown.map((i, k) => (
             <div key={pages[i]!._id} className="relative">
-              <JournalPage page={pages[i]!} moments={moments} scale={scale} />
+              <JournalPage page={pages[i]!} moments={moments} scale={scale} reading />
               {/* The fold down the middle of a spread. */}
               {pair && shown.length === 2 && (
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 w-10" style={{ [k === 0 ? "right" : "left"]: 0, background: `linear-gradient(${k === 0 ? "to left" : "to right"}, rgba(60,40,15,.28), transparent)` }} />

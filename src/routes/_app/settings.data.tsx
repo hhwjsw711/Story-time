@@ -41,7 +41,12 @@ function DataSettings() {
               page downloads from storage.googleapis.com the first time. The photo isn't sent anywhere to be cut; the
               finished sticker is saved like any other photo, and everyone who can see the journal can see it.
             </li>
-            <li>A journal's words (titles, notes, tickets) are encrypted like notes. Its layout isn't.</li>
+            <li>
+              A link you put on a journal page is opened once by Story-time's server to read its title, a line about it and
+              its picture. That picture then loads straight from the linked site for whoever reads the page, a shared link
+              included, so that site sees their visit. Pictures you add from your device are saved like any other photo.
+            </li>
+            <li>A journal's words (titles, notes, tickets, drawings, links) are encrypted like notes. Its layout isn't.</li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
         </SettingsBlock>

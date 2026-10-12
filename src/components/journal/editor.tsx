@@ -3,7 +3,7 @@ import Moveable from "react-moveable";
 import { type JournalElement, PAGE } from "../../../convex/lib/journal";
 import type { MomentView } from "@/components/event/types";
 import { tapedTo } from "./add";
-import { placeOf } from "./elements";
+import { pathThrough, placeOf, StrokePath } from "./elements";
 import { FONTS } from "./look";
 import { JournalPage, type PageData } from "./page";
 
@@ -27,6 +27,8 @@ export function PageEditor({
   onSelect,
   onWrite,
   onChange,
+  pen = null,
+  onStroke,
 }: {
   page: PageData;
   moments: ReadonlyMap<string, MomentView>;
@@ -38,6 +40,9 @@ export function PageEditor({
   onSelect: (id: string | null) => void;
   onWrite: (id: string | null) => void;
   onChange: (elements: JournalElement[]) => void;
+  // Drawing: what draws, and where each finished stroke goes.
+  pen?: { style: string; color: string } | null;
+  onStroke?: (points: Array<{ x: number; y: number }>) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const moveable = useRef<Moveable>(null);
@@ -98,7 +103,8 @@ export function PageEditor({
           if (text !== null) update(writing, { text });
           onWrite(null);
         }} />}
-        {editable && target && chosen && !writing && (
+        {editable && pen && onStroke && <DrawLayer pen={pen} scale={scale} onStroke={onStroke} />}
+        {editable && target && chosen && !writing && !pen && (
           <Moveable
             ref={moveable}
             target={target}
@@ -211,5 +217,46 @@ function WordsBox({ e, onDone }: { e: JournalElement | undefined; onDone: (text:
         lineHeight: 1.3,
       }}
     />
+  );
+}
+
+// The pen on the page: press, draw, lift. The stroke shows as it is drawn and
+// goes to `onStroke`, in page units, when the pen lifts.
+function DrawLayer({ pen, scale, onStroke }: { pen: { style: string; color: string }; scale: number; onStroke: (points: Array<{ x: number; y: number }>) => void }) {
+  const [points, setPoints] = useState<Array<{ x: number; y: number }> | null>(null);
+  const at = (ev: React.PointerEvent<HTMLDivElement>) => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    return { x: (ev.clientX - r.left) / scale, y: (ev.clientY - r.top) / scale };
+  };
+  return (
+    <div
+      aria-label="Drawing"
+      className="absolute inset-0 touch-none"
+      style={{ zIndex: 100000, cursor: "crosshair" }}
+      onPointerDown={(ev) => {
+        if (ev.button !== 0) return;
+        ev.stopPropagation();
+        ev.currentTarget.setPointerCapture(ev.pointerId);
+        setPoints([at(ev)]);
+      }}
+      onPointerMove={(ev) => {
+        if (!points) return;
+        const p = at(ev);
+        const last = points.at(-1)!;
+        // Close points add nothing but size.
+        if (Math.hypot(p.x - last.x, p.y - last.y) > 1.5 / Math.max(scale, 0.3)) setPoints([...points, p]);
+      }}
+      onPointerUp={() => {
+        if (points) onStroke(points);
+        setPoints(null);
+      }}
+      onPointerCancel={() => setPoints(null)}
+    >
+      {points && (
+        <svg className="pointer-events-none absolute inset-0 size-full overflow-visible">
+          <StrokePath stroke={{ style: pen.style, color: pen.color, d: pathThrough(points) }} />
+        </svg>
+      )}
+    </div>
   );
 }

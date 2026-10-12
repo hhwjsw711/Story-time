@@ -22,13 +22,49 @@ const SIZES: Record<string, { w: number; h: number }> = {
   flower: { w: 140, h: 140 },
   butterfly: { w: 180, h: 150 },
   arrow: { w: 200, h: 100 },
+  airmail: { w: 220, h: 100 },
+  "luggage-tag": { w: 240, h: 120 },
+  camera: { w: 160, h: 120 },
+  suitcase: { w: 170, h: 140 },
+  plane: { w: 220, h: 126 },
+  film: { w: 300, h: 110 },
+  heart: { w: 130, h: 130 },
+  sun: { w: 150, h: 150 },
+  moon: { w: 130, h: 130 },
+  cloud: { w: 200, h: 116 },
+  leaf: { w: 90, h: 135 },
+  coffee: { w: 130, h: 130 },
+  paperclip: { w: 44, h: 110 },
+  pin: { w: 80, h: 110 },
+  compass: { w: 150, h: 150 },
+  ribbon: { w: 320, h: 94 },
+  speech: { w: 260, h: 180 },
+  sushi: { w: 170, h: 113 },
+  ramen: { w: 160, h: 160 },
+  onigiri: { w: 130, h: 130 },
+  dumpling: { w: 150, h: 120 },
+  boba: { w: 100, h: 150 },
+  "ice-cream": { w: 100, h: 150 },
+  croissant: { w: 180, h: 105 },
+  pretzel: { w: 150, h: 135 },
+  beer: { w: 130, h: 143 },
+  pizza: { w: 140, h: 140 },
+  sakura: { w: 120, h: 120 },
+  mountains: { w: 210, h: 140 },
+  tram: { w: 210, h: 140 },
+  tier: { w: 714, h: 120 },
+  link: { w: 300, h: 330 },
+  drawing: { w: 200, h: 200 },
 };
 
 export function sizeOf(kind: JournalElement["kind"], style?: string): { w: number; h: number } {
-  if (kind !== "deco") return SIZES[kind]!;
+  if (kind !== "deco") return SIZES[kind] ?? SIZES.note!;
   const family = style?.startsWith("tape") ? "tape" : style?.startsWith("circle") ? "circle" : style ?? "tape";
   return SIZES[family] ?? SIZES.tape!;
 }
+
+// What the stickers with words on them say when they are first put down.
+export const WORDED: Record<string, string> = { ticket: "ADMIT ONE", postmark: "HELLO", "luggage-tag": "BON VOYAGE", ribbon: "HAPPY DAYS", speech: "Wish you were here!", tier: "S" };
 
 // Shapes sit behind what is on the page; everything else goes on top.
 export const behind = (thing: Pick<JournalElement, "kind" | "style">) =>
