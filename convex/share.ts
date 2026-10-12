@@ -274,13 +274,14 @@ export const page = query({
 });
 
 // Public: the journal's locked PDF on this link, if its owner made one. Never
-// its password: that travels separately, from the owner.
+// its password: that travels separately, from the owner. A link that hides
+// photos does not name the file either — the book is the pictures.
 export const pdf = query({
   args: { token: v.string() },
   returns: v.union(v.null(), v.object({ mediaId: v.id("media"), pages: v.number(), at: v.number() })),
   handler: async (ctx, args) => {
     const event = await eventFor(ctx, args.token);
-    if (event === null) return null;
+    if (event === null || event.shareRedacted === true) return null;
     const journal = await ctx.db
       .query("journals")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))

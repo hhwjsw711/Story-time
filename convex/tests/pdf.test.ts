@@ -61,6 +61,23 @@ test("the owner puts a locked PDF on the link; its password stays theirs", async
   expect(await viewer.query(api.media.getForDownload, { mediaId: second })).toBeNull();
 });
 
+test("a hidden share does not name the locked PDF", async () => {
+  const { t, owner, eventId, token, upload } = await setup();
+  const mediaId = await upload();
+  await owner.mutation(api.pdf.set, { eventId, mediaId, password: "kq7m-3vtx-p9ra-w2hc", pages: 12 });
+  expect(await t.query(api.share.pdf, { token })).toMatchObject({ mediaId });
+
+  await owner.mutation(api.share.setHidePhotos, { eventId, hide: true });
+  expect(await t.query(api.share.pdf, { token })).toBeNull();
+  expect(await t.query(api.share.mediaForShare, { token, mediaId })).toBeNull();
+  // The owner still has the file and its password.
+  expect(await owner.query(api.pdf.get, { eventId })).toMatchObject({ mediaId, pages: 12, password: "kq7m-3vtx-p9ra-w2hc" });
+
+  await owner.mutation(api.share.setHidePhotos, { eventId, hide: false });
+  expect(await t.query(api.share.pdf, { token })).toMatchObject({ mediaId, pages: 12 });
+  expect(await t.query(api.share.mediaForShare, { token, mediaId })).toMatchObject({ mime: "application/pdf" });
+});
+
 test("only the owner makes one, with a real password and a size that fits", async () => {
   const { owner, viewer, other, eventId, upload } = await setup();
   await expect(viewer.mutation(api.pdf.reserve, { eventId, size: 2048 })).rejects.toThrow();
