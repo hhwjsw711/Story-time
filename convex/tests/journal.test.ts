@@ -341,6 +341,48 @@ describe("filling a journal", () => {
     await expect(viewer.mutation(api.journal.refresh, { eventId })).rejects.toThrow();
   });
 
+  test("the cover follows the trip's name and dates until someone retypes it", async () => {
+    const { owner, eventId, moment } = await setup();
+    await moment(JUNE_1, "First");
+    await owner.mutation(api.journal.fill, { eventId });
+    const cover = async () => (await owner.query(api.journal.get, { eventId })).pages[0]!;
+    const words = async () => (await cover()).elements.filter((e) => e.kind === "title").map((e) => e.text);
+    expect(await words()).toContain("A week in Lisbon");
+    expect(await words()).toContain("1 Jun 2026");
+
+    await owner.mutation(api.events.update, { eventId, title: "A week in Porto" });
+    expect(await words()).toContain("A week in Porto");
+    expect(await words()).not.toContain("A week in Lisbon");
+
+    await owner.mutation(api.events.update, { eventId, startsAt: JUNE_1, endsAt: JUNE_1 + 6 * 86_400_000 });
+    expect(await words()).toContain("1 Jun – 7 Jun 2026");
+    expect(await words()).not.toContain("1 Jun 2026");
+
+    const page = await cover();
+    await owner.mutation(api.journal.savePage, {
+      pageId: page._id,
+      elements: page.elements.map((e) => ({
+        id: e.id,
+        kind: e.kind,
+        x: e.x,
+        y: e.y,
+        w: e.w,
+        h: e.h,
+        rotation: e.rotation,
+        z: e.z,
+        ...(e.style !== undefined ? { style: e.style } : {}),
+        ...(e.text !== undefined ? { text: e.kind === "title" && e.text === "A week in Porto" ? "Our trip" : e.text } : {}),
+        ...(e.mediaId !== undefined ? { mediaId: e.mediaId } : {}),
+        ...(e.momentId !== undefined ? { momentId: e.momentId } : {}),
+      })),
+    });
+    await owner.mutation(api.events.update, { eventId, title: "Something else entirely" });
+    const kept = await words();
+    expect(kept).toContain("Our trip");
+    expect(kept).not.toContain("Something else entirely");
+    expect(kept).toContain("1 Jun – 7 Jun 2026");
+  });
+
   test("words are encrypted at rest", async () => {
     const { t, owner, eventId, moment } = await setup();
     await moment(JUNE_1, "secret-note");
