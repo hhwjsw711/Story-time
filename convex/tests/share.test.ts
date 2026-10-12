@@ -253,6 +253,7 @@ describe("share links", () => {
     const book = await owner.query(api.journal.outline, { eventId });
     const pageId = book.pages[1]!._id;
     const image = "https://cdn.example.com/og-photo.jpg";
+    const httpImage = "http://cdn.example.com/plain.jpg";
     await owner.mutation(api.journal.savePage, {
       pageId,
       elements: [
@@ -273,6 +274,22 @@ describe("share links", () => {
             url: "https://example.com/tram",
             title: "Tram",
             image,
+          }),
+        },
+        {
+          id: "l2",
+          kind: "link",
+          x: 40,
+          y: 560,
+          w: 280,
+          h: 120,
+          rotation: 0,
+          z: 5,
+          style: "card",
+          text: JSON.stringify({
+            url: "https://example.com/night",
+            title: "Night",
+            image: httpImage,
           }),
         },
       ],
@@ -298,19 +315,24 @@ describe("share links", () => {
     expect(payload).not.toContain(video);
     expect(payload).not.toContain(sticker);
     expect(payload).not.toContain(image);
+    expect(payload).not.toContain(httpImage);
     expect(payload).not.toMatch(/https?:\/\/[^"\\]+\.(jpg|jpeg|png|gif|webp|svg)/i);
     expect(story?.moments.flatMap((m) => m.blocks.map((b) => b.type)).sort()).toEqual(["note", "note"]);
-    expect(page?.elements.map((e) => e.kind).sort()).toEqual(["link", "note"]);
+    expect(page?.elements.map((e) => e.kind).sort()).toEqual(["link", "link", "note"]);
     expect(page?.elements.find((e) => e.kind === "note")?.text).toBe("Tram 28");
-    const linkText = page?.elements.find((e) => e.kind === "link")?.text ?? "";
+    const linkText = page?.elements.filter((e) => e.kind === "link").map((e) => e.text).join("\n") ?? "";
     expect(linkText).toContain("https://example.com/tram");
+    expect(linkText).toContain("https://example.com/night");
     expect(linkText).not.toContain("image");
+    expect(linkText).not.toContain(httpImage);
     expect(await t.query(api.share.mediaForShare, { token, mediaId: photo })).toBeNull();
     expect(await t.query(api.share.mediaForShare, { token, mediaId: video })).toBeNull();
     expect(await t.query(api.share.mediaForShare, { token, mediaId: sticker })).toBeNull();
 
     await owner.mutation(api.share.setHidePhotos, { eventId, hide: false });
-    expect(JSON.stringify(await t.query(api.share.get, { token }))).toContain(photo);
+    const shown = JSON.stringify(await t.query(api.share.page, { token, pageId }));
+    expect(shown).toContain(photo);
+    expect(shown).toContain(httpImage);
     expect(await t.query(api.share.mediaForShare, { token, mediaId: photo })).toMatchObject({ mime: "image/jpeg" });
   });
 

@@ -207,6 +207,22 @@ async function catchUpState(ctx: QueryCtx, page: Doc<"journalPages">) {
   return { edited, stale: page.builtFrom !== undefined && page.builtFrom !== stamp, gone: false };
 }
 
+// A link card's picture, whatever scheme it uses. `readLink` only reports
+// https pictures, so an http URL would otherwise stay in the JSON.
+function withoutLinkImage(text: string): string {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !("image" in parsed)) return text;
+    const copy: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (key !== "image") copy[key] = value;
+    }
+    return JSON.stringify(copy);
+  } catch {
+    return text;
+  }
+}
+
 // A share link that hides photos drops every picture and sticker, and the
 // preview image on a link card, before anything is returned. The address of
 // the link stays; the picture URL does not.
@@ -215,12 +231,8 @@ function withoutPictures(elements: Infer<typeof vElement>[]): Infer<typeof vElem
   for (const element of elements) {
     if (element.kind === "photo" || element.kind === "sticker" || element.mediaId !== undefined) continue;
     if (element.kind === "link" && element.text !== undefined) {
-      const card = readLink(element.text);
-      if (card?.image !== undefined) {
-        // An undefined key is left out of the JSON.
-        kept.push({ ...element, text: JSON.stringify({ ...card, image: undefined }) });
-        continue;
-      }
+      kept.push({ ...element, text: withoutLinkImage(element.text) });
+      continue;
     }
     kept.push(element);
   }
