@@ -5,7 +5,7 @@ What is next, in order. Done items move to `progress.md`.
 ## Now
 
 1. **Deploy** #34 and #35 to production: Convex first (`pnpm exec convex deploy --yes`), then the Worker. Before that (Sara): point the production Google and GitHub sign-in apps at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback`, and look in the prod dashboard at the largest `momentCount` and the most media any one experience holds (the ceiling is now 300 moments and 1,500 photos per experience; 2 GB of live uploads per person still applies).
-2. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `agentTokens`, `quotaRequests` in the dashboard (dev, then prod after the deploy), remove them from `convex/schema.ts`, push.
+2. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `quotaRequests` and the account-wide `agentTokens` (no `eventId`) in the dashboard (dev, then prod after the deploy), remove them from `convex/schema.ts`, push. Deleting an experience already drains its own tokens.
 3. **Workers Builds** fail instantly on every PR: disconnect them in Cloudflare or send the build log.
 4. **Journal, the next eight** (PR #36, `docs/next-features.md`, Cursor is building them): pages made when the moment is, the share link opens the book, one page on screen at a time, a page that can catch up, print a sitting, the cover keeps the trip's name, take a sticker back, Play is the same book. This covers the old "shared link shows the journal", the fun page titles, the tier list's second page and simplification B.
 
