@@ -3,6 +3,7 @@ import { type JournalElement, PAGE } from "../../../convex/lib/journal";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { MomentView } from "@/components/event/types";
 import { formatDay } from "@/lib/local-time";
+import { dayKey } from "@/lib/photo-groups";
 import { groupByDay } from "@/lib/timeline";
 import { contentsByDay } from "./contents";
 import { noteWasCut, pageForPlay, playSurface } from "./play";
@@ -118,6 +119,14 @@ describe("the contents strip", () => {
     // A page with no moment stays with the day before it.
     expect(groups[1]!.pages.map((p) => p.index)).toEqual([1, 2, 3]);
     expect(groups[2]!.pages.map((p) => p.index)).toEqual([4]);
+    expect(groups.every((g) => g.today === false)).toBe(true);
+  });
+
+  test("the viewer's day is marked, and the cover never is", () => {
+    const june3 = Date.UTC(2026, 5, 3, 9);
+    const moments = new Map([["m1", moment(june3)]]);
+    const groups = contentsByDay([{ _id: "cover" }, { _id: "p1", momentId: "m1" }], moments, dayKey(june3, 0));
+    expect(groups.map((g) => g.today)).toEqual([false, true]);
   });
 });
 

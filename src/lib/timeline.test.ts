@@ -24,6 +24,16 @@ describe("days", () => {
     expect(days.map((d) => d.day)).toEqual(["2025-11-08", "2025-11-09"]);
     expect(days[1]!.moments.map((m) => m._id)).toEqual(["b", "c"]);
     expect(days[1]!.label).toMatch(/Nov 9/);
+    expect(days.every((d) => d.today === false)).toBe(true);
+  });
+
+  test("the viewer's day is marked, and only that day", () => {
+    const kyoto = Date.UTC(2025, 10, 8, 22, 15);
+    const days = groupByDay(
+      [moment("a", Date.UTC(2025, 10, 8, 10), { tzOffsetMinutes: 0 }), moment("b", kyoto, { tzOffsetMinutes: 540 })],
+      "2025-11-09",
+    );
+    expect(days.map((d) => d.today)).toEqual([false, true]);
   });
 
   test("nothing in, nothing out", () => {

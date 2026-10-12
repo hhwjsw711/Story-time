@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- The day it is, for the person reading, is marked Today in the moments list and in the journal's contents.
 - Play opens the journal (PR #46). The film is still there, behind Play. A moment with no page falls back to the story, and a page that clipped the note offers "Read the moment". Taking a sticker back was already in PR #39; the smaller on-device model is still to try.
 - The cover keeps the trip's name and dates until someone retypes that line (PR #45). A rename after that leaves the handmade cover alone.
 - Past a few dozen pages, printing the whole journal is named as the long choice (PR #44); this page and this day stay the usual ones.
