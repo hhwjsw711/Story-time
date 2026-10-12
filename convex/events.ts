@@ -358,6 +358,36 @@ export const purgeEventData = internalMutation({
       await ctx.db.delete("changes", row._id);
       deleted++;
     }
+    // Legacy tables: nothing writes them any more, but older experiences
+    // still have rows. Removed with the tables (simplification A2).
+    for (const row of await ctx.db
+      .query("itinerary")
+      .withIndex("by_event_and_day", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("itinerary", row._id);
+      deleted++;
+    }
+    for (const row of await ctx.db
+      .query("quotaRequests")
+      .withIndex("by_event_and_status", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("quotaRequests", row._id);
+      deleted++;
+    }
+    for (const row of await ctx.db
+      .query("canvasNodes")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("canvasNodes", row._id);
+      deleted++;
+    }
+    for (const row of await ctx.db
+      .query("canvases")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("canvases", row._id);
+      deleted++;
+    }
     deleted += await ctx.runMutation(components.invites.lib.removeForEvent, {
       eventId,
     });

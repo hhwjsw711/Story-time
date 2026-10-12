@@ -89,6 +89,23 @@ describe("events.remove", () => {
     expect((await leftovers(t, eventId)).event).toBeNull();
   });
 
+  test("rows in the tables being retired go with the experience too", async () => {
+    const { t, owner, ownerId, eventId } = await setup();
+    await t.run(async (ctx) => {
+      const momentId = await ctx.db.insert("moments", { eventId, authorId: ownerId, startsAt: 0, blocks: [] });
+      await ctx.db.insert("itinerary", { eventId, momentId, startsAt: 0, dayKey: "2026-06-01", monthKey: "2026-06", position: 0 });
+      await ctx.db.insert("quotaRequests", { eventId, requestedBy: ownerId, extra: 10, status: "pending" });
+      const canvasId = await ctx.db.insert("canvases", { eventId, desk: "cork" });
+      await ctx.db.insert("canvasNodes", { canvasId, eventId, kind: "frame", x: 0, y: 0, w: 1, h: 1, rotation: 0, z: 0 });
+    });
+    await owner.mutation(api.events.remove, { eventId });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await t.run(async (ctx) =>
+      Promise.all((["itinerary", "quotaRequests", "canvases", "canvasNodes"] as const).map(async (table) => (await ctx.db.query(table).collect()).length)),
+    );
+    expect(left).toEqual([0, 0, 0, 0]);
+  });
+
   test("a large activity log is deleted in batches", async () => {
     const { t, owner, ownerId, eventId } = await setup();
     await t.run(async (ctx) => {
