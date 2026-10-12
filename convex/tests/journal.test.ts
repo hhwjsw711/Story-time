@@ -270,6 +270,32 @@ describe("filling a journal", () => {
     expect((await owner.query(api.journal.get, { eventId })).pages.some((p) => p.momentId === left)).toBe(false);
   });
 
+  test("waiting pages are cut without a new moment, and a page taken out stays out", async () => {
+    const { t, owner, eventId, moment } = await setup();
+    const first = await moment(JUNE_1, "Pastéis by the river");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const made = (await owner.query(api.journal.get, { eventId })).pages.find((p) => p.momentId === first);
+    expect(made).toBeDefined();
+    await owner.mutation(api.journal.removePage, { pageId: made!._id });
+
+    await t.mutation(internal.journal.backfillWaiting, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect((await owner.query(api.journal.get, { eventId })).pages.some((p) => p.momentId === first)).toBe(false);
+
+    // Rewind the mark, as if this moment was saved and never paged.
+    await t.run(async (ctx) => {
+      const journal = await ctx.db.query("journals").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique();
+      if (journal === null) throw new Error("journal missing");
+      await ctx.db.patch("journals", journal._id, { filledAt: 0 });
+    });
+    expect((await owner.query(api.journal.get, { eventId })).pending).toBeGreaterThan(0);
+    await t.mutation(internal.journal.backfillWaiting, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const again = await owner.query(api.journal.get, { eventId });
+    expect(again.pages.some((p) => p.momentId === first)).toBe(true);
+    expect(again.pending).toBe(0);
+  });
+
   test("a page taken out on purpose is not the journal being full", async () => {
     const { t, owner, eventId, moment } = await setup();
     const id = await moment(JUNE_1, "Taken out");
