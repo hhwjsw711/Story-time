@@ -17,35 +17,35 @@ async function setup() {
   const otherId = await t.run((ctx) => ctx.db.insert("users", {}));
   const owner = t.withIdentity({ subject: ownerId });
   const other = t.withIdentity({ subject: otherId });
-  const eventId = await owner.mutation(api.events.createDraft, {});
-  const { mediaId, r2Key } = await owner.mutation(api.media.reserveUpload, {
+  const eventId = await owner.mutation(api.api.events.createDraft, {});
+  const { mediaId, r2Key } = await owner.mutation(api.api.media.reserveUpload, {
     eventId,
     size: 1000,
     mime: "image/jpeg",
   });
-  await owner.mutation(api.media.confirmUpload, { mediaId });
+  await owner.mutation(api.api.media.confirmUpload, { mediaId });
   return { t, owner, other, eventId, mediaId, r2Key };
 }
 
 describe("thumbnails", () => {
   test("a list asks for the thumb and an old photo falls back to the original", async () => {
     const { owner, mediaId, r2Key } = await setup();
-    const full = await owner.query(api.media.getForDownload, { mediaId });
-    const missing = await owner.query(api.media.getForDownload, { mediaId, variant: "thumb" });
+    const full = await owner.query(api.api.media.getForDownload, { mediaId });
+    const missing = await owner.query(api.api.media.getForDownload, { mediaId, variant: "thumb" });
     expect(full?.r2Key).toBe(r2Key);
     expect(missing?.r2Key).toBe(r2Key);
     expect(missing?.mime).toBe("image/jpeg");
 
-    const reserved = await owner.mutation(api.media.reserveThumb, { mediaId, size: 2000 });
-    await owner.mutation(api.media.attachThumb, {
+    const reserved = await owner.mutation(api.api.media.reserveThumb, { mediaId, size: 2000 });
+    await owner.mutation(api.api.media.attachThumb, {
       mediaId,
       thumbR2Key: reserved.r2Key,
       thumbSize: 2000,
       width: 2000,
       height: 1500,
     });
-    const thumb = await owner.query(api.media.getForDownload, { mediaId, variant: "thumb" });
-    const stillFull = await owner.query(api.media.getForDownload, { mediaId, variant: "full" });
+    const thumb = await owner.query(api.api.media.getForDownload, { mediaId, variant: "thumb" });
+    const stillFull = await owner.query(api.api.media.getForDownload, { mediaId, variant: "full" });
     expect(thumb?.r2Key).toBe(reserved.r2Key);
     expect(thumb?.mime).toBe("image/jpeg");
     expect(stillFull?.r2Key).toBe(r2Key);
@@ -54,9 +54,9 @@ describe("thumbnails", () => {
 
   test("someone else cannot attach a thumb, and the key has to belong to this photo", async () => {
     const { owner, other, mediaId } = await setup();
-    await expect(other.mutation(api.media.reserveThumb, { mediaId, size: 100 })).rejects.toThrow(/not found/i);
+    await expect(other.mutation(api.api.media.reserveThumb, { mediaId, size: 100 })).rejects.toThrow(/not found/i);
     await expect(
-      owner.mutation(api.media.attachThumb, {
+      owner.mutation(api.api.media.attachThumb, {
         mediaId,
         thumbR2Key: "thumbs/other/nope",
         thumbSize: 100,
@@ -68,18 +68,18 @@ describe("thumbnails", () => {
 
   test("deleting the photo names the thumb, and so does removing the trip", async () => {
     const { owner, eventId, mediaId } = await setup();
-    const reserved = await owner.mutation(api.media.reserveThumb, { mediaId, size: 500 });
-    await owner.mutation(api.media.attachThumb, {
+    const reserved = await owner.mutation(api.api.media.reserveThumb, { mediaId, size: 500 });
+    await owner.mutation(api.api.media.attachThumb, {
       mediaId,
       thumbR2Key: reserved.r2Key,
       thumbSize: 500,
       width: 800,
       height: 600,
     });
-    expect(await owner.query(api.media.getForDelete, { mediaId })).toMatchObject({
+    expect(await owner.query(api.api.media.getForDelete, { mediaId })).toMatchObject({
       thumbR2Key: reserved.r2Key,
     });
-    const keys = await owner.query(api.media.listKeysForEvent, { eventId });
+    const keys = await owner.query(api.api.media.listKeysForEvent, { eventId });
     expect(keys).toContain(reserved.r2Key);
   });
 });
