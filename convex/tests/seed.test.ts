@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/* eslint-disable @convex-dev/no-process-env -- this test switches the deployment variables seed:japan checks */
 import { convexTest } from "convex-test";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
@@ -7,7 +8,6 @@ import schema from "../schema";
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
 
 beforeAll(() => {
-  // eslint-disable-next-line @convex-dev/no-process-env -- test setup
   process.env.ENCRYPTION_MASTER_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
   process.env.CONVEX_DEPLOYMENT = "dev:test";
   delete process.env.CONVEX_SITE_URL;

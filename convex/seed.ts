@@ -18,6 +18,9 @@ import { createMoment, type MomentCreate } from "./moments";
 const PROD_DEPLOYMENT = "strong-stoat-772";
 
 function readEnv(name: string): string | undefined {
+  // CONVEX_SITE_URL and CONVEX_CLOUD_URL are set by Convex itself and can't be
+  // declared in convex.config.ts; this dev-only guard reads them directly.
+  // eslint-disable-next-line @convex-dev/no-process-env -- system variables, see above
   const value = (process.env as Record<string, string | undefined>)[name];
   return typeof value === "string" && value !== "" ? value : undefined;
 }
