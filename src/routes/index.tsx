@@ -3,7 +3,6 @@ import { useConvexAuth } from "convex/react";
 import {
   ArrowDownIcon,
   ArrowRightIcon,
-  BotIcon,
   CheckIcon,
   GalleryHorizontalIcon,
   ImagePlusIcon,
@@ -21,8 +20,6 @@ import { DuskScene, useScrollDepth } from "@/components/landing/dusk";
 import { FilmDemo } from "@/components/landing/film-demo";
 import { MapFrame } from "@/components/landing/frames";
 import {
-  ActivityFragment,
-  AgentFragment,
   CameraRollFragment,
   InviteFragment,
   LinkFragment,
@@ -60,7 +57,6 @@ function Landing() {
         <Maps />
         <StoryMode />
         <Privacy />
-        <Agents />
         <Closing />
       </main>
       <Footer />
@@ -80,7 +76,6 @@ const SECTIONS: Array<{ id: string; label: string; short: [string, string]; icon
   { id: "maps", label: "Maps", short: ["Every stop", "on a map"], icon: MapIcon },
   { id: "story-mode", label: "Story mode", short: ["Play it", "like a film"], icon: PlayIcon },
   { id: "privacy", label: "Privacy", short: ["Private", "by default"], icon: LockIcon },
-  { id: "agents", label: "Agents", short: ["Bring your", "assistant"], icon: BotIcon },
 ];
 
 function SectionLink({ id, className, children }: { id: string; className?: string; children: ReactNode }) {
@@ -327,7 +322,7 @@ function Photos() {
   return (
     <Band
       id="photos"
-      eyebrow="Add from photos"
+      eyebrow="Add photos"
       title="Add photos. The dates and places fill themselves in."
       lead="Pick them from your camera roll. Story-time reads the time and place saved in each photo and groups them into moments, one stop per place. It drafts a first line for each one too. You never have to type a thing, though you can."
     >
@@ -537,31 +532,7 @@ function Privacy() {
   );
 }
 
-const TOOLS = ["list_experiences", "list_moments", "add_moment", "update_moment"];
 
-function Agents() {
-  return (
-    <Band
-      id="agents"
-      eyebrow="Agents"
-      title="Bring your assistant along."
-      lead="Connect Claude Code, or any assistant that speaks MCP, from Settings. It can read, add and update moments for you. It can't do anything you couldn't, and everything it adds is marked as an agent's."
-    >
-      <div className="mx-auto grid max-w-5xl items-start gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <AgentFragment />
-        <ActivityFragment />
-      </div>
-      <ul aria-label="What an assistant can do" className="mt-8 flex flex-wrap justify-center gap-2">
-        {TOOLS.map((t) => (
-          <li key={t} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 font-mono text-[11px] text-stone-400">
-            {t}
-          </li>
-        ))}
-        <li className="rounded-full border border-dashed border-white/10 px-3 py-1 font-mono text-[11px] text-stone-500">no deleting</li>
-      </ul>
-    </Band>
-  );
-}
 
 function Closing() {
   return (

@@ -19,7 +19,7 @@ import {
   MAX_TEXT_LENGTH,
 } from "../lib/limits";
 import { rateLimiter } from "../lib/rateLimit";
-import { TRANSPORTS } from "../mcpTools";
+import { TRANSPORTS } from "../schema";
 import {
   createMoment,
   deleteMoment,

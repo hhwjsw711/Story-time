@@ -48,7 +48,6 @@ async function fill(owner: Awaited<ReturnType<typeof setup>>["owner"], eventId: 
     blocks: [{ type: "photo", mediaId }, { type: "note", text: "hi" }],
   });
   await owner.mutation(api.invites.create, { eventId, role: "viewer" });
-  await owner.mutation(api.quota.request, { eventId, extra: 5 });
   return r2Key;
 }
 
@@ -59,16 +58,14 @@ async function leftovers(t: Awaited<ReturnType<typeof setup>>["t"], eventId: Id<
     return {
       event: await ctx.db.get("events", eventId),
       moments: count(await ctx.db.query("moments").collect()),
-      itinerary: count(await ctx.db.query("itinerary").collect()),
       media: count(await ctx.db.query("media").collect()),
       sessions: count(await ctx.db.query("sessions").collect()),
-      quotaRequests: count(await ctx.db.query("quotaRequests").collect()),
       changes: count(await ctx.db.query("changes").collect()),
     };
   });
 }
 
-const EMPTY = { event: null, moments: 0, itinerary: 0, media: 0, sessions: 0, quotaRequests: 0, changes: 0 };
+const EMPTY = { event: null, moments: 0, media: 0, sessions: 0, changes: 0 };
 
 describe("events.remove", () => {
   test("only the owner can delete, and everything in the experience goes", async () => {

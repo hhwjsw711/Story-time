@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { Infer, ObjectType } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { MOMENT_LIMIT } from "./lib/limits";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { changeFields, lastEditOf, type Actor } from "./lib/actors";
 import {
@@ -11,7 +12,6 @@ import {
   encodePlace,
   encodeStops,
   invalid,
-  localKeys,
   mediaIdsOf,
 } from "./lib/blocks";
 import { vGeo, vTransport } from "./schema";
@@ -175,11 +175,11 @@ export async function createMoment(
 ): Promise<Id<"moments">> {
   const { event, userId, actor, input } = args;
   assertNotArchived(event);
-  if (event.momentCount >= event.momentLimit) {
+  if (event.momentCount >= MOMENT_LIMIT) {
     throw new ConvexError({
       code: "MOMENT_LIMIT",
-      message: `This experience is limited to ${event.momentLimit} moments. Request more to add another.`,
-      limit: event.momentLimit,
+      message: `This experience holds up to ${MOMENT_LIMIT} moments.`,
+      limit: MOMENT_LIMIT,
     });
   }
   if (!Number.isFinite(input.startsAt)) invalid("startsAt", "Pick a date");
@@ -197,7 +197,7 @@ export async function createMoment(
   }
   const blocks = first.blocks;
   const mediaIds = [...first.mediaIds, ...rest.mediaIds];
-  const { place, placeKey } = await encodePlace(event, input.place);
+  const place = await encodePlace(event, input.place);
   const geo = await encodeGeo(event, input.geo, {
     field: "geo",
     hasPlace: place !== undefined,
@@ -221,14 +221,6 @@ export async function createMoment(
     await ctx.db.patch("media", mediaId, { momentId });
   }
 
-  await ctx.db.insert("itinerary", {
-    eventId: event._id,
-    momentId,
-    startsAt: input.startsAt,
-    ...localKeys(input.startsAt, tzOffsetMinutes ?? 0),
-    placeKey,
-    position: event.momentCount,
-  });
   await ctx.db.patch("events", event._id, {
     momentCount: event.momentCount + 1,
     status: event.status === "draft" ? "active" : event.status,
@@ -253,7 +245,7 @@ export async function listForEvent(
   const moments = await ctx.db
     .query("moments")
     .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-    .take(500);
+    .take(MOMENT_LIMIT);
   return Promise.all(moments.map((m) => viewMoment(ctx, event, m)));
 }
 
@@ -350,7 +342,6 @@ export async function writeMomentUpdate(
     >
   > = {};
   const fields: string[] = [];
-  let placeKey: string | undefined | null = null; // null = unchanged
   let removedMediaIds: Id<"media">[] = [];
   // Not a field the change log names, so an offset on its own is stored quietly.
   const tzOffsetMinutes = checkOffset(patch.tzOffsetMinutes);
@@ -365,13 +356,11 @@ export async function writeMomentUpdate(
   }
 
   if (patch.place !== undefined) {
-    const encoded = await encodePlace(event, patch.place);
-    docPatch.place = encoded.place;
-    placeKey = encoded.placeKey;
+    docPatch.place = await encodePlace(event, patch.place);
     fields.push("place");
     docPatch.geo = await encodeGeo(event, patch.geo, {
       field: "geo",
-      hasPlace: encoded.place !== undefined,
+      hasPlace: docPatch.place !== undefined,
     });
     if (docPatch.geo !== undefined || moment.geo !== undefined) fields.push("geo");
   }
@@ -436,29 +425,6 @@ export async function writeMomentUpdate(
   if (fields.length > 0) docPatch.lastEdit = lastEditOf(actor, Date.now());
   await ctx.db.patch("moments", moment._id, docPatch);
 
-  // Keep the itinerary row in step with the moment.
-  const row = await ctx.db
-    .query("itinerary")
-    .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
-    .unique();
-  if (row !== null) {
-    const rowPatch: Partial<
-      Pick<Doc<"itinerary">, "startsAt" | "dayKey" | "monthKey" | "placeKey">
-    > = {};
-    if (docPatch.startsAt !== undefined || tzOffsetMinutes !== undefined) {
-      const startsAt = docPatch.startsAt ?? moment.startsAt;
-      // A time moved without a new offset keeps the one the moment already has.
-      Object.assign(rowPatch, {
-        startsAt,
-        ...localKeys(startsAt, tzOffsetMinutes ?? moment.tzOffsetMinutes ?? 0),
-      });
-    }
-    if (placeKey !== null) rowPatch.placeKey = placeKey;
-    if (Object.keys(rowPatch).length > 0) {
-      await ctx.db.patch("itinerary", row._id, rowPatch);
-    }
-  }
-
   // The log keeps naming only the fields people changed.
   if (fields.length === 0) return { removedMediaIds };
   await recordChange(ctx, {
@@ -498,8 +464,7 @@ export const remove = mutation({
 });
 
 // The write behind `remove`, shared with typed requests. Detaches the moment's
-// photos (returned, so the caller can clear them from R2), drops its itinerary
-// row and logs the change. Access checks stay with the caller.
+// photos (returned, so the caller can clear them from R2) and logs the change. Access checks stay with the caller.
 export async function deleteMoment(
   ctx: MutationCtx,
   args: { event: Doc<"events">; moment: Doc<"moments">; userId: Id<"users"> },
@@ -509,11 +474,6 @@ export async function deleteMoment(
   for (const id of removedMediaIds) {
     await detachMedia(ctx, id, userId);
   }
-  const row = await ctx.db
-    .query("itinerary")
-    .withIndex("by_moment", (q) => q.eq("momentId", moment._id))
-    .unique();
-  if (row !== null) await ctx.db.delete("itinerary", row._id);
   await ctx.db.delete("moments", moment._id);
   await ctx.db.patch("events", event._id, {
     momentCount: Math.max(0, event.momentCount - 1),

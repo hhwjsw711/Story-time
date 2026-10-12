@@ -4,12 +4,10 @@ import { useMutation } from "convex/react";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  ImagesIcon,
   LinkIcon,
   MoreHorizontalIcon,
   PencilIcon,
   PlayIcon,
-  PlusIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useState } from "react";
@@ -30,19 +28,15 @@ import { deleteExperience } from "@/lib/actions";
 import { errorMessage } from "@/lib/errors";
 
 // The "..." menu for an experience. Items show only when they apply: edit
-// and add need a handler, archive and delete need the owner.
+// needs a handler, archive and delete need the owner.
 export function EventActionsMenu({
   event,
   onEditDetails,
-  onAddMoment,
-  onAddFromPhotos,
   compact = false,
 }: {
   // Home cards carry no description, and the menu never needs one.
   event: Omit<EventView, "description">;
   onEditDetails?: () => void;
-  onAddMoment?: () => void;
-  onAddFromPhotos?: () => void;
   // The icon alone, where a label would crowd (a card's corner).
   compact?: boolean;
 }) {
@@ -75,8 +69,6 @@ export function EventActionsMenu({
     toast.success("Link copied");
   }
 
-  const addable = event.role !== "viewer" && !archived;
-
   return (
     <>
       <DropdownMenu>
@@ -87,7 +79,7 @@ export function EventActionsMenu({
             variant="ghost"
             size="icon"
             aria-label={`More actions for ${event.title}`}
-            title="More: add a moment, edit details, share, archive"
+            title="More: edit details, share, archive"
             className={compact ? undefined : "sm:w-auto sm:gap-1.5 sm:px-3"}
           >
             <MoreHorizontalIcon />
@@ -95,30 +87,6 @@ export function EventActionsMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-72">
-          {(onAddMoment || onAddFromPhotos) && addable && (
-            <>
-              <DropdownMenuLabel>Add</DropdownMenuLabel>
-              {onAddMoment && (
-                <DropdownMenuItem onSelect={onAddMoment} className="items-start">
-                  <PlusIcon className="mt-0.5" />
-                  <span className="flex flex-col">
-                    Add moment
-                    <span className="text-xs font-normal text-muted-foreground">Write it up in a form</span>
-                  </span>
-                </DropdownMenuItem>
-              )}
-              {onAddFromPhotos && (
-                <DropdownMenuItem onSelect={onAddFromPhotos} className="items-start">
-                  <ImagesIcon className="mt-0.5" />
-                  <span className="flex flex-col">
-                    Add from photos
-                    <span className="text-xs font-normal text-muted-foreground">Pick photos and review how they group</span>
-                  </span>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-            </>
-          )}
           <DropdownMenuLabel>Experience</DropdownMenuLabel>
           {onEditDetails && isOwner && !archived && (
             <DropdownMenuItem onSelect={onEditDetails}>

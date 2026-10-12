@@ -1,6 +1,7 @@
-export const DEFAULT_MOMENT_LIMIT = 100;
-// Moment list and itinerary reads take at most this many rows.
-export const MAX_MOMENT_LIMIT = 500;
+// Moments an experience holds. One number, the same for everyone.
+export const MOMENT_LIMIT = 300;
+// Photos and videos an experience holds live (reserved or ready).
+export const MAX_MEDIA_PER_EVENT = MOMENT_LIMIT * 5;
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_BLOCKS_PER_MOMENT = 20;
 // A moment is a journey: its own place and time are the first stop.
@@ -31,6 +32,3 @@ export const MAX_COMMAND_OPS = 8;
 // inside the 1 MiB a Convex value may hold.
 export const MAX_VOICE_SECONDS = 60;
 export const MAX_VOICE_BYTES = 900_000;
-// A canvas: how many things it holds, and how many one request may add or move.
-export const MAX_CANVAS_NODES = 400;
-export const MAX_CANVAS_BATCH = 100;

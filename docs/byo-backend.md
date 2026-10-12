@@ -108,7 +108,6 @@ I read "subs" as their own plans and bills: Convex usage, storage, the AI gatewa
 - **AI fill-ins** use the Convex AI Gateway on their team. If their plan has none, enrichment fails quietly and the moment is still saved, which is how failures behave today.
 - **Invite emails** need `CF_ACCOUNT_ID`, `CF_EMAIL_TOKEN` and `EMAIL_FROM`, all optional already. Without them, invites are copy-link only.
 - **Limits** (the 120 AI fill-ins an hour, 50 waiting invites, upload caps) are per deployment. The owner can change the numbers on their own deployment.
-- **MCP** works per deployment: `https://<name>.convex.site/mcp`, tokens issued on their own Settings > Agents page.
 
 ## What the Data & privacy page must say
 
@@ -121,7 +120,7 @@ The page's copy depends on the mode and never claims something that isn't true f
 ## Gates before BYO goes on in production
 
 1. `pnpm typecheck`, `pnpm lint`, `pnpm test` and `pnpm build` pass with BYO off, and the built hosted bundle behaves as before.
-2. A second Convex project, deployed from this repo, passes the full loop from the front door: sign in, add moments with photos, play the story, create a share link and open it in a private window, send and accept an invite, connect an MCP client.
+2. A second Convex project, deployed from this repo, passes the full loop from the front door: sign in, add moments with photos, play the story, create a share link and open it in a private window, send and accept an invite.
 3. A hosted account and a BYO account stay signed in side by side in one browser.
 4. The Worker rejects any attempt to point it at another backend, and BYO mode makes zero requests to `/api/*`.
 5. A non-Convex URL, and a Convex URL that isn't a Story-time backend, are both refused.

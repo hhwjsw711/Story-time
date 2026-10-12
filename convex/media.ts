@@ -16,6 +16,7 @@ import {
   IMAGE_MIME_TYPES,
   MAX_AVATAR_BYTES,
   MAX_LIVE_UPLOAD_BYTES,
+  MAX_MEDIA_PER_EVENT,
   MAX_UPLOAD_BYTES,
   MAX_VIDEO_BYTES,
   VIDEO_MIME_TYPES,
@@ -87,7 +88,7 @@ export const reserveUpload = mutation({
     }
     // Stops one contributor reserving unlimited objects. Deleted uploads
     // don't count, so removing photos frees room.
-    const cap = event.momentLimit * 5;
+    const cap = MAX_MEDIA_PER_EVENT;
     let live = 0;
     for (const status of ["reserved", "ready"] as const) {
       const rows = await ctx.db

@@ -1,5 +1,5 @@
 // Who made something: a person, an agent (an AI working for a person, like
-// Scribe or an assistant connected over MCP) or the system. The server stores
+// Scribe) or the system. The server stores
 // an agent's name and leaves people unmarked; this is where that becomes a kind.
 export type ActorView =
   | { kind: "human"; name?: string }

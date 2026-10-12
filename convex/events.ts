@@ -16,7 +16,7 @@ import {
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
 import { decryptGeo, encryptText, readText } from "./lib/crypto";
-import { DEFAULT_MOMENT_LIMIT, MAX_EVENTS_PER_USER } from "./lib/limits";
+import { MAX_EVENTS_PER_USER } from "./lib/limits";
 import { vGeo } from "./schema";
 
 const vStatus = v.union(
@@ -46,7 +46,6 @@ const vEventView = v.object({
   endsAt: v.optional(v.number()),
   status: vStatus,
   visibility: vVisibility,
-  momentLimit: v.number(),
   momentCount: v.number(),
   role: vRoleOut,
 });
@@ -96,7 +95,6 @@ function summaryOf(event: Doc<"events">, role: EventRole) {
     endsAt: event.endsAt,
     status: event.status,
     visibility: event.visibility,
-    momentLimit: event.momentLimit,
     momentCount: event.momentCount,
     role,
   };
@@ -150,7 +148,6 @@ export const createDraft = mutation({
       title: "Untitled experience",
       status: "draft",
       visibility: "private",
-      momentLimit: DEFAULT_MOMENT_LIMIT,
       momentCount: 0,
       keyVersion: 1,
     });
@@ -341,13 +338,6 @@ export const purgeEventData = internalMutation({
       deleted++;
     }
     for (const row of await ctx.db
-      .query("itinerary")
-      .withIndex("by_event_and_day", (q) => q.eq("eventId", eventId))
-      .take(PURGE_BATCH)) {
-      await ctx.db.delete("itinerary", row._id);
-      deleted++;
-    }
-    for (const row of await ctx.db
       .query("media")
       .withIndex("by_event_and_status", (q) => q.eq("eventId", eventId))
       .take(PURGE_BATCH)) {
@@ -362,31 +352,10 @@ export const purgeEventData = internalMutation({
       deleted++;
     }
     for (const row of await ctx.db
-      .query("quotaRequests")
-      .withIndex("by_event_and_status", (q) => q.eq("eventId", eventId))
-      .take(PURGE_BATCH)) {
-      await ctx.db.delete("quotaRequests", row._id);
-      deleted++;
-    }
-    for (const row of await ctx.db
       .query("changes")
       .withIndex("by_event_and_at", (q) => q.eq("eventId", eventId))
       .take(PURGE_BATCH)) {
       await ctx.db.delete("changes", row._id);
-      deleted++;
-    }
-    for (const row of await ctx.db
-      .query("canvasNodes")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .take(PURGE_BATCH)) {
-      await ctx.db.delete("canvasNodes", row._id);
-      deleted++;
-    }
-    for (const row of await ctx.db
-      .query("canvases")
-      .withIndex("by_event", (q) => q.eq("eventId", eventId))
-      .take(PURGE_BATCH)) {
-      await ctx.db.delete("canvases", row._id);
       deleted++;
     }
     deleted += await ctx.runMutation(components.invites.lib.removeForEvent, {

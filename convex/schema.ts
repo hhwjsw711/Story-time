@@ -42,6 +42,7 @@ export const vBlock = v.union(
 );
 
 // How someone got to a stop. Not sensitive, so stored in the clear.
+export const TRANSPORTS = ["walk", "bike", "car", "bus", "train", "plane", "boat", "other"] as const;
 export const vTransport = v.union(
   v.literal("walk"),
   v.literal("bike"),
@@ -143,7 +144,7 @@ export default defineSchema({
     shareKey: v.optional(v.string()),
     shareToken: v.optional(vEncrypted),
     region: v.optional(vRegion), // legacy, unused
-    momentLimit: v.number(),
+    momentLimit: v.optional(v.number()), // legacy, unused: lib/limits.ts holds the one limit
     momentCount: v.number(),
     keyVersion: v.number(),
     coverMediaId: v.optional(v.id("media")),
@@ -177,7 +178,7 @@ export default defineSchema({
     .index("by_event_and_startsAt", ["eventId", "startsAt"])
     .index("by_author", ["authorId"]),
 
-  // One denormalised row per moment; the itinerary view groups on these keys.
+  // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   itinerary: defineTable({
     eventId: v.id("events"),
     momentId: v.id("moments"),
@@ -224,7 +225,7 @@ export default defineSchema({
     "userId",
   ]),
 
-  // "Credits": owners/contributors ask for a higher moment limit.
+  // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   quotaRequests: defineTable({
     eventId: v.id("events"),
     requestedBy: v.id("users"),
@@ -282,18 +283,14 @@ export default defineSchema({
     .index("by_event_and_at", ["eventId", "at"])
     .index("by_entity", ["entity", "entityId", "at"]),
 
-  // The collage view of an experience: one infinite canvas of frames and
-  // pieces laid over the same moments and photos. It holds no content of its
-  // own beyond what people write on it, so deleting it loses nothing.
+  // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   canvases: defineTable({
     eventId: v.id("events"),
-    // The desk under the frames, by name (see src/lib/canvas/look.ts).
     desk: v.string(),
+    filledAt: v.optional(v.number()),
   }).index("by_event", ["eventId"]),
 
-  // One row per thing on a canvas. They nest: a frame holds pieces, and a
-  // ransom-note title holds its letters, so editing can go from a whole frame
-  // down to one letter. A child's x and y are inside its parent.
+  // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   canvasNodes: defineTable({
     canvasId: v.id("canvases"),
     eventId: v.id("events"),
@@ -321,8 +318,7 @@ export default defineSchema({
     .index("by_event", ["eventId"])
     .index("by_parent", ["parentId"]),
 
-  // Connections for assistants (MCP). The token itself is never stored, only a
-  // keyed hash of it, so a database leak hands out nothing usable.
+  // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   agentTokens: defineTable({
     // The person the agent acts for: it can do what they could do, no more.
     userId: v.id("users"),
