@@ -407,6 +407,15 @@ export const purgeEventData = internalMutation({
       await ctx.db.delete("canvases", row._id);
       deleted++;
     }
+    // A token limited to this experience. Account-wide tokens have no eventId
+    // and stay until A2 drops the table.
+    for (const row of await ctx.db
+      .query("agentTokens")
+      .withIndex("by_event", (q) => q.eq("eventId", eventId))
+      .take(PURGE_BATCH)) {
+      await ctx.db.delete("agentTokens", row._id);
+      deleted++;
+    }
     deleted += await ctx.runMutation(components.invites.lib.removeForEvent, {
       eventId,
     });
