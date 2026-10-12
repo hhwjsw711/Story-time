@@ -54,6 +54,7 @@ async function changeCount(
 
 describe("the moment limit", () => {
   test("one more than the limit is rejected", async () => {
+    expect(MOMENT_LIMIT).toBe(300);
     const { t, owner } = await setup();
     const eventId = await owner.mutation(api.events.createDraft, {});
     // Counted up to the limit, not added one by one: that would make the test slow.
