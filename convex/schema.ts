@@ -131,19 +131,30 @@ export const vLastEdit = v.object({
 });
 
 export default defineSchema({
-  // Created by Convex Auth (`createUser` inserts `{}`). Everything is
-  // optional and user-entered: nothing is copied from the OAuth profile.
+  // Created by Convex Auth. A verified OAuth email is copied as a contact
+  // address; name and avatar are not. The address is never used to sign in.
   users: defineTable({
     displayName: v.optional(v.string()),
     // Lowercase, 3-20 chars of a-z 0-9 _. Unique across users when set.
     username: v.optional(v.string()),
-    // Typed in by the user, never copied from the OAuth profile and never
-    // verified, so it must not be trusted for sign-in or access decisions.
+    // A contact address we will send to and put as Reply-To. Set from a
+    // verified OAuth email, or from Settings after the confirmation link is
+    // opened. Never used to sign in.
     email: v.optional(v.string()),
+    emailVerified: v.optional(v.boolean()),
+    // An address typed in Settings, waiting on its confirmation link.
+    pendingEmail: v.optional(v.string()),
+    // Hash of that link. The token itself is not stored.
+    emailVerifyKey: v.optional(v.string()),
+    emailVerifyExpires: v.optional(v.number()),
+    // Opt-in: a daily note that a memory is waiting. No memory text is mailed.
+    onThisDay: v.optional(v.boolean()),
     imageMediaId: v.optional(v.id("media")),
     region: v.optional(vRegion), // legacy, unused
     locale: v.optional(v.string()),
-  }).index("by_username", ["username"]),
+  })
+    .index("by_username", ["username"])
+    .index("by_emailVerifyKey", ["emailVerifyKey"]),
 
   events: defineTable({
     ownerId: v.id("users"),
@@ -204,9 +215,12 @@ export default defineSchema({
     authorAgent: v.optional(v.string()),
     // Absent until the moment is edited.
     lastEdit: v.optional(vLastEdit),
+    // "MM-DD" where the moment happened, so a daily job can find this date.
+    monthDay: v.optional(v.string()),
   })
     .index("by_event_and_startsAt", ["eventId", "startsAt"])
-    .index("by_author", ["authorId"]),
+    .index("by_author", ["authorId"])
+    .index("by_monthDay", ["monthDay"]),
 
   // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   itinerary: defineTable({
@@ -255,6 +269,20 @@ export default defineSchema({
   inviteEmails: defineTable({ userId: v.id("users") }).index("by_user", [
     "userId",
   ]),
+
+  // One row per share-link email sent, for the daily cap. No address is kept.
+  shareEmails: defineTable({ userId: v.id("users") }).index("by_user", [
+    "userId",
+  ]),
+
+  // One row per address-confirmation email, for the daily cap. No address is kept.
+  emailChecks: defineTable({ userId: v.id("users") }).index("by_user", ["userId"]),
+
+  // One row per person per UTC day, so the memory email is sent once.
+  memoryMails: defineTable({
+    userId: v.id("users"),
+    day: v.string(),
+  }).index("by_user_and_day", ["userId", "day"]),
 
   // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   quotaRequests: defineTable({
