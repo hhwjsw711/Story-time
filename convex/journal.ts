@@ -28,7 +28,7 @@ import {
   TITLE_STYLES,
   TONES,
 } from "./lib/journal";
-import { IMAGE_MIME_TYPES, MOMENT_LIMIT } from "./lib/limits";
+import { IMAGE_MIME_TYPES, momentsToRead } from "./lib/limits";
 import { rateLimiter } from "./lib/rateLimit";
 import { type LinkPreview, previewOf } from "./ai/unfurl";
 import { viewMoment } from "./moments";
@@ -213,7 +213,7 @@ export const get = query({
       const moments = await ctx.db
         .query("moments")
         .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-        .take(MOMENT_LIMIT);
+        .take(momentsToRead(event.momentCount));
       pending = moments.filter((m) => journal?.filledAt === undefined || m._creationTime > journal.filledAt).length;
       // A brand-new journal still gets its cover.
       if (journal === null) pending = Math.max(pending, 1);
@@ -242,7 +242,7 @@ export const fill = mutation({
     const rows = await ctx.db
       .query("moments")
       .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-      .take(MOMENT_LIMIT);
+      .take(momentsToRead(event.momentCount));
     const fresh = rows.filter((m) => journal.filledAt === undefined || m._creationTime > journal.filledAt);
     let room = MAX_JOURNAL_PAGES - (await pagesOf(ctx, event._id)).length;
     let made = 0;
