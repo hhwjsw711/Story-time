@@ -396,6 +396,39 @@ export const sweepReservedUploads = internalMutation({
   },
 });
 
+// How many ready rows to scan for the box's shelf, and how many to show.
+// The rest stay in the trip; the shelf is a handful to pick from, not a library.
+const UNATTACHED_SCAN = 200;
+const UNATTACHED_LIMIT = 24;
+
+const showable = (mime: string) =>
+  IMAGE_MIME_TYPES.some((kind) => kind === mime) || VIDEO_MIME_TYPES.some((kind) => kind === mime);
+
+// Photos and videos this person uploaded that are not on a moment yet, newest
+// first. Stickers, avatars, and anyone else's loose uploads stay off the shelf.
+// A contributor can put these on a new moment from the box.
+export const unattached = query({
+  args: { eventId: v.id("events") },
+  returns: v.array(v.object({ mediaId: v.id("media"), mime: v.string() })),
+  handler: async (ctx, args) => {
+    const { userId } = await requireEventAccess(ctx, args.eventId, "contributor");
+    const rows = await ctx.db
+      .query("media")
+      .withIndex("by_event_and_status", (q) => q.eq("eventId", args.eventId).eq("status", "ready"))
+      .order("desc")
+      .take(UNATTACHED_SCAN);
+    const mine = rows.filter(
+      (row) =>
+        row.momentId === undefined &&
+        row.purpose !== "sticker" &&
+        row.purpose !== "avatar" &&
+        row.uploaderId === userId &&
+        showable(row.mime),
+    );
+    return mine.slice(0, UNATTACHED_LIMIT).map((row) => ({ mediaId: row._id, mime: row.mime }));
+  },
+});
+
 // Under Convex's per-call document read limit, with room for the row reads.
 const MAX_KEYS = 12_000;
 

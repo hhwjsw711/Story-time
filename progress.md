@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- The box can attach photos already in the trip. They are the ones you uploaded that are not on a moment yet, and they become one moment, with your words as the note.
 - Moments that never got a page get one when the journal is opened, and once a day if nobody opens it. A page taken out on purpose stays out.
 - A thing locked in place on a journal page stays put. A save cannot move it, rewrite it, or take it off; unlocking it is its own save, and catching a page up leaves it where it was.
 - The day it is, for the person reading, is marked Today in the moments list and in the journal's contents.

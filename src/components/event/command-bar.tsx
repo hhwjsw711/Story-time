@@ -1,10 +1,11 @@
 import { useAuthToken } from "@convex-dev/auth/react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ArrowUpIcon, ImagePlusIcon, LoaderCircleIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ImagePlusIcon, ImagesIcon, LoaderCircleIcon, PlayIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { MAX_COMMAND_CHARS } from "../../../convex/lib/limits";
+import { AuthImage } from "@/components/auth-image";
 import { findPlace, type Geo } from "@/components/event/place-input";
 import { canAddTo } from "@/components/event/quick-add";
 import { VoiceButton } from "@/components/event/voice-button";
@@ -14,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { deletePhotos } from "@/lib/actions";
 import { enrichMoment, plural } from "@/lib/add-moments";
 import { addPhotos } from "@/lib/add-photos";
+import { blocksForShelf, type ShelfItem } from "@/lib/command-shelf";
 import { describeOp, placesToFind, withPins, type PlanOp } from "@/lib/command-plan";
 import { errorMessage } from "@/lib/errors";
 import { MEDIA_ACCEPT } from "@/lib/upload";
@@ -39,11 +41,14 @@ async function pin(ops: PlanOp[], near: Geo | undefined): Promise<PlanOp[]> {
 // a moment, as before; say what to change ("move this to Friday", "add Hanover
 // as a stop by plane", "delete the second stop") and it shows the changes to
 // approve first. Applying is one step, and all of it lands together. Words can
-// be spoken (the mic) and photos can be attached: with photos, the words are
-// what they are, and the photos become moments, as the Add button makes them.
+// be spoken (the mic) and photos can be attached: new files, or ones already
+// in the trip that aren't on a moment. With photos, the words are what they
+// are, and the photos become moments, as the Add button makes them.
 export function CommandBar({ event, openMomentId }: { event: EventView; openMomentId?: string }) {
   const token = useAuthToken();
+  const adding = canAddTo(event);
   const moments = useQuery(api.moments.list, { eventId: event._id });
+  const shelf = useQuery(api.media.unattached, adding ? { eventId: event._id } : "skip");
   const createMoment = useMutation(api.moments.create);
   const apply = useMutation(api.ai.command.apply);
   const propose = useAction(api.ai.command.propose);
@@ -55,6 +60,8 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
   const input = useRef<HTMLInputElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
+  const [picked, setPicked] = useState<ShelfItem[]>([]);
+  const [shelfOpen, setShelfOpen] = useState(false);
   // Read at each call: tokens are short-lived and a batch can run for minutes.
   const latestToken = useRef(token);
   useEffect(() => {
@@ -71,7 +78,7 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
     return () => made.forEach((m) => m.url && URL.revokeObjectURL(m.url));
   }, [files]);
 
-  if (!canAddTo(event)) return null;
+  if (!adding) return null;
   const said = text.trim();
   const busy = phase !== "idle";
   const lines = plan?.ops.map((op) => describeOp(op, moments ?? [])) ?? [];
@@ -81,6 +88,15 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
     setPlan(null);
     setProblem(null);
     input.current?.focus();
+  }
+
+  function toggleShelf(item: ShelfItem) {
+    setPicked((now) =>
+      now.some((chosen) => chosen.mediaId === item.mediaId)
+        ? now.filter((chosen) => chosen.mediaId !== item.mediaId)
+        : [...now, item],
+    );
+    setPlan(null);
   }
 
   // Something that happened, saved as a moment with only a note, stamped now.
@@ -99,12 +115,30 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if ((!said && files.length === 0) || busy) return;
+    if ((!said && files.length === 0 && picked.length === 0) || busy) return;
     setProblem(null);
     setPlan(null);
     setPhase("reading");
     try {
-      // Photos attached: they become moments, and the words say what they are.
+      // Photos already in the trip become one moment. The words are its note,
+      // unless new files are going out too, in which case the words go with them.
+      if (picked.length > 0) {
+        const momentId = await createMoment({
+          eventId: event._id,
+          startsAt: Date.now(),
+          tzOffsetMinutes: -new Date().getTimezoneOffset(),
+          blocks: blocksForShelf(picked, files.length > 0 ? "" : said),
+        });
+        enrichMoment(enrich, momentId, []);
+        setPicked([]);
+        setShelfOpen(false);
+        if (files.length === 0) {
+          setText("");
+          toast.success("Moment added");
+          return;
+        }
+      }
+      // New files: they become moments, and the words say what they are.
       // Nothing to read or approve, so no plan.
       if (files.length > 0) {
         const made = await addPhotos({
@@ -205,14 +239,28 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
         >
           <ImagePlusIcon aria-hidden />
         </Button>
+        {(shelf ?? []).length > 0 && (
+          <Button
+            type="button"
+            size="icon-sm"
+            variant={shelfOpen ? "secondary" : "ghost"}
+            disabled={busy}
+            aria-expanded={shelfOpen}
+            aria-label="Photos already in this trip"
+            title="Photos already in this trip"
+            onClick={() => setShelfOpen((open) => !open)}
+          >
+            <ImagesIcon aria-hidden />
+          </Button>
+        )}
         {/* The words are spliced onto what is already there. */}
         <VoiceButton quiet disabled={busy} onText={(spoken) => setText((now) => (now.trim() ? `${now.trim()} ${spoken}` : spoken))} />
         <Button
           type="submit"
           size="icon-sm"
           className="ml-0.5 rounded-full"
-          disabled={(!said && files.length === 0) || busy}
-          aria-label={phase === "reading" ? (files.length > 0 ? "Adding" : "Reading") : "Go"}
+          disabled={(!said && files.length === 0 && picked.length === 0) || busy}
+          aria-label={phase === "reading" ? (files.length > 0 || picked.length > 0 ? "Adding" : "Reading") : "Go"}
           title="Go"
         >
           {phase === "reading" ? <LoaderCircleIcon aria-hidden className="animate-spin" /> : <ArrowUpIcon aria-hidden />}
@@ -234,6 +282,46 @@ export function CommandBar({ event, openMomentId }: { event: EventView; openMome
           e.target.value = "";
         }}
       />
+
+      {shelfOpen && (shelf ?? []).length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">Already in this trip, and not on a moment yet.</p>
+          <ul className="flex gap-1.5 overflow-x-auto pb-1" aria-label="Photos already in this trip">
+            {(shelf ?? []).map((item, i) => {
+              const on = picked.some((chosen) => chosen.mediaId === item.mediaId);
+              const video = item.mime.startsWith("video/");
+              return (
+                <li key={item.mediaId} className="shrink-0">
+                  <button
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={video ? `Video ${i + 1}` : `Photo ${i + 1}`}
+                    disabled={busy}
+                    onClick={() => toggleShelf(item)}
+                    className={cn(
+                      "grid size-14 place-items-center overflow-hidden rounded-md border bg-muted",
+                      on && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+                    )}
+                  >
+                    {video ? <PlayIcon aria-hidden className="size-5" /> : <AuthImage mediaId={item.mediaId} alt="" className="size-full rounded-none aspect-square" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {picked.length > 0 && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>
+            {picked.length} from this trip · {files.length > 0 ? "they'll be their own moment" : said ? "they'll be one moment, with your words as the note" : "they'll be one moment"}
+          </span>
+          <Button type="button" size="icon-xs" variant="ghost" aria-label="Clear the photos from this trip" disabled={busy} onClick={() => setPicked([])}>
+            <XIcon aria-hidden />
+          </Button>
+        </div>
+      )}
 
       {files.length > 0 && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="Attached files">
