@@ -152,6 +152,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
   const keepPicture = useMutation(api.journal.keepSticker);
   const dropSticker = useMutation(api.journal.dropSticker);
   const previewLink = useAction(api.journal.linkPreview);
+  const suggestTitle = useAction(api.ai.title.suggest);
   // The pen, when drawing: what draws and in which ink. Strokes drawn in one go
   // gather into one drawing (`session`) until the pen is put down.
   const [pen, setPen] = useState<{ style: string; color: string } | null>(null);
@@ -581,6 +582,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
       onDuplicate={() => duplicate()}
       onDelete={() => remove()}
       onCut={() => setCutting({ open: true, photo: chosen.mediaId })}
+      onSuggest={page?.momentId && journal.canEdit ? () => suggestTitle({ pageId, current: chosen.text }) : undefined}
     />
   ) : (
     <AddTray

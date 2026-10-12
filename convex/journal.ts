@@ -10,6 +10,7 @@ import { recordChange } from "./lib/changes";
 import { decryptText, encryptText } from "./lib/crypto";
 import {
   catchUpElements,
+  layoutPrefix,
   coverPage,
   DECOS,
   DRAW_STYLES,
@@ -57,6 +58,7 @@ const vElement = v.object({
   mediaId: v.optional(v.id("media")),
   momentId: v.optional(v.id("moments")),
   locked: v.optional(v.boolean()),
+  own: v.optional(v.boolean()),
 });
 type ElementIn = Infer<typeof vElement>;
 
@@ -555,6 +557,24 @@ async function lockedStay(event: Doc<"events">, stored: Doc<"journalPages">["ele
   }
 }
 
+// A layout piece whose words this save changes becomes the owner's (`own`),
+// so a later "Update this page" keeps it. Only the layout's pieces are
+// checked, and each only until it is theirs.
+async function markRetyped(event: Doc<"events">, page: Doc<"journalPages">, elements: ElementIn[]): Promise<ElementIn[]> {
+  if (page.momentId === undefined) return elements;
+  const prefix = layoutPrefix(page.momentId);
+  const before = new Map(page.elements.map((e) => [e.id, e]));
+  return Promise.all(
+    elements.map(async (e) => {
+      const old = before.get(e.id);
+      if (old === undefined || !e.id.startsWith(prefix)) return e;
+      if (old.own) return { ...e, own: true };
+      const was = old.text === undefined ? "" : await decryptText(event._id, old.text);
+      return was !== (e.text ?? "") ? { ...e, own: true } : e;
+    }),
+  );
+}
+
 // Saves what is on a page (all of it: a page is small), and its paper.
 export const savePage = mutation({
   args: { pageId: v.id("journalPages"), paper: v.optional(v.string()), elements: v.array(vElement) },
@@ -565,7 +585,7 @@ export const savePage = mutation({
     await lockedStay(event, page.elements, args.elements);
     await ctx.db.patch("journalPages", page._id, {
       paper: args.paper ?? page.paper,
-      elements: await encodeElements(ctx, event, args.elements),
+      elements: await encodeElements(ctx, event, await markRetyped(event, page, args.elements)),
       edited: true,
     });
     return null;
@@ -652,54 +672,6 @@ export const refreshPages = internalMutation({
     return null;
   },
 });
-
-// The date line the cover was given: the trip's dates, or the first moment to
-// the last when the trip has none yet. The same rule the cover is cut with.
-async function coverDateLabel(ctx: QueryCtx, event: Doc<"events">): Promise<string | undefined> {
-  const moments = await ctx.db
-    .query("moments")
-    .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-    .take(momentsToRead(event.momentCount));
-  const from = event.startsAt ?? moments[0]?.startsAt;
-  if (from === undefined) return undefined;
-  const to = event.endsAt ?? moments.at(-1)?.startsAt ?? from;
-  return rangeLabel(from, to);
-}
-
-// Until the owner retypes the cover, its name and dates follow the trip.
-// A line that no longer says what was written is theirs, and a rename leaves it.
-export async function followCover(ctx: MutationCtx, before: Doc<"events">, after: Doc<"events">): Promise<void> {
-  const prevTitle = (before.title || "Our trip").slice(0, 60);
-  const nextTitle = (after.title || "Our trip").slice(0, 60);
-  const prevDates = await coverDateLabel(ctx, before);
-  const nextDates = await coverDateLabel(ctx, after);
-  if (prevTitle === nextTitle && prevDates === nextDates) return;
-  if ((await journalOf(ctx, after._id))?.locked) return;
-  for (const page of await pagesOf(ctx, after._id)) {
-    if (page.locked) continue;
-    let changed = false;
-    const elements = [];
-    for (const element of page.elements) {
-      if (element.kind !== "title" || element.text === undefined || !element.id.startsWith("cover-")) {
-        elements.push(element);
-        continue;
-      }
-      const plain = await decryptText(after._id, element.text);
-      if (plain === prevTitle && nextTitle !== prevTitle) {
-        elements.push({ ...element, text: await encryptText(after._id, after.keyVersion, nextTitle) });
-        changed = true;
-        continue;
-      }
-      if (prevDates !== undefined && nextDates !== undefined && plain === prevDates && nextDates !== prevDates) {
-        elements.push({ ...element, text: await encryptText(after._id, after.keyVersion, nextDates) });
-        changed = true;
-        continue;
-      }
-      elements.push(element);
-    }
-    if (changed) await ctx.db.patch("journalPages", page._id, { elements });
-  }
-}
 
 // Where a page goes between two others (or after the last).
 const between = (before: number | undefined, after: number | undefined) =>

@@ -94,6 +94,9 @@ export const vJournalElement = v.object({
   mediaId: v.optional(v.id("media")),
   momentId: v.optional(v.id("moments")),
   locked: v.optional(v.boolean()),
+  // A piece the layout made whose words the owner then changed: theirs now,
+  // so bringing the page up to its moment leaves it.
+  own: v.optional(v.boolean()),
 });
 
 export const vChangeEntity = v.union(

@@ -17,6 +17,7 @@ import {
 } from "./lib/blocks";
 import { vGeo, vTransport } from "./schema";
 import { recordChange } from "./lib/changes";
+import { datesBefore } from "./lib/cover";
 import { decryptGeo, decryptText } from "./lib/crypto";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -204,6 +205,8 @@ export async function createMoment(
     hasPlace: place !== undefined,
   });
   const labels = await encodeLabels(event, input.labels ?? []);
+  // A dateless trip's cover runs from its first moment to its last.
+  const followCover = await datesBefore(ctx, event);
 
   const momentId = await ctx.db.insert("moments", {
     eventId: event._id,
@@ -226,6 +229,7 @@ export async function createMoment(
     momentCount: event.momentCount + 1,
     status: event.status === "draft" ? "active" : event.status,
   });
+  await followCover(ctx);
 
   await recordChange(ctx, {
     eventId: event._id,
@@ -427,7 +431,9 @@ export async function writeMomentUpdate(
   if (fields.length === 0 && tzOffsetMinutes === undefined) return { removedMediaIds: [] };
   // Only a real field change counts as an edit: an offset alone leaves no "edited" mark.
   if (fields.length > 0) docPatch.lastEdit = lastEditOf(actor, Date.now());
+  const followCover = docPatch.startsAt !== undefined ? await datesBefore(ctx, event) : undefined;
   await ctx.db.patch("moments", moment._id, docPatch);
+  await followCover?.(ctx);
 
   // The log keeps naming only the fields people changed.
   if (fields.length === 0) return { removedMediaIds };
@@ -478,10 +484,12 @@ export async function deleteMoment(
   for (const id of removedMediaIds) {
     await detachMedia(ctx, id, userId);
   }
+  const followCover = await datesBefore(ctx, event);
   await ctx.db.delete("moments", moment._id);
   await ctx.db.patch("events", event._id, {
     momentCount: Math.max(0, event.momentCount - 1),
   });
+  await followCover(ctx);
 
   await recordChange(ctx, {
     eventId: event._id,

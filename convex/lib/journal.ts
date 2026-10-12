@@ -106,6 +106,8 @@ export type JournalElement = {
   mediaId?: string;
   momentId?: string;
   locked?: boolean;
+  // Words the owner changed on a piece the layout made (see `catchUpElements`).
+  own?: boolean;
 };
 
 export type PageSpec = { paper: Paper; momentId?: string; elements: JournalElement[] };
@@ -265,13 +267,14 @@ export function layoutPrefix(momentId: string): string {
   return `${momentId.slice(-6)}-`;
 }
 
-// A fresh layout, plus whatever the owner put on the page themselves.
-// The layout's own pieces (its prints, its note, its title) are replaced.
-// A thing locked in place is kept, even when the layout would have redrawn it.
-export function catchUpElements<T extends { id: string; locked?: boolean }>(existing: readonly T[], fresh: readonly T[], momentId: string): T[] {
+// A fresh layout, plus whatever the owner put on the page themselves. The
+// layout's own pieces (its prints, its note, its title) are replaced, except
+// one whose words the owner changed, and one locked in place: those stay.
+export function catchUpElements<T extends { id: string; locked?: boolean; own?: boolean }>(existing: readonly T[], fresh: readonly T[], momentId: string): T[] {
   const prefix = layoutPrefix(momentId);
-  const locked = new Set(existing.filter((e) => e.locked === true).map((e) => e.id));
-  return [...fresh.filter((e) => !locked.has(e.id)), ...existing.filter((e) => locked.has(e.id) || !e.id.startsWith(prefix))];
+  const kept = existing.filter((e) => e.locked === true || e.own === true || !e.id.startsWith(prefix));
+  const keptIds = new Set(kept.map((e) => e.id));
+  return [...fresh.filter((e) => !keptIds.has(e.id)), ...kept];
 }
 
 // The cover: the trip's name cut from letters, its dates typed, the first

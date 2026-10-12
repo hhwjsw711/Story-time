@@ -126,6 +126,14 @@ describe("laying out pages", () => {
     expect(kept.filter((e) => e.kind === "note")).toHaveLength(1);
   });
 
+  test("a layout piece whose words the owner changed is theirs and stays", () => {
+    const fresh = momentPage({ _id: "moment1", startsAt: JUNE_1, place: "Lisbon, Portugal", blocks: [{ type: "note", text: "Better" }], stops: [] }, 0).elements;
+    const retitled = fresh.map((e) => (e.kind === "title" ? { ...e, text: "Our best day", own: true } : e.kind === "note" ? { ...e, text: "Old" } : e));
+    const merged = catchUpElements(retitled, fresh, "moment1");
+    expect(merged.filter((e) => e.kind === "title").map((e) => e.text)).toEqual(["Our best day"]);
+    expect(merged.find((e) => e.kind === "note")?.text).toBe("Better");
+  });
+
   test("dates read as a range, or one day", () => {
     expect(rangeLabel(JUNE_1, JUNE_1 + 6 * 86_400_000)).toBe("1 Jun – 7 Jun 2026");
     expect(rangeLabel(JUNE_1, JUNE_1 + 3_600_000)).toBe("1 Jun 2026");
@@ -411,6 +419,54 @@ describe("filling a journal", () => {
     expect(kept).toContain("Our trip");
     expect(kept).not.toContain("Something else entirely");
     expect(kept).toContain("1 Jun – 7 Jun 2026");
+  });
+
+  test("a title the owner retyped stays through \"Update this page\"", async () => {
+    vi.setSystemTime(new Date("2026-06-01T12:00:00Z"));
+    const { owner, eventId, moment } = await setup();
+    const momentId = await moment(JUNE_1, "First words");
+    await owner.mutation(api.journal.fill, { eventId });
+    const page = (await owner.query(api.journal.get, { eventId })).pages[1]!;
+    const title = page.elements.find((e) => e.kind === "title")!;
+    await owner.mutation(api.journal.savePage, {
+      pageId: page._id,
+      elements: page.elements.map((e) => ({ ...e, text: e.id === title.id ? "Our best day" : e.text })),
+    });
+    const saved = (await owner.query(api.journal.page, { pageId: page._id }))!;
+    expect(saved.elements.find((e) => e.id === title.id)?.own).toBe(true);
+    // Moving something without changing its words doesn't make it the owner's.
+    expect(saved.elements.find((e) => e.kind === "note")?.own).toBeUndefined();
+
+    vi.setSystemTime(new Date("2026-06-01T12:05:00Z"));
+    await owner.mutation(api.moments.update, { momentId, blocks: [{ type: "note", text: "Later words" }] });
+    expect(await owner.mutation(api.journal.refresh, { eventId, pageId: page._id })).toBe(1);
+    const updated = (await owner.query(api.journal.page, { pageId: page._id }))!;
+    expect(updated.elements.filter((e) => e.kind === "title").map((e) => e.text)).toEqual(["Our best day"]);
+    expect(updated.elements.find((e) => e.kind === "note")?.text).toBe("Later words");
+  });
+
+  test("a trip with no dates keeps its cover's dates in step with its first and last moment", async () => {
+    const { owner, eventId, moment } = await setup();
+    await moment(JUNE_1, "First");
+    await owner.mutation(api.journal.fill, { eventId });
+    const dates = async () =>
+      (await owner.query(api.journal.get, { eventId })).pages[0]!.elements.filter((e) => e.kind === "title").map((e) => e.text);
+    expect(await dates()).toContain("1 Jun 2026");
+    const later = await moment(JUNE_1 + 3 * 86_400_000, "Later");
+    expect(await dates()).toContain("1 Jun – 4 Jun 2026");
+    await owner.mutation(api.moments.remove, { momentId: later });
+    expect(await dates()).toContain("1 Jun 2026");
+    expect(await dates()).not.toContain("1 Jun – 4 Jun 2026");
+  });
+
+  test("only the owner asks for another title, and only for a moment's page", async () => {
+    const { owner, viewer, eventId, moment } = await setup();
+    const momentId = await moment(JUNE_1, "First");
+    await owner.mutation(api.journal.fill, { eventId });
+    const [cover, page] = (await owner.query(api.journal.get, { eventId })).pages;
+    expect(await owner.query(internal.ai.title.pageMoment, { pageId: page!._id })).toMatchObject({ momentId });
+    await expect(viewer.query(internal.ai.title.pageMoment, { pageId: page!._id })).rejects.toThrow();
+    await expect(owner.query(internal.ai.title.pageMoment, { pageId: cover!._id })).rejects.toThrow(/moment's page/);
   });
 
   test("words are encrypted at rest", async () => {
