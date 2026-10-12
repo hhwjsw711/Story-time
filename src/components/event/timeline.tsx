@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { authorOf } from "@/lib/actors";
 import { formatTime } from "@/lib/local-time";
 import { matchesSearch } from "@/lib/moment-filters";
+import { viewerDay } from "@/lib/photo-groups";
 import { firstLine, groupByDay } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 
@@ -92,7 +93,7 @@ export function Timeline({
   if (moments.length === 0) return <Empty event={event} />;
 
   const shown = moments.filter((m) => matchesSearch(m, query));
-  const days = groupByDay(shown);
+  const days = groupByDay(shown, viewerDay());
   return (
     <div className="space-y-4">
       {search}
@@ -103,9 +104,12 @@ export function Timeline({
       )}
       {days.length === 0 && <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">No moments match.</p>}
       {days.map((day) => (
-        <section key={day.day} aria-label={day.label} className="space-y-1.5">
+        <section key={day.day} aria-label={day.today ? `${day.label}, today` : day.label} className="space-y-1.5">
           <h2 className="sticky top-0 z-10 bg-background/95 py-1 font-mono text-[11px] tracking-[0.12em] text-muted-foreground uppercase backdrop-blur">
-            {day.label} · {day.moments.length} {day.moments.length === 1 ? "moment" : "moments"}
+            {day.label}
+            {day.today && <span className="ml-1.5 font-sans normal-case tracking-normal text-primary">Today</span>}
+            {" · "}
+            {day.moments.length} {day.moments.length === 1 ? "moment" : "moments"}
           </h2>
           <ul className="divide-y overflow-hidden rounded-xl border bg-card">
             {day.moments.map((m) => {

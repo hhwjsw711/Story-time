@@ -38,7 +38,7 @@ import { useSidebar } from "@/components/ui/sidebar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { errorMessage } from "@/lib/errors";
 import { deletePhotos } from "@/lib/actions";
-import { dayKey } from "@/lib/photo-groups";
+import { dayKey, viewerDay } from "@/lib/photo-groups";
 import { uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { newId, placed, type NewThing } from "./add";
@@ -781,9 +781,12 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
         {/* Contents, by day. The open page and its neighbours are drawn small;
             the rest stay a label, so the strip does not decode every photo. */}
         <nav aria-label="Pages" className="hidden w-32 shrink-0 flex-col gap-3 overflow-y-auto border-r border-stone-300/80 bg-[#efe6d2]/80 p-2 sm:flex">
-          {contentsByDay(pages, momentById).map((group) => (
+          {contentsByDay(pages, momentById, viewerDay()).map((group) => (
             <section key={group.key} className="space-y-2">
-              <h2 className="sticky top-0 z-10 bg-[#efe6d2]/95 py-0.5 font-mono text-[10px] tracking-[0.12em] text-stone-500 uppercase">{group.label}</h2>
+              <h2 className="sticky top-0 z-10 bg-[#efe6d2]/95 py-0.5 font-mono text-[10px] tracking-[0.12em] text-stone-500 uppercase">
+                {group.label}
+                {group.today && <span className="ml-1 font-sans normal-case tracking-normal text-[#c4552f]">Today</span>}
+              </h2>
               {group.pages.map(({ index: i }) => {
                 const p = pages[i]!;
                 const name = p.label || (i === 0 ? "Cover" : `Page ${i}`);

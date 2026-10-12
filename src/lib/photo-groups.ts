@@ -40,6 +40,11 @@ export function dayKey(ms: number, offsetMinutes?: number): string {
   return localClock(ms, offsetMinutes).toISOString().slice(0, 10);
 }
 
+// The viewer's calendar day, as the same YYYY-MM-DD the lists already use.
+export function viewerDay(now = Date.now()): string {
+  return dayKey(now, -new Date(now).getTimezoneOffset());
+}
+
 const byTime = (a: PhotoPoint, b: PhotoPoint) => a.takenAt - b.takenAt || a.id.localeCompare(b.id);
 
 function median(values: number[]): number {
