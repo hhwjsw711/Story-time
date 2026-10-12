@@ -217,8 +217,8 @@ function withoutPictures(elements: Infer<typeof vElement>[]): Infer<typeof vElem
     if (element.kind === "link" && element.text !== undefined) {
       const card = readLink(element.text);
       if (card?.image !== undefined) {
-        const { image: _image, ...rest } = card;
-        kept.push({ ...element, text: JSON.stringify(rest) });
+        // An undefined key is left out of the JSON.
+        kept.push({ ...element, text: JSON.stringify({ ...card, image: undefined }) });
         continue;
       }
     }
