@@ -2,7 +2,7 @@ import { PlayIcon, SquareIcon } from "lucide-react";
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { type JournalElement, readLink } from "../../../convex/lib/journal";
 import { seeded } from "../../../convex/lib/seeded";
-import type { MomentView } from "@/components/event/types";
+import type { StoryMoment } from "@/components/event/types";
 import { type MapStop, StickyMap } from "@/components/story/memoir/sticky-map";
 import { tornPolygon, TAPE_ENDS } from "@/lib/paper/look";
 import { placeLabel, stopsOf } from "@/lib/story-steps";
@@ -563,7 +563,7 @@ const STEP_MS = 1700;
 
 // The stops of a moment, numbered, on a light map in a postcard frame. Play
 // walks it stop by stop, the way the story does.
-export function MapCard({ e, moment, interactive }: { e: JournalElement; moment: MomentView | undefined; interactive: boolean }) {
+export function MapCard({ e, moment, interactive }: { e: JournalElement; moment: StoryMoment | undefined; interactive: boolean }) {
   const stops = useMemo<MapStop[]>(() => {
     if (moment === undefined) return [];
     return stopsOf(moment).flatMap((s, i) =>
@@ -757,7 +757,7 @@ export function LinkCard({ e, open }: { e: JournalElement; open: boolean }) {
 
 // ---- One element, whatever it is --------------------------------------------------------
 
-export function ElementView({ e, ink, moment, interactive = false }: { e: JournalElement; ink: string; moment?: MomentView; interactive?: boolean }): ReactNode {
+export function ElementView({ e, ink, moment, interactive = false }: { e: JournalElement; ink: string; moment?: StoryMoment; interactive?: boolean }): ReactNode {
   switch (e.kind) {
     case "photo":
       return <Photo e={e} />;

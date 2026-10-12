@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { PAGE } from "../../../convex/lib/journal";
-import type { MomentView } from "@/components/event/types";
+import type { StoryMoment } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
 import { FONTS } from "./look";
 import { JournalPage } from "./page";
 
-function SpreadPage({ pageId, moments, scale }: { pageId: string; moments: ReadonlyMap<string, MomentView>; scale: number }) {
-  const page = useQuery(api.journal.page, { pageId: pageId as Id<"journalPages"> });
+function SpreadPage({ pageId, moments, scale, token }: { pageId: string; moments: ReadonlyMap<string, StoryMoment>; scale: number; token?: string }) {
+  const member = useQuery(api.journal.page, token ? "skip" : { pageId: pageId as Id<"journalPages"> });
+  const shared = useQuery(api.share.page, token ? { token, pageId: pageId as Id<"journalPages"> } : "skip");
+  const page = token ? shared : member;
   if (page === undefined || page === null) {
     return <div className="animate-pulse bg-[#efe6d2]" style={{ width: PAGE.w * scale, height: PAGE.h * scale }} />;
   }
@@ -25,12 +27,15 @@ export function Reader({
   size,
   start,
   onPage,
+  token,
 }: {
   pages: Array<{ _id: string }>;
-  moments: ReadonlyMap<string, MomentView>;
+  moments: ReadonlyMap<string, StoryMoment>;
   size: { w: number; h: number };
   start: number;
   onPage: (index: number) => void;
+  // Set on a share link, which has no signed-in reader.
+  token?: string;
 }) {
   const pair = size.w >= 900;
   // Spreads: the cover alone, then pages side by side.
@@ -77,7 +82,7 @@ export function Reader({
           {pair && shown.length === 1 && at > 0 && <div style={{ width: PAGE.w * scale, height: PAGE.h * scale }} className="bg-[#efe6d2]" />}
           {shown.map((i, k) => (
             <div key={pages[i]!._id} className="relative">
-              <SpreadPage pageId={pages[i]!._id} moments={moments} scale={scale} />
+              <SpreadPage pageId={pages[i]!._id} moments={moments} scale={scale} token={token} />
               {/* The fold down the middle of a spread. */}
               {pair && shown.length === 2 && (
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 w-10" style={{ [k === 0 ? "right" : "left"]: 0, background: `linear-gradient(${k === 0 ? "to left" : "to right"}, rgba(60,40,15,.28), transparent)` }} />

@@ -1,6 +1,6 @@
 import { forwardRef, type ReactNode } from "react";
 import { type JournalElement, PAGE } from "../../../convex/lib/journal";
-import type { MomentView } from "@/components/event/types";
+import type { StoryMoment } from "@/components/event/types";
 import { placeLabel, stopsOf } from "@/lib/story-steps";
 import { cn } from "@/lib/utils";
 import { ElementView, elementBox, HeartClip } from "./elements";
@@ -14,7 +14,7 @@ export const JournalPage = forwardRef<
   HTMLDivElement,
   {
     page: Pick<PageData, "paper" | "elements">;
-    moments: ReadonlyMap<string, MomentView>;
+    moments: ReadonlyMap<string, StoryMoment>;
     scale: number;
     // Maps can be played and photos shown at full size; off in thumbnails.
     live?: boolean;
@@ -63,7 +63,7 @@ export const JournalPage = forwardRef<
 });
 
 // Place names in the postcard frame, for a thumbnail or a printed page.
-function MapNames({ moment }: { moment: MomentView | undefined }) {
+function MapNames({ moment }: { moment: StoryMoment | undefined }) {
   const names = moment === undefined ? [] : stopsOf(moment).map((stop, i) => placeLabel(stop, i)).filter((name) => name !== "");
   return (
     <div className="size-full bg-[#fffdf6] p-2">

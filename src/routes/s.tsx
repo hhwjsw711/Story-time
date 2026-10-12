@@ -1,26 +1,29 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { useCallback, useState } from "react";
+import { PlayIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api";
+import { Reader } from "@/components/journal/reader";
 import { SignedOutPage } from "@/components/sign-in-screen";
 import { StoryPlayer } from "@/components/story/story-player";
-import { StoryScroll } from "@/components/story/story-scroll";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { MediaAuthContext } from "@/lib/use-media-url";
 
 const search = z.object({
-  // The scene in view, kept up to date as the story scrolls.
+  // Where the film is, when Play is open.
   step: z.number().int().min(0).default(0).catch(0),
-  // The memoir to read, or the film to watch.
-  mode: z.enum(["read", "film"]).default("read").catch("read"),
+  // Which page of the book is open.
+  page: z.number().int().min(0).default(0).catch(0),
+  // "read" is an older link to the memoir. The link now opens the book.
+  mode: z.enum(["book", "read", "film"]).default("book").catch("book"),
 });
 
-// A story anyone can watch with its link, so there's no sign-in gate. The token
+// A book anyone can turn with its link, so there's no sign-in gate. The token
 // is the URL's fragment, which browsers never send to a server, and search
-// engines are kept out.
+// engines are kept out. Play opens the film; the book is the page.
 export const Route = createFileRoute("/s")({
   validateSearch: search,
   head: () => ({ meta: [{ name: "robots", content: "noindex" }] }),
@@ -33,44 +36,69 @@ function readToken(): string {
 }
 
 function SharedStoryPage() {
-  const { step, mode } = Route.useSearch();
+  const { step, page, mode } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const [token] = useState(readToken);
   const shared = useQuery(api.share.get, token ? { token } : "skip");
+  const book = useQuery(api.share.journal, token ? { token } : "skip");
   useDocumentTitle(shared ? `${shared.event.title} · Story-time` : undefined);
-  // The URL follows the scroll without adding history. `hash: true` keeps the
-  // token in the fragment, which navigation would otherwise drop.
-  const onStep = useCallback(
-    (next: number) =>
-      void navigate({ search: (prev) => ({ step: next, mode: prev.mode }), hash: true, replace: true, resetScroll: false }),
+  const moments = useMemo(() => new Map((shared?.moments ?? []).map((m) => [m._id, m])), [shared?.moments]);
+  const stage = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 800, h: 900 });
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const report = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shared, book, mode]);
+
+  const onPage = useCallback(
+    (next: number) => void navigate({ search: (prev) => ({ ...prev, page: next }), hash: true, replace: true, resetScroll: false }),
     [navigate],
   );
-  // Playing the film from a scene is a step forward; closing it returns to the
-  // memoir at the scene the film had reached.
   const playFilm = useCallback(
-    (next: number) => void navigate({ search: { step: next, mode: "film" }, hash: true }),
+    () => void navigate({ search: (prev) => ({ ...prev, mode: "film" }), hash: true }),
     [navigate],
   );
   const closeFilm = useCallback(
-    (next: number) => void navigate({ search: { step: next, mode: "read" }, hash: true, replace: true, resetScroll: false }),
+    (next: number) => void navigate({ search: (prev) => ({ ...prev, step: next, mode: "book" }), hash: true, replace: true, resetScroll: false }),
+    [navigate],
+  );
+  const onStep = useCallback(
+    (next: number) => void navigate({ search: (prev) => ({ ...prev, step: next }), hash: true, replace: true, resetScroll: false }),
     [navigate],
   );
 
-  if (!token || shared === null) return <NotShared />;
-  if (shared === undefined) return <Skeleton className="h-svh w-full rounded-none" />;
+  if (!token || shared === null || book === null) return <NotShared />;
+  if (shared === undefined || book === undefined) return <Skeleton className="h-svh w-full rounded-none" />;
   return (
     <MediaAuthContext.Provider value={{ kind: "share", token }}>
       {mode === "film" ? (
-        <StoryPlayer
-          event={shared.event}
-          moments={shared.moments}
-          meId={undefined}
-          step={step}
-          onStep={onStep}
-          onClose={closeFilm}
-        />
+        <StoryPlayer event={shared.event} moments={shared.moments} meId={undefined} step={step} onStep={onStep} onClose={closeFilm} />
       ) : (
-        <StoryScroll event={shared.event} moments={shared.moments} step={step} onStep={onStep} onPlayFilm={playFilm} />
+        <div className="flex h-svh flex-col bg-[#e9dfcb] text-[#1f1a16]">
+          <header className="flex items-center justify-between gap-3 px-4 py-3">
+            <h1 className="min-w-0 truncate font-serif text-xl">{shared.event.title}</h1>
+            {shared.moments.length > 0 && (
+              <Button variant="outline" size="sm" onClick={playFilm}>
+                <PlayIcon aria-hidden />
+                Play
+              </Button>
+            )}
+          </header>
+          <div ref={stage} className="min-h-0 flex-1">
+            {book.pages.length === 0 ? (
+              <div className="grid h-full place-items-center px-6 text-center">
+                <p className="font-serif text-lg">This journal has no pages yet.</p>
+              </div>
+            ) : (
+              <Reader pages={book.pages} moments={moments} size={size} start={page} onPage={onPage} token={token} />
+            )}
+          </div>
+        </div>
       )}
     </MediaAuthContext.Provider>
   );

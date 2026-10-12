@@ -10,6 +10,7 @@ import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { appOrigin } from "./lib/appUrl";
 import { recordChange } from "./lib/changes";
 import { decryptText, encryptText, readText, shareKeyFor } from "./lib/crypto";
+import { contentsOf, pageInEvent, vOutlinePage, vPageView } from "./journal";
 import { MAX_JOURNAL_PAGES } from "./lib/journal";
 import { listForEvent, vMomentView } from "./moments";
 
@@ -196,6 +197,30 @@ export const get = query({
         labels: m.labels,
       })),
     };
+  },
+});
+
+// Public: the book's contents for a share link. Words stay on `page`, so
+// opening the link does not decrypt every note. Null for anything but a live link.
+export const journal = query({
+  args: { token: v.string() },
+  returns: v.union(v.null(), v.object({ pages: v.array(vOutlinePage) })),
+  handler: async (ctx, args) => {
+    const event = await eventFor(ctx, args.token);
+    if (event === null) return null;
+    return { pages: await contentsOf(ctx, event) };
+  },
+});
+
+// Public: one page of the book that token opens. A page from another
+// experience is null, the same as a token that was never issued.
+export const page = query({
+  args: { token: v.string(), pageId: v.id("journalPages") },
+  returns: v.union(v.null(), vPageView),
+  handler: async (ctx, args) => {
+    const event = await eventFor(ctx, args.token);
+    if (event === null) return null;
+    return await pageInEvent(ctx, event, args.pageId);
   },
 });
 
