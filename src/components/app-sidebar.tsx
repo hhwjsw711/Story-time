@@ -1,10 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { BookHeartIcon, HistoryIcon, HomeIcon, ListIcon, UsersIcon } from "lucide-react";
+import { BookHeartIcon, ChevronRightIcon, HistoryIcon, HomeIcon, ListIcon, UsersIcon } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -15,7 +16,11 @@ import {
   SidebarMenu,
   SidebarMenuBadge,
   SidebarMenuButton,
+  SidebarMenuAction,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 
@@ -39,6 +44,7 @@ export function AppSidebar() {
     api.changes.unreadCount,
     eventId && event?.role === "owner" ? { eventId } : "skip",
   );
+  const events = useQuery(api.events.listMine);
 
   return (
     <Sidebar collapsible="icon">
@@ -59,14 +65,39 @@ export function AppSidebar() {
           <SidebarGroupLabel>Menu</SidebarGroupLabel>
           <SidebarMenu className="magnetic">
             <span className="magnetic-indicator" aria-hidden />
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Experiences" isActive={pathname === "/home"}>
-                <Link to="/home">
-                  <HomeIcon />
-                  <span>Experiences</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+            {/* Every experience, folded under its tab: open by default. */}
+            <Collapsible asChild defaultOpen className="group/experiences">
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild tooltip="Experiences" isActive={pathname === "/home"}>
+                  <Link to="/home">
+                    <HomeIcon />
+                    <span>Experiences</span>
+                  </Link>
+                </SidebarMenuButton>
+                {events !== undefined && events.length > 0 && (
+                  <>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuAction aria-label="Show or hide the experiences" className="transition-transform group-data-[state=open]/experiences:rotate-90">
+                        <ChevronRightIcon />
+                      </SidebarMenuAction>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {events.map((e) => (
+                          <SidebarMenuSubItem key={e._id}>
+                            <SidebarMenuSubButton asChild isActive={e._id === eventId}>
+                              <Link to="/e/$id" params={{ id: e._id }}>
+                                <span className="truncate">{e.title}</span>
+                              </Link>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </>
+                )}
+              </SidebarMenuItem>
+            </Collapsible>
           </SidebarMenu>
         </SidebarGroup>
 
