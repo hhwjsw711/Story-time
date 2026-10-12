@@ -313,7 +313,10 @@ export default defineSchema({
     userId: v.id("users"),
     eventId: v.id("events"),
     readAt: v.number(),
-  }).index("by_user_and_event", ["userId", "eventId"]),
+  })
+    .index("by_user_and_event", ["userId", "eventId"])
+    // So deleting an experience can find them.
+    .index("by_event", ["eventId"]),
 
   // A short note from someone who was invited. The words sit under the event key.
   guestNotes: defineTable({

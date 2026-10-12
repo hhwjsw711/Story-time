@@ -89,6 +89,17 @@ describe("events.remove", () => {
     expect((await leftovers(t, eventId)).event).toBeNull();
   });
 
+  test("guestbook notes and Activity read marks go with the experience", async () => {
+    const { t, owner, ownerId, friend, eventId } = await setup();
+    await owner.mutation(api.events.update, { eventId, status: "active" });
+    await friend.mutation(api.guestNotes.leave, { eventId, text: "What a trip!" });
+    await t.run((ctx) => ctx.db.insert("activityReads", { userId: ownerId, eventId, readAt: 1 }));
+    await owner.mutation(api.events.remove, { eventId });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await t.run(async (ctx) => [(await ctx.db.query("guestNotes").collect()).length, (await ctx.db.query("activityReads").collect()).length]);
+    expect(left).toEqual([0, 0]);
+  });
+
   test("rows in the tables being retired go with the experience too", async () => {
     const { t, owner, ownerId, eventId } = await setup();
     await t.run(async (ctx) => {
