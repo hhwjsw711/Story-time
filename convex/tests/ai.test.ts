@@ -310,6 +310,8 @@ describe("apply: AI fill-ins only fill gaps", () => {
       labels: ["food"],
       stops: [{ place: "Sintra", transport: "train", blocks: [{ type: "note", text: "later" }] }],
     });
+    // The moment's pages are their own rows. Count them before the fill-in.
+    await t.finishAllScheduledFunctions(() => undefined);
     const before = await t.run((ctx) => ctx.db.query("changes").collect());
 
     await t.mutation(internal.ai.apply.apply, {

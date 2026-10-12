@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- Activity shows how many new moments, pages, and guestbook notes arrived since it was last opened. Deleting the trip removes those notes and the read mark. A burst of other changes cannot hide a new one.
 - A link preview will not open a hostname that resolves to a private address. The connection is pinned to the addresses just checked, so a later DNS answer cannot move it. Trailing dots, short numeric hosts, and local names are refused before any fetch.
 - Pressing / focuses the box only when moment search is not on the page. Search keeps /.
 - The box can attach photos already in the trip. They are the ones you uploaded that are not on a moment yet, and they become one moment, with your words as the note.
