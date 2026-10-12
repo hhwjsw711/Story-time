@@ -19,6 +19,7 @@ import {
   MAX_AVATAR_BYTES,
   MAX_LIVE_UPLOAD_BYTES,
   MAX_MEDIA_PER_EVENT,
+  MAX_THUMB_BYTES,
   MAX_UPLOAD_BYTES,
   MAX_VIDEO_BYTES,
   VIDEO_MIME_TYPES,
@@ -41,7 +42,7 @@ export async function assertUploadBudget(ctx: MutationCtx, userId: Id<"users">, 
       .withIndex("by_uploader_and_status", (q) => q.eq("uploaderId", userId).eq("status", status))
       .take(BUDGET_SCAN + 1);
     if (rows.length > BUDGET_SCAN) uncounted = true;
-    for (const row of rows) liveBytes += row.size;
+    for (const row of rows) liveBytes += row.size + (row.thumbSize ?? 0);
   }
   if (uncounted || liveBytes + size > MAX_LIVE_UPLOAD_BYTES) {
     throw new ConvexError({
@@ -179,9 +180,101 @@ export const confirmUpload = mutation({
   },
 });
 
+const MAX_IMAGE_EDGE = 20_000;
+
+// A list-sized JPEG for a photo that is already reserved or ready. The bytes
+// are stored beside the original; lists ask for this and the open page does not.
+export const reserveThumb = mutation({
+  args: { mediaId: v.id("media"), size: v.number() },
+  returns: v.object({
+    r2Key: v.string(),
+    keyVersion: v.number(),
+    keyScope: v.string(),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const media = await ctx.db.get("media", args.mediaId);
+    if (media === null || media.uploaderId !== userId || media.status === "deleted") {
+      throw new Error("Upload not found");
+    }
+    if (!Number.isInteger(args.size) || args.size < 1 || args.size > MAX_THUMB_BYTES) {
+      throw new ConvexError({
+        code: "TOO_LARGE",
+        message: "Thumbnails can be at most 400 KB",
+        maxBytes: MAX_THUMB_BYTES,
+      });
+    }
+    await assertUploadBudget(ctx, userId, args.size);
+    const keyScope = media.purpose === "avatar" ? `avatar:${media.uploaderId}` : media.eventId;
+    if (keyScope === undefined) throw new Error("Upload not found");
+    return {
+      r2Key: `thumbs/${args.mediaId}/${crypto.randomUUID()}`,
+      keyVersion: media.keyVersion,
+      keyScope,
+    };
+  },
+});
+
+export const attachThumb = mutation({
+  args: {
+    mediaId: v.id("media"),
+    thumbR2Key: v.string(),
+    thumbSize: v.number(),
+    width: v.number(),
+    height: v.number(),
+  },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, args) => {
+    const userId = await requireUserId(ctx);
+    const media = await ctx.db.get("media", args.mediaId);
+    if (media === null || media.uploaderId !== userId || media.status === "deleted") {
+      throw new Error("Upload not found");
+    }
+    if (!args.thumbR2Key.startsWith(`thumbs/${args.mediaId}/`)) throw new Error("Upload not found");
+    if (!Number.isInteger(args.thumbSize) || args.thumbSize < 1 || args.thumbSize > MAX_THUMB_BYTES) {
+      throw new Error("Upload not found");
+    }
+    if (
+      !Number.isInteger(args.width) ||
+      !Number.isInteger(args.height) ||
+      args.width < 1 ||
+      args.height < 1 ||
+      args.width > MAX_IMAGE_EDGE ||
+      args.height > MAX_IMAGE_EDGE
+    ) {
+      throw new Error("Upload not found");
+    }
+    const previous = media.thumbR2Key ?? null;
+    await ctx.db.patch("media", args.mediaId, {
+      thumbR2Key: args.thumbR2Key,
+      thumbSize: args.thumbSize,
+      width: args.width,
+      height: args.height,
+    });
+    return previous;
+  },
+});
+
+function delivered(
+  media: Doc<"media">,
+  variant: "full" | "thumb" | undefined,
+  keyScope: string,
+) {
+  const thumbKey = variant === "thumb" ? media.thumbR2Key : undefined;
+  return {
+    r2Key: thumbKey ?? media.r2Key,
+    mime: thumbKey !== undefined ? "image/jpeg" : media.mime,
+    keyVersion: media.keyVersion,
+    keyScope,
+  };
+}
+
 // Used by the download route. Null for anyone without an active grant.
 export const getForDownload = query({
-  args: { mediaId: v.id("media") },
+  args: {
+    mediaId: v.id("media"),
+    variant: v.optional(v.union(v.literal("full"), v.literal("thumb"))),
+  },
   returns: v.union(
     v.null(),
     v.object({
@@ -206,12 +299,7 @@ export const getForDownload = query({
       ) {
         return null;
       }
-      return {
-        r2Key: media.r2Key,
-        mime: media.mime,
-        keyVersion: media.keyVersion,
-        keyScope: `avatar:${media.uploaderId}`,
-      };
+      return delivered(media, args.variant, `avatar:${media.uploaderId}`);
     }
 
     if (media.eventId === undefined) return null;
@@ -228,12 +316,7 @@ export const getForDownload = query({
     ) {
       return null;
     }
-    return {
-      r2Key: media.r2Key,
-      mime: media.mime,
-      keyVersion: media.keyVersion,
-      keyScope: media.eventId,
-    };
+    return delivered(media, args.variant, media.eventId);
   },
 });
 
@@ -353,13 +436,16 @@ async function deletableBy(
 // For the delete route.
 export const getForDelete = query({
   args: { mediaId: v.id("media") },
-  returns: v.union(v.null(), v.object({ r2Key: v.string() })),
+  returns: v.union(
+    v.null(),
+    v.object({ r2Key: v.string(), thumbR2Key: v.optional(v.string()) }),
+  ),
   handler: async (ctx, args) => {
     const userId = await getUserId(ctx);
     if (userId === null) return null;
     const media = await ctx.db.get("media", args.mediaId);
     if (media === null || !(await deletableBy(ctx, userId, media))) return null;
-    return { r2Key: media.r2Key };
+    return { r2Key: media.r2Key, thumbR2Key: media.thumbR2Key };
   },
 });
 
@@ -459,6 +545,7 @@ export const listKeysForEvent = query({
         );
       for await (const row of rows) {
         keys.push(row.r2Key);
+        if (row.thumbR2Key !== undefined) keys.push(row.thumbR2Key);
         if (keys.length >= MAX_KEYS) return keys;
       }
     }
