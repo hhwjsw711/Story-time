@@ -387,5 +387,8 @@ export default defineSchema({
     windowCount: v.optional(v.number()),
   })
     .index("by_tokenKey", ["tokenKey"])
-    .index("by_user", ["userId"]),
+    .index("by_user", ["userId"])
+    // Event-scoped connections only. A token with no eventId is account-wide
+    // and is not in this index; A2 still clears those.
+    .index("by_event", ["eventId"]),
 });

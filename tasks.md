@@ -4,17 +4,25 @@ What is next, in order. Done items move to `progress.md`.
 
 ## Now
 
-1. **Simplification A**: merge PR #34 (verified on dev; checks green).
-2. **Deploy A** to production: Convex first (`pnpm exec convex deploy --yes`), then the Worker. Needs the production Google and GitHub sign-in apps pointed at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback` (Sara). First look in the prod dashboard at the largest `momentCount` and the most media any one experience holds: 300 moments and 1,500 photos per experience is the new ceiling (2 GB of live uploads per person still applies).
-3. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `agentTokens`, `quotaRequests` in the dashboard (dev, then prod after A is live there), remove them from `convex/schema.ts`, push.
-4. **Journal**: merge PR #35 after #34 (it is stacked on it). Dev has a test journal; prod gets the two new tables on deploy.
-5. **Journal, next**: a page is cut with the moment, a share link opens that book, the strip is a contents by day, and a page catches up when its moment changes (a saved page waits for the button; a long tier list continues on the next page). Still to do: the cover keeps the trip's name, take a sticker back, Play is the same book. Print a sitting is the export menu (this page, this day, the whole journal, and the whole journal says when it is a long one). Haiku page titles sit with those. A trip that already has unpaged moments gets those pages the next time a moment is added, or when a locked journal is unlocked.
-6. **Simplification B**: the story scroll's day sections take the journal's paper look. Smaller now the journal exists; may merge into "the shared link shows the journal".
+1. **Deploy** to production (paused by Sara on 2026-10-12; master is ahead of prod by #25 onwards): Convex first (`pnpm exec convex deploy --yes`), then the Worker. Before that (Sara): point the production Google and GitHub sign-in apps at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback`, and look in the prod dashboard at the largest `momentCount` and the most media any one experience holds (the ceiling is now 300 moments and 1,500 photos per experience; 2 GB of live uploads per person still applies).
+2. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `quotaRequests` and the account-wide `agentTokens` (no `eventId`) in the dashboard (dev, then prod after the deploy), remove them from `convex/schema.ts`, push. Deleting an experience already drains its own tokens.
+3. **Workers Builds** fail instantly on every PR: disconnect them in Cloudflare or send the build log.
+4. **Journal, the next eight** (`docs/next-features.md`, built by Cursor). Done: pages are cut when the moment is saved (1, PR #40), the share link opens the book (2, PR #41), one page on screen at a time (3, PRs #39 and #42), a page that can catch up (4, PR #43), print a sitting (5, PRs #39 and #44), take a sticker back (7, PR #39). Left: the cover keeps the trip's name (6), Play is the same book (8). A trip that already has moments without pages gets them the next time a moment is added or a locked journal is unlocked; nothing drains that backlog on its own.
+
+## Next
+
+After the eight, in this order. Each one stays inside "photos or a sentence in, a book out": no feed, no like counts, no public profiles.
+
+1. **Guestbook page** (medium). The last page of the book is a guestbook: people you invited leave a short note or a stamp; the owner sees them in Activity and can hide one. A `guestNotes` table (words encrypted), a viewer-role mutation, one extra page in the reader. Open: invited people only (suggested) or share-link readers too?
+2. **On this day** (small, then medium). Home shows "A year ago today: Porto" with that day's journal page. Later an opt-in email in Settings that says only that a memory is waiting, with a link and no note text. A month-day field on moments with an index; a daily cron and the existing email component for the email. Open: home card only, or the email too?
+3. **Home as a bookshelf** (small). Each experience's journal cover as a book on a shelf, opening in read mode, beside an "Everywhere we've been" mapcn map with a pin per trip. The events list returns each cover page (at most 20).
+4. **The book as a video** (large). "Make a video": a day or the whole trip, square or 9:16, pages turning and the map drawing its route, as an MP4 for the phone's share sheet. Render the reader frame by frame (modern-screenshot, as the PDF does), encode with WebCodecs in a worker plus a small MP4 muxer, MediaRecorder where WebCodecs is missing. Risks: older Safari, memory on long trips, map tiles from other sites. Open: 9:16, square, or both?
+5. **Photos with no signal** (medium to large). Install to the home screen; photos picked offline wait in a queue ("3 waiting") and upload when back online. A service worker on the existing `site.webmanifest`, an IndexedDB queue in `add-photos.ts`. Risks: iOS limits on installed web apps, storage quota.
 
 ## Later
 
-- Cloudflare Workers Builds fail instantly: disconnect them or send the build log.
-- Remove the local `story-time` MCP connector once A is deployed (`claude mcp remove story-time`).
+- Voice clips on a page: ten seconds, kept as a tap-to-play sticker (a new audio media type).
+- Ordering a printed book (payments and a print partner).
 - BYO backend (`docs/byo-backend.md`): phase 0 groundwork, only on a go.
 - Deferred audit items: S9, S11, S12, S13, S25, S26, S29, CARTO tiles.
 - Narrow the `events.description` schema union once the description migration has run on prod.

@@ -4,6 +4,8 @@ export const MOMENT_LIMIT = 300;
 // room before there was one limit can hold more than MOMENT_LIMIT (up to 500).
 export const momentsToRead = (momentCount: number) => Math.max(MOMENT_LIMIT, momentCount);
 // Photos and videos an experience holds live (reserved or ready).
+// 1,500 is the deliberate ceiling (300 moments × 5). It is not a guessed
+// storage budget: live bytes are still capped by MAX_LIVE_UPLOAD_BYTES.
 export const MAX_MEDIA_PER_EVENT = MOMENT_LIMIT * 5;
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 export const MAX_BLOCKS_PER_MOMENT = 20;
