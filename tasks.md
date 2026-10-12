@@ -4,10 +4,10 @@ What is next, in order. Done items move to `progress.md`.
 
 ## Now
 
-1. **Deploy** #34 and #35 to production: Convex first (`pnpm exec convex deploy --yes`), then the Worker. Before that (Sara): point the production Google and GitHub sign-in apps at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback`, and look in the prod dashboard at the largest `momentCount` and the most media any one experience holds (the ceiling is now 300 moments and 1,500 photos per experience; 2 GB of live uploads per person still applies).
+1. **Deploy** to production (paused by Sara on 2026-10-12; master is ahead of prod by #25 onwards): Convex first (`pnpm exec convex deploy --yes`), then the Worker. Before that (Sara): point the production Google and GitHub sign-in apps at `https://strong-stoat-772.convex.site/oauth/google/callback` and `/oauth/github/callback`, and look in the prod dashboard at the largest `momentCount` and the most media any one experience holds (the ceiling is now 300 moments and 1,500 photos per experience; 2 GB of live uploads per person still applies).
 2. **Simplification A2**: clear `itinerary`, `canvases`, `canvasNodes`, `quotaRequests` and the account-wide `agentTokens` (no `eventId`) in the dashboard (dev, then prod after the deploy), remove them from `convex/schema.ts`, push. Deleting an experience already drains its own tokens.
 3. **Workers Builds** fail instantly on every PR: disconnect them in Cloudflare or send the build log.
-4. **Journal, the next eight** (PR #36, `docs/next-features.md`, Cursor is building them): pages made when the moment is, the share link opens the book, one page on screen at a time, a page that can catch up, print a sitting, the cover keeps the trip's name, take a sticker back, Play is the same book. This covers the old "shared link shows the journal", the fun page titles, the tier list's second page and simplification B.
+4. **Journal, the next eight** (`docs/next-features.md`, Cursor is building them). Done: pages are cut when the moment is saved (1, PR #40); one page on screen at a time (3), print a sitting (5) and take a sticker back (7), all in PR #39. Left: the share link opens the book (2), a page that can catch up (4), the cover keeps the trip's name and fun titles (6), Play is the same book (8, which is also simplification B). A trip that already has moments without pages gets them the next time a moment is added or a locked journal is unlocked; nothing drains that backlog on its own.
 
 ## Next
 
