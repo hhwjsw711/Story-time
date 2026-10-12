@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { ELEMENT_KINDS } from "./lib/journal";
 
 // Sensitive fields (place, coordinates, notes, links) are stored as AES-GCM
 // ciphertext.
@@ -73,6 +74,26 @@ export const vCanvasKind = v.union(
   v.literal("letter"),
   v.literal("tape"),
 );
+
+// One thing on a journal page (lib/journal.ts says what each field means).
+// Words are encrypted like notes; the rest is layout.
+export const vJournalKind = v.union(...ELEMENT_KINDS.map((k) => v.literal(k)));
+export const vJournalElement = v.object({
+  id: v.string(),
+  kind: vJournalKind,
+  x: v.number(),
+  y: v.number(),
+  w: v.number(),
+  h: v.number(),
+  rotation: v.number(),
+  z: v.number(),
+  style: v.optional(v.string()),
+  text: v.optional(vEncrypted),
+  tone: v.optional(v.string()),
+  mediaId: v.optional(v.id("media")),
+  momentId: v.optional(v.id("moments")),
+  locked: v.optional(v.boolean()),
+});
 
 export const vChangeEntity = v.union(
   v.literal("event"),
@@ -196,7 +217,8 @@ export default defineSchema({
   media: defineTable({
     // Absent for profile images, which belong to a user, not an experience.
     eventId: v.optional(v.id("events")),
-    purpose: v.optional(v.literal("avatar")),
+    // An avatar belongs to a user; a sticker is cut from a photo for a journal.
+    purpose: v.optional(v.union(v.literal("avatar"), v.literal("sticker"))),
     momentId: v.optional(v.id("moments")),
     uploaderId: v.id("users"),
     r2Key: v.string(),
@@ -282,6 +304,27 @@ export default defineSchema({
   })
     .index("by_event_and_at", ["eventId", "at"])
     .index("by_entity", ["entity", "entityId", "at"]),
+
+  // The journal of an experience: a book of A4 pages. `filledAt` is how far
+  // the moments have been given pages, so a page taken out isn't made again.
+  journals: defineTable({
+    eventId: v.id("events"),
+    filledAt: v.optional(v.number()),
+    locked: v.optional(v.boolean()),
+  }).index("by_event", ["eventId"]),
+
+  // One page of a journal, with everything on it. `order` sorts the book; a
+  // moment's page starts at the moment's time, so new ones land in place.
+  journalPages: defineTable({
+    eventId: v.id("events"),
+    order: v.number(),
+    paper: v.string(),
+    locked: v.optional(v.boolean()),
+    momentId: v.optional(v.id("moments")),
+    elements: v.array(vJournalElement),
+  })
+    .index("by_event_and_order", ["eventId", "order"])
+    .index("by_event_and_moment", ["eventId", "momentId"]),
 
   // Legacy: nothing reads or writes it. Cleared and removed in the next step.
   canvases: defineTable({

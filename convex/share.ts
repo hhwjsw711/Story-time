@@ -215,13 +215,13 @@ export const mediaForShare = query({
     const event = await eventFor(ctx, args.token);
     if (event === null) return null;
     const media = await ctx.db.get("media", args.mediaId);
-    // Not while still being uploaded, not after it's taken off a moment, and
-    // never another experience's.
+    // Not while still being uploaded, not after it's taken off a moment (a
+    // journal's sticker excepted), and never another experience's.
     if (
       media === null ||
       media.status !== "ready" ||
       media.eventId !== event._id ||
-      media.momentId === undefined
+      (media.momentId === undefined && media.purpose !== "sticker")
     ) {
       return null;
     }

@@ -36,6 +36,12 @@ function DataSettings() {
               Whoever is watching, a shared link included, asks OpenStreetMap's public routers for it and sends only the
               two stops' coordinates, rounded to about 100 m; nothing is stored. If they can't be reached, the leg is a curve.
             </li>
+            <li>
+              Stickers you cut out of photos for a journal are cut on your device by Google's MediaPipe model, which the
+              page downloads from storage.googleapis.com the first time. The photo isn't sent anywhere to be cut; the
+              finished sticker is saved like any other photo, and everyone who can see the journal can see it.
+            </li>
+            <li>A journal's words (titles, notes, tickets) are encrypted like notes. Its layout isn't.</li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
         </SettingsBlock>
