@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { action, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
 import { invalid } from "./lib/blocks";
@@ -308,75 +308,140 @@ export const get = query({
   },
 });
 
-// Gives every moment made since the last fill a page of its own, and a new
-// journal its cover. Safe to call from two windows at once: the second finds
-// nothing new.
-export const fill = mutation({
-  args: { eventId: v.id("events") },
-  returns: v.number(),
-  handler: async (ctx, args) => {
-    const { event } = await requireEventAccess(ctx, args.eventId, "owner");
-    assertNotArchived(event);
-    let journal = await journalOf(ctx, event._id);
-    if (journal?.locked) return 0;
-    const first = journal === null;
-    if (journal === null) {
-      const id = await ctx.db.insert("journals", { eventId: event._id });
-      journal = (await ctx.db.get("journals", id))!;
-    }
-    const rows = await ctx.db
-      .query("moments")
-      .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
-      .take(momentsToRead(event.momentCount));
-    const fresh = rows.filter((m) => journal.filledAt === undefined || m._creationTime > journal.filledAt);
-    let room = MAX_JOURNAL_PAGES - (await pagesOf(ctx, event._id)).length;
-    let made = 0;
+// How many pages one transaction will cut and paste. Each page decrypts a
+// moment and encrypts what it prints, so a purge-sized batch would blow the
+// write limit on a long import. Twenty finishes a normal visit in one go
+// (the cover and a handful of moments); the rest is scheduled.
+const PAGE_BATCH = 20;
 
-    if (first && room > 0) {
-      const views = rows.length === 0 ? [] : [await viewMoment(ctx, event, rows[0]!)];
-      const photo = views[0] && [views[0].blocks, ...views[0].stops.map((s) => s.blocks)].flat().find((b) => b.type === "photo");
-      const from = event.startsAt ?? rows[0]?.startsAt;
-      const to = event.endsAt ?? rows.at(-1)?.startsAt ?? from;
-      const cover = coverPage({
-        id: event._id,
-        title: event.title,
-        dates: from === undefined ? undefined : rangeLabel(from, to ?? from),
-        photo: photo?.type === "photo" ? photo.mediaId : undefined,
+// Pages for moments made since `filledAt`, and the cover when the journal is
+// new. One batch per call. `more` means another batch should run: the book
+// still has room and a moment is still waiting. A locked journal changes
+// nothing, so `filledAt` does not step over a page that was never made.
+async function makePageBatch(ctx: MutationCtx, event: Doc<"events">): Promise<{ made: number; more: boolean }> {
+  const existing = await journalOf(ctx, event._id);
+  if (existing?.locked) return { made: 0, more: false };
+  const rows = await ctx.db
+    .query("moments")
+    .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
+    .take(momentsToRead(event.momentCount));
+  // The cover arrives with the first moment, not for an empty trip.
+  if (existing === null && rows.length === 0) return { made: 0, more: false };
+
+  const created = existing ?? (await ctx.db.get("journals", await ctx.db.insert("journals", { eventId: event._id })));
+  if (created === null) throw new Error("Journal missing");
+  const journal = created;
+  const fresh = rows.filter((m) => journal.filledAt === undefined || m._creationTime > journal.filledAt);
+  let room = MAX_JOURNAL_PAGES - (await pagesOf(ctx, event._id)).length;
+  let made = 0;
+  let more = false;
+
+  if (existing === null && room > 0) {
+    const views = [await viewMoment(ctx, event, rows[0]!)];
+    const photo = [views[0]!.blocks, ...views[0]!.stops.map((s) => s.blocks)].flat().find((b) => b.type === "photo");
+    const from = event.startsAt ?? rows[0]?.startsAt;
+    const to = event.endsAt ?? rows.at(-1)?.startsAt ?? from;
+    const cover = coverPage({
+      id: event._id,
+      title: event.title,
+      dates: from === undefined ? undefined : rangeLabel(from, to ?? from),
+      photo: photo?.type === "photo" ? photo.mediaId : undefined,
+    });
+    await ctx.db.insert("journalPages", {
+      eventId: event._id,
+      order: 0,
+      paper: cover.paper,
+      elements: await encodeElements(ctx, event, fromLayout(cover.elements)),
+    });
+    room--;
+    made++;
+  }
+
+  // Creation order, not the order they happened: `filledAt` is a high-water
+  // mark, so a moment that did not fit must stay above it.
+  const waiting = [...fresh].sort((a, b) => a._creationTime - b._creationTime);
+  let watermark = journal.filledAt;
+  for (const row of waiting) {
+    const has = await ctx.db
+      .query("journalPages")
+      .withIndex("by_event_and_moment", (q) => q.eq("eventId", event._id).eq("momentId", row._id))
+      .first();
+    if (has === null) {
+      if (room <= 0) break;
+      if (made >= PAGE_BATCH) {
+        more = true;
+        break;
+      }
+      const moment = await viewMoment(ctx, event, row);
+      const spec = momentPage({ ...moment, stops: moment.stops }, rows.indexOf(row));
+      await ctx.db.insert("journalPages", {
+        eventId: event._id,
+        order: row.startsAt,
+        paper: spec.paper,
+        momentId: row._id,
+        elements: await encodeElements(ctx, event, fromLayout(spec.elements), true),
       });
-      await ctx.db.insert("journalPages", { eventId: event._id, order: 0, paper: cover.paper, elements: await encodeElements(ctx, event, fromLayout(cover.elements)) });
       room--;
       made++;
     }
+    watermark = row._creationTime;
+  }
+  if (watermark !== undefined && watermark !== journal.filledAt) {
+    await ctx.db.patch("journals", journal._id, { filledAt: watermark });
+  }
+  return { made, more };
+}
 
-    // Creation order, not the order they happened: `filledAt` is a high-water
-    // mark, so a moment that did not fit must stay above it.
-    const waiting = [...fresh].sort((a, b) => a._creationTime - b._creationTime);
-    let watermark = journal.filledAt;
-    for (const row of waiting) {
-      const has = await ctx.db
-        .query("journalPages")
-        .withIndex("by_event_and_moment", (q) => q.eq("eventId", event._id).eq("momentId", row._id))
-        .first();
-      if (has === null) {
-        if (room <= 0) break;
-        const moment = await viewMoment(ctx, event, row);
-        const spec = momentPage({ ...moment, stops: moment.stops }, rows.indexOf(row));
-        await ctx.db.insert("journalPages", {
-          eventId: event._id,
-          order: row.startsAt,
-          paper: spec.paper,
-          momentId: row._id,
-          elements: await encodeElements(ctx, event, fromLayout(spec.elements), true),
-        });
-        room--;
-        made++;
-      }
-      watermark = row._creationTime;
-    }
-    if (watermark !== undefined && watermark !== journal.filledAt) {
-      await ctx.db.patch("journals", journal._id, { filledAt: watermark });
-    }
+// The next batch of pages for an experience. Scheduled from the moment write,
+// and again from here until the fresh moments are paged or the book is full.
+// Missing and archived experiences are skipped: the job may outlive them.
+export const makePages = internalMutation({
+  args: { eventId: v.id("events") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const event = await ctx.db.get("events", args.eventId);
+    if (event === null || event.status === "archived") return null;
+    const { more } = await makePageBatch(ctx, event);
+    if (more) await ctx.scheduler.runAfter(0, internal.journal.makePages, { eventId: event._id });
+    return null;
+  },
+});
+
+// The same batch, run now, for the owner. A long trip continues in `makePages`.
+// Safe to call twice: the second finds nothing new.
+export const fill = mutation({
+  args: { eventId: v.id("events") },
+  returns: v.number(),
+  handler: async (ctx, args): Promise<number> => {
+    const { event } = await requireEventAccess(ctx, args.eventId, "owner");
+    assertNotArchived(event);
+    const { made, more } = await makePageBatch(ctx, event);
+    if (more) await ctx.scheduler.runAfter(0, internal.journal.makePages, { eventId: event._id });
     return made;
+  },
+});
+
+// Moments that will never get a page because the book already holds
+// `MAX_JOURNAL_PAGES`. A page taken out on purpose is not listed: that moment
+// is already behind `filledAt`.
+export const unpaged = query({
+  args: { eventId: v.id("events") },
+  returns: v.object({
+    full: v.boolean(),
+    momentIds: v.array(v.id("moments")),
+  }),
+  handler: async (ctx, args) => {
+    const { event } = await requireEventAccess(ctx, args.eventId, "viewer");
+    if ((await pagesOf(ctx, event._id)).length < MAX_JOURNAL_PAGES) return { full: false, momentIds: [] };
+    const journal = await journalOf(ctx, event._id);
+    const moments = await ctx.db
+      .query("moments")
+      .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
+      .take(momentsToRead(event.momentCount));
+    return {
+      full: true,
+      momentIds: moments.filter((m) => journal?.filledAt === undefined || m._creationTime > journal.filledAt).map((m) => m._id),
+    };
   },
 });
 
@@ -463,6 +528,8 @@ export const setLock = mutation({
     const journal = await journalOf(ctx, event._id);
     if (journal === null) await ctx.db.insert("journals", { eventId: event._id, locked: args.locked || undefined });
     else await ctx.db.patch("journals", journal._id, { locked: args.locked || undefined });
+    // Pages refused while the book was locked are still owed. Unlocking cuts them.
+    if (journal?.locked && !args.locked) await ctx.scheduler.runAfter(0, internal.journal.makePages, { eventId: event._id });
     return null;
   },
 });

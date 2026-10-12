@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -11,13 +11,12 @@ type Step = { pageId: PageId; before: { paper: string; elements: JournalElement[
 
 // The journal of an experience and every change to it. A change shows at once
 // (an optimistic update) and is saved in the background; undo and redo replay
-// a page as it was. A journal with moments that have no page yet is filled
-// once it loads, for its owner.
+// a page as it was. Pages for new moments are cut on the server; `pending`
+// stays above zero until they arrive, or until the book is full.
 export function useJournal(eventId: Id<"events">, index: number) {
   const data = useQuery(api.journal.outline, { eventId });
   const openId = data === undefined ? undefined : data.pages[Math.min(index, Math.max(0, data.pages.length - 1))]?._id;
   const open = useQuery(api.journal.page, openId ? { pageId: openId } : "skip");
-  const fillPages = useMutation(api.journal.fill);
   const savePage = useMutation(api.journal.savePage).withOptimisticUpdate((store, args) => {
     const now = store.getQuery(api.journal.page, { pageId: args.pageId });
     if (now === undefined || now === null) return;
@@ -37,16 +36,6 @@ export function useJournal(eventId: Id<"events">, index: number) {
   const importPages = useMutation(api.journal.importPages);
 
   const fail = useCallback((e: unknown) => toast.error(errorMessage(e)), []);
-
-  // Pages for moments made since the last visit, made once per batch.
-  const filling = useRef<number | null>(null);
-  useEffect(() => {
-    // Caught up: the next moment made is a new batch.
-    if (data?.pending === 0) filling.current = null;
-    if (!data?.canEdit || data.pending === 0 || filling.current === data.pending) return;
-    filling.current = data.pending;
-    fillPages({ eventId }).catch(fail);
-  }, [data?.canEdit, data?.pending, eventId, fillPages, fail]);
 
   const openRef = useRef(open);
   openRef.current = open;

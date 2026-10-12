@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import type { FunctionArgs } from "convex/server";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
@@ -18,6 +18,10 @@ beforeAll(() => {
   // eslint-disable-next-line @convex-dev/no-process-env -- test setup
   process.env.ENCRYPTION_MASTER_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 });
+// Pages are scheduled with a zero delay. Hold them until a test asks, so a
+// fill that runs in the same turn is still the call that cuts the pages.
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
 
 const JUNE_1 = Date.UTC(2026, 5, 1, 12);
 
@@ -176,6 +180,93 @@ describe("filling a journal", () => {
     expect((await owner.query(api.journal.pageForMoment, { eventId, momentId }))?._id).toBe(outline.pages[1]!._id);
     await owner.mutation(api.journal.removePage, { pageId: outline.pages[1]!._id });
     expect(await owner.query(api.journal.pageForMoment, { eventId, momentId })).toBeNull();
+  });
+
+  test("a moment gets its page without anyone opening the journal", async () => {
+    const { t, owner, other, eventId, moment } = await setup();
+    const first = await moment(JUNE_1, "Pastéis by the river");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const journal = await owner.query(api.journal.get, { eventId });
+    expect(journal.pending).toBe(0);
+    expect(journal.pages.map((p) => p.momentId)).toEqual([undefined, first]);
+    expect(journal.pages[0]!.elements.find((e) => e.kind === "title")?.text).toBe("A week in Lisbon");
+
+    await moment(JUNE_1 + 86_400_000, "Sintra in the fog");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const again = await owner.query(api.journal.get, { eventId });
+    expect(again.pages).toHaveLength(3);
+    expect(again.pages.filter((p) => p.momentId === undefined)).toHaveLength(1);
+
+    await t.mutation(internal.journal.makePages, { eventId });
+    expect((await owner.query(api.journal.get, { eventId })).pages).toHaveLength(3);
+    await expect(other.query(api.journal.unpaged, { eventId })).rejects.toThrow();
+  });
+
+  test("a long run of moments is paged in batches", async () => {
+    const { t, owner, eventId, moment } = await setup();
+    for (let i = 0; i < 25; i++) await moment(JUNE_1 + i * 3_600_000, `Hour ${i}`);
+    await t.mutation(internal.journal.makePages, { eventId });
+    const mid = await owner.query(api.journal.get, { eventId });
+    expect(mid.pages).toHaveLength(20);
+    expect(mid.pending).toBeGreaterThan(0);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const journal = await owner.query(api.journal.get, { eventId });
+    expect(journal.pages).toHaveLength(26);
+    expect(journal.pending).toBe(0);
+    expect(new Set(journal.pages.map((p) => p.momentId)).size).toBe(26);
+  });
+
+  test("a locked journal takes no new page, and unlocking cuts it", async () => {
+    const { t, owner, eventId, moment } = await setup();
+    await moment(JUNE_1, "First");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await owner.mutation(api.journal.setLock, { eventId, locked: true });
+    const second = await moment(JUNE_1 + 86_400_000, "While locked");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const locked = await owner.query(api.journal.get, { eventId });
+    expect(locked.pages.some((p) => p.momentId === second)).toBe(false);
+    const mark = await t.run(async (ctx) => {
+      const row = await ctx.db.query("journals").withIndex("by_event", (q) => q.eq("eventId", eventId)).unique();
+      const made = await ctx.db.get("moments", second);
+      return { filledAt: row?.filledAt, created: made?._creationTime };
+    });
+    expect(mark.filledAt).toBeLessThan(mark.created!);
+
+    await owner.mutation(api.journal.setLock, { eventId, locked: false });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const open = await owner.query(api.journal.get, { eventId });
+    expect(open.pages.some((p) => p.momentId === second)).toBe(true);
+    expect(open.pending).toBe(0);
+  });
+
+  test("a full book names the moments that never got a page", async () => {
+    const { t, owner, eventId, moment } = await setup();
+    await moment(JUNE_1, "Already");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await t.run(async (ctx) => {
+      const count = (await ctx.db.query("journalPages").take(500)).length;
+      for (let i = count; i < 400; i++) {
+        await ctx.db.insert("journalPages", { eventId, order: 1_000_000 + i, paper: "cream", elements: [] });
+      }
+    });
+    const left = await moment(JUNE_1 + 86_400_000, "Left out");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await owner.query(api.journal.unpaged, { eventId })).toEqual({ full: true, momentIds: [left] });
+    expect((await owner.query(api.journal.get, { eventId })).pending).toBe(1);
+    expect((await owner.query(api.journal.get, { eventId })).pages.some((p) => p.momentId === left)).toBe(false);
+  });
+
+  test("a page taken out on purpose is not the journal being full", async () => {
+    const { t, owner, eventId, moment } = await setup();
+    const id = await moment(JUNE_1, "Taken out");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const page = (await owner.query(api.journal.get, { eventId })).pages.find((p) => p.momentId === id);
+    await owner.mutation(api.journal.removePage, { pageId: page!._id });
+    expect(await owner.query(api.journal.unpaged, { eventId })).toEqual({ full: false, momentIds: [] });
+    await moment(JUNE_1 + 86_400_000, "Next");
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const notes = (await owner.query(api.journal.get, { eventId })).pages.map((p) => p.elements.find((e) => e.kind === "note")?.text);
+    expect(notes).toEqual([undefined, "Next"]);
   });
 
   test("words are encrypted at rest", async () => {
@@ -373,7 +464,7 @@ test("deleting the experience takes its journal with it", async () => {
   await moment(JUNE_1, "x");
   await owner.mutation(api.journal.fill, { eventId });
   await t.mutation(internal.events.purgeEventData, { eventId });
-  await t.finishAllScheduledFunctions(() => undefined);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
   const left = await t.run(async (ctx) => [(await ctx.db.query("journals").take(100)).length, (await ctx.db.query("journalPages").take(100)).length]);
   expect(left).toEqual([0, 0]);
 });

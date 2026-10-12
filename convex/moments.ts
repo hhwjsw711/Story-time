@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import type { Infer, ObjectType } from "convex/values";
+import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { MOMENT_LIMIT, momentsToRead } from "./lib/limits";
 import { assertNotArchived, requireEventAccess } from "./lib/access";
@@ -235,6 +236,9 @@ export async function createMoment(
     fields: ["startsAt", "place", "geo", "blocks", "transport", "stops", "labels"],
     after: { startsAt: input.startsAt, blockCount: blocks.length, stopCount: rest.stops.length + 1 },
   });
+  // The page is a later batch, not part of this write: a long import of photos
+  // must not decrypt and insert the whole book in one transaction.
+  await ctx.scheduler.runAfter(0, internal.journal.makePages, { eventId: event._id });
   return momentId;
 }
 

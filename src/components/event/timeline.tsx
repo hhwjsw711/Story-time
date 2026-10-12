@@ -27,6 +27,8 @@ export function Timeline({
   onPick: (moment: MomentView) => void;
 }) {
   const moments = useQuery(api.moments.list, { eventId: event._id });
+  const leftOut = useQuery(api.journal.unpaged, { eventId: event._id });
+  const unpaged = new Set(leftOut?.full ? leftOut.momentIds : []);
   const [query, setQuery] = useState("");
   const searchInput = useRef<HTMLInputElement>(null);
 
@@ -121,7 +123,12 @@ export function Timeline({
                     )}
                   >
                     <span className="w-16 shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{formatTime(m.startsAt, m.tzOffsetMinutes)}</span>
-                    <span className="min-w-0 flex-1 truncate text-sm">{firstLine(m) ?? "A moment"}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">{firstLine(m) ?? "A moment"}</span>
+                      {unpaged.has(m._id) && (
+                        <span className="block truncate text-xs text-muted-foreground">The journal is full, so this moment has no page.</span>
+                      )}
+                    </span>
                     <PlaceChip place={m.place} />
                     <ActorBadge actor={authorOf(m)} you={m.authorId === meId} className="hidden md:inline-flex" />
                   </button>

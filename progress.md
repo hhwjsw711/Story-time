@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- A moment's page is cut when the moment is saved, on the server, cover included. A journal that already has 400 pages says so on that moment's row instead of promising a page.
 - Journal review fixes: a full book no longer skips moments that never got a page, a locked page stays put, a share link only fetches a sticker that is on a page, and a sticker can leave the shelf once every page lets it go.
 - **Moments page shows the journal (PR #35).** On a wide screen the space beside the list shows the picked moment's journal page, or the cover, with Play from here, Edit and Open in the journal (which opens on that page). On a phone a row still opens the editor or the story. The header lines up with the content.
 - **Journal: zoom, draw, add anything (PR #35).** Zoom in and out (buttons, ⌘+/⌘−/⌘0, ctrl-scroll) and hold Space to pan. Draw with a pen, marker or highlighter in seven inks. Add pictures from the device by picking, dropping or pasting them. Paste or type a link and it becomes a card with its title and picture. 32 new stickers, food cut-outs among them (sushi, ramen, onigiri, dumpling, boba, ice cream, croissant, pretzel, beer, pizza). Page ideas: a type specimen, a Dada letterhead, a magazine spread, a photo wall, bits and pieces, a postcard, "What we did that day" (pick a day, get its moments in order with its photos), and a tier list of every place, every moment, or one moment's stops. Link addresses must be web addresses, checked on save.
