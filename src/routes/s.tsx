@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { PlayIcon } from "lucide-react";
+import { FileLockIcon, LoaderCircleIcon, PlayIcon } from "lucide-react";
+import { toast } from "sonner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api";
+import { download, fileName } from "@/components/journal/export";
 import { Reader } from "@/components/journal/reader";
 import { SignedOutPage } from "@/components/sign-in-screen";
 import { StoryPlayer } from "@/components/story/story-player";
@@ -41,6 +43,8 @@ function SharedStoryPage() {
   const [token] = useState(readToken);
   const shared = useQuery(api.share.get, token ? { token } : "skip");
   const book = useQuery(api.share.journal, token ? { token } : "skip");
+  const pdf = useQuery(api.share.pdf, token ? { token } : "skip");
+  const [fetching, setFetching] = useState(false);
   useDocumentTitle(shared ? `${shared.event.title} · Story-time` : undefined);
   const moments = useMemo(() => new Map((shared?.moments ?? []).map((m) => [m._id, m])), [shared?.moments]);
   const stage = useRef<HTMLDivElement>(null);
@@ -82,12 +86,26 @@ function SharedStoryPage() {
         <div className="flex h-svh flex-col bg-[#e9dfcb] text-[#1f1a16]">
           <header className="flex items-center justify-between gap-3 px-4 py-3">
             <h1 className="min-w-0 truncate font-serif text-xl">{shared.event.title}</h1>
-            {shared.moments.length > 0 && (
-              <Button variant="outline" size="sm" onClick={playFilm}>
-                <PlayIcon aria-hidden />
-                Play
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {pdf && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={fetching}
+                  title="Opens with the password the person who shared it gave you"
+                  onClick={() => void downloadPdf(token, pdf.mediaId, shared.event.title, setFetching)}
+                >
+                  {fetching ? <LoaderCircleIcon aria-hidden className="animate-spin" /> : <FileLockIcon aria-hidden />}
+                  PDF
+                </Button>
+              )}
+              {shared.moments.length > 0 && (
+                <Button variant="outline" size="sm" onClick={playFilm}>
+                  <PlayIcon aria-hidden />
+                  Play
+                </Button>
+              )}
+            </div>
           </header>
           <div ref={stage} className="min-h-0 flex-1">
             {book.pages.length === 0 ? (
@@ -119,4 +137,20 @@ function NotShared() {
       </div>
     </SignedOutPage>
   );
+}
+
+// The locked PDF, fetched with the link's token the way its pictures are, and
+// saved. It opens with the password its owner sends separately.
+async function downloadPdf(token: string, mediaId: string, title: string, busy: (on: boolean) => void) {
+  busy(true);
+  try {
+    const res = await fetch(`/api/media/${mediaId}`, { headers: { Authorization: `Share ${token}` } });
+    if (!res.ok) throw new Error("The PDF couldn't be fetched. Try again in a moment.");
+    download(await res.blob(), `${fileName(title)}.pdf`);
+    toast.success("Saved. It opens with the password you were sent.");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "The PDF couldn't be fetched.");
+  } finally {
+    busy(false);
+  }
 }

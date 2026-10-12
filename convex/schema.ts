@@ -224,7 +224,7 @@ export default defineSchema({
     // Absent for profile images, which belong to a user, not an experience.
     eventId: v.optional(v.id("events")),
     // An avatar belongs to a user; a sticker is cut from a photo for a journal.
-    purpose: v.optional(v.union(v.literal("avatar"), v.literal("sticker"))),
+    purpose: v.optional(v.union(v.literal("avatar"), v.literal("sticker"), v.literal("pdf"))),
     momentId: v.optional(v.id("moments")),
     uploaderId: v.id("users"),
     r2Key: v.string(),
@@ -336,6 +336,9 @@ export default defineSchema({
     eventId: v.id("events"),
     filledAt: v.optional(v.number()),
     locked: v.optional(v.boolean()),
+    // The whole book as a PDF locked with a password, for the share link. The
+    // password is kept under the event key so its owner can copy it again.
+    pdf: v.optional(v.object({ mediaId: v.id("media"), password: vEncrypted, pages: v.number(), at: v.number() })),
   }).index("by_event", ["eventId"]),
 
   // One page of a journal, with everything on it. `order` sorts the book; a

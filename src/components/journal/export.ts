@@ -30,11 +30,13 @@ export type Drawn = { node: HTMLElement; hasMap: boolean; paper: string };
 
 // Waits until React has committed the page being printed, then two frames so
 // the picture is of that page and not the one before it.
-export function waitForPage(root: HTMLDivElement | null, pageId: string): Promise<HTMLElement> {
+// `root` is asked again each frame: the offstage sheet only exists once React
+// has rendered the page being printed.
+export function waitForPage(root: () => HTMLElement | null, pageId: string): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
     let frames = 0;
     const tick = () => {
-      const node = root?.querySelector<HTMLElement>("[data-journal-page]");
+      const node = root()?.querySelector<HTMLElement>("[data-journal-page]");
       if (node?.dataset.pageId === pageId) {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve(node)));
         return;

@@ -12,6 +12,7 @@ import { recordChange } from "./lib/changes";
 import { decryptText, encryptText, readText, shareKeyFor } from "./lib/crypto";
 import { contentsOf, pageInEvent, vOutlinePage, vPageView } from "./journal";
 import { MAX_JOURNAL_PAGES } from "./lib/journal";
+import { isSharedPdf } from "./lib/sharedPdf";
 import { listForEvent, vMomentView } from "./moments";
 
 // "Anyone with the link can watch". The link carries a random token in its
@@ -224,6 +225,23 @@ export const page = query({
   },
 });
 
+// Public: the journal's locked PDF on this link, if its owner made one. Never
+// its password: that travels separately, from the owner.
+export const pdf = query({
+  args: { token: v.string() },
+  returns: v.union(v.null(), v.object({ mediaId: v.id("media"), pages: v.number(), at: v.number() })),
+  handler: async (ctx, args) => {
+    const event = await eventFor(ctx, args.token);
+    if (event === null) return null;
+    const journal = await ctx.db
+      .query("journals")
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
+      .unique();
+    if (!journal?.pdf) return null;
+    return { mediaId: journal.pdf.mediaId, pages: journal.pdf.pages, at: journal.pdf.at };
+  },
+});
+
 // Public: a picture's bytes for a share link, the same shape the signed-in
 // route gets. A moment's picture qualifies. A sticker qualifies only when a
 // page of this experience actually shows it.
@@ -245,9 +263,11 @@ export const mediaForShare = query({
     // Not while still being uploaded, and never another experience's.
     if (media === null || media.status !== "ready" || media.eventId !== event._id) return null;
     // A picture on a moment qualifies. A sticker qualifies only when some page
-    // of this experience shows it. A loose upload, or a sticker only on the
-    // shelf, does not.
-    if (media.momentId === undefined) {
+    // of this experience shows it, and a PDF only while it is the journal's
+    // locked one. A loose upload, or a sticker only on the shelf, does not.
+    if (media.momentId === undefined && media.purpose === "pdf") {
+      if (!(await isSharedPdf(ctx, event._id, media._id))) return null;
+    } else if (media.momentId === undefined) {
       if (media.purpose !== "sticker") return null;
       const pages = await ctx.db
         .query("journalPages")

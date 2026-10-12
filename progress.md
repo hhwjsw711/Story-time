@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- **Share the journal as a locked PDF.** Export → "Share as a locked PDF…" prints the whole book in the browser, locks it with the PDF standard's AES-256 encryption and a password (generated, or your own), and puts it on the share link, where a PDF button downloads it. Any reader asks for the password; the link never gives it out. The file is stored encrypted like photos; the password is kept under the experience's key so the owner can copy it again, replace the PDF or take it off. Also fixed: exporting a PDF stopped on its first page (the offstage sheet was looked up before it existed).
 - **Journal gaps closed.** A title you retyped is yours: "Update this page" keeps it. A trip with no dates keeps its cover's dates in step as moments are added, moved or deleted. A moment page's title can "Try another" (Haiku, from the moment; nothing stored until you use it). Cover dates now print the calendar day people picked, or the day a moment happened where it happened (they were a day early east of UTC).
 - **Experiences in the sidebar.** Every experience is listed under a folding Experiences tab.
 - **A seeded trip to Japan** for trying the app: `pnpm exec convex run seed:japan` (dev) makes "Spring in Japan", ten days from Tokyo to Osaka with places, routes, notes, moods and labels, and its journal cuts itself. No photos.

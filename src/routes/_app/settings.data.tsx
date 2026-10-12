@@ -46,6 +46,11 @@ function DataSettings() {
               its picture. That picture then loads straight from the linked site for whoever reads the page, a shared link
               included, so that site sees their visit. Pictures you add from your device are saved like any other photo.
             </li>
+            <li>
+              A locked PDF of a journal is printed and locked in your browser with the PDF standard's AES-256 encryption, then
+              stored encrypted like a photo. Anyone with the share link can download it, and it opens only with its password.
+              The password is kept encrypted so its owner can copy it again; the link never gives it out.
+            </li>
             <li>A journal's words (titles, notes, tickets, drawings, links) are encrypted like notes. Its layout isn't.</li>
             <li>Nothing is copied from your GitHub or Google account.</li>
           </ul>
