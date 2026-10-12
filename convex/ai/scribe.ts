@@ -6,7 +6,7 @@ import { z } from "zod";
 import { components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { internalAction, internalQuery } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
 import { readText } from "../lib/crypto";
 import { listForEvent, viewMoment, type PlainBlock } from "../moments";
 import { vTransport } from "../schema";
@@ -174,11 +174,3 @@ export async function captionMoment(
   });
 }
 
-export const caption = internalAction({
-  args: { momentId: v.id("moments"), thumbs: v.array(vThumb), hint: v.optional(v.string()) },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    await captionMoment(ctx, args);
-    return null;
-  },
-});

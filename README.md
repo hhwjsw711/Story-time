@@ -31,56 +31,13 @@ Set these on the Convex deployment with `npx convex env set NAME value` (add `--
 | `ALLOW_ANONYMOUS_SIGNIN` | `true` enables the dev-only anonymous button. Never set it in production |
 | `CF_ACCOUNT_ID`, `CF_EMAIL_TOKEN`, `EMAIL_FROM` | Optional. Without them invites are links only, no email |
 
-AI features (captions, labels, transport) run through the Convex AI Gateway, which needs a paid Convex plan and no provider keys. For captions it gets the photos' 512px copies and the moment's text (experience title and description, places, time, transport, labels, notes); for transport it gets the places and times between stops. The box above the itinerary sends what you type to the gateway as well: Jev (TypeSafe's decision model) reads just your words, and whether a moment is open, to tell a new moment from a change or a removal; for a change, Haiku gets your words, the experience title, today's date and each moment's time, place, transport, labels and the first 80 characters of its first note (up to 60 moments, the ones nearest the open one). The plan it returns is shown before anything is saved, and a removal in it is kept only if Jev, asked separately, agrees you asked for one. The mic in that box records up to a minute (32 kbit/s, under 1 MB), sends it to the gateway's `/v1/audio/transcriptions` route (model `openai/whisper-large-v3-turbo`, called over HTTP because the provider package's voice support is still alpha), and puts the text in the box; 40 recordings an hour per person. Photos attached to the box become moments, as with Add, and the words typed with them become the first moment's note and are passed to the note-writer as context. None of it is kept in Convex. Without the gateway the app works, just without the automatic fill-ins.
-
-The Canvas tab lays an experience out as a collage of frames, taped prints, scraps and magazine letters, played back as a flow that zooms from frame to frame. See `docs/canvas.md`. Its words are encrypted like notes, and only the owner edits it.
+AI features (captions, labels, transport) run through the Convex AI Gateway, which needs a paid Convex plan and no provider keys. For captions it gets the photos' 512px copies and the moment's text (experience title and description, places, time, transport, labels, notes); for transport it gets the places and times between stops. The box above the moments sends what you type to the gateway as well: Jev (TypeSafe's decision model) reads just your words, and whether a moment is open, to tell a new moment from a change or a removal; for a change, Haiku gets your words, the experience title, today's date and each moment's time, place, transport, labels and the first 80 characters of its first note (up to 60 moments, the ones nearest the open one). The plan it returns is shown before anything is saved, and a removal in it is kept only if Jev, asked separately, agrees you asked for one. The mic in that box records up to a minute (32 kbit/s, under 1 MB), sends it to the gateway's `/v1/audio/transcriptions` route (model `openai/whisper-large-v3-turbo`, called over HTTP because the provider package's voice support is still alpha), and puts the text in the box; 40 recordings an hour per person. Photos attached to the box become moments, as with Add photos, and the words typed with them become the first moment's note and are passed to the note-writer as context. None of it is kept in Convex. Without the gateway the app works, just without the automatic fill-ins.
 
 Place search and the names of photo locations use OpenStreetMap data from photon.komoot.io; your typed text or the photo's coordinates are sent to it.
 
 Where a leg of a story goes by foot, bike, car, bus or train, the map draws it along real streets and tracks. The browser of whoever is watching (people with a share link too) asks OpenStreetMap's public routers, routing.openstreetmap.de for roads and routing.openrailrouting.org for rails, for the route between the two stops. Only those two coordinates, rounded to about 100 m, are sent, and the answers are kept in memory, never stored. If a router can't be reached the leg is drawn as a curve. Planes, boats and other ways of travelling are always curves.
 
 On the client, `VITE_APP_URL` (the site's origin, set at build time) makes the link-preview image URL absolute. Crawlers ignore relative `og:image` URLs.
-
-## Connect an assistant (MCP)
-
-Claude Code, Claude Desktop and other [MCP](https://modelcontextprotocol.io) clients can read an experience's moments, and add or update moments for you. Make a connection on Settings, then Agents: name it, choose whether it may use all your experiences or one of them, and paste the setup the page shows. The token is shown once. If you lose it, disconnect that connection and make a new one. Tokens are stored only as a keyed hash.
-
-The endpoint is your Convex site address with `/mcp` on the end:
-
-```
-https://<deployment>.convex.site/mcp
-```
-
-Claude Code:
-
-```bash
-claude mcp add --transport http story-time https://<deployment>.convex.site/mcp --header "Authorization: Bearer <token>"
-```
-
-Any other client that takes an HTTP MCP server:
-
-```json
-{
-  "mcpServers": {
-    "story-time": {
-      "type": "http",
-      "url": "https://<deployment>.convex.site/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
-    }
-  }
-}
-```
-
-The Agents page works the address out from `VITE_CONVEX_URL`. If that isn't a `.convex.cloud` address, such as a local deployment, the page asks for the site address instead.
-
-| Tool | What it does |
-| --- | --- |
-| `list_experiences` | Lists the experiences the assistant can add to. Call it first. |
-| `list_moments` | Reads the most recent moments of one experience, newest first. |
-| `add_moment` | Adds a moment: when, where, a note or feeling, links, labels and up to nine more stops. Photos and videos are added in the app. |
-| `update_moment` | Changes a moment's time, place, transport or labels, or adds a note to it. Nothing is deleted. |
-
-An assistant acts for you, so it can do only what you could do. It can add to the experiences you own or help with, and change moments you added yourself, or any moment in an experience you own. Viewers can't add or change anything. Everything it adds or changes is labelled with its name, so you can always tell it from your own writing, and you can edit or remove any of it in the app. A connection can be limited to one experience, can make 60 requests a minute, and you can hold up to 10 connections at once.
 
 ## Scripts
 

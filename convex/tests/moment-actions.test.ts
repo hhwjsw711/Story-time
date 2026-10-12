@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
+import { MOMENT_LIMIT } from "../lib/limits";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
 
@@ -30,7 +31,7 @@ async function setup() {
   await t.run((ctx) =>
     ctx.db.insert("sessions", { eventId, userId: viewerId, grantedBy: ownerId, role: "viewer" }),
   );
-  return { t, eventId, owner, helper: as(helperId), helperId, viewer: as(viewerId) };
+  return { t, eventId, owner, ownerId, helper: as(helperId), helperId, viewer: as(viewerId) };
 }
 
 type Caller = Awaited<ReturnType<typeof setup>>["owner"];
@@ -55,8 +56,12 @@ async function readyPhoto(who: Caller, eventId: Id<"events">) {
   return mediaId;
 }
 
+// The day a moment happened, in the zone it happened in.
+const dayOf = (m: { startsAt: number; tzOffsetMinutes?: number }) =>
+  new Date(m.startsAt + (m.tzOffsetMinutes ?? 0) * 60_000).toISOString().slice(0, 10);
+
 describe("moments.update", () => {
-  test("the author can change text, place and time; the itinerary follows", async () => {
+  test("the author can change text, place and time", async () => {
     const { owner, eventId } = await setup();
     const momentId = await addMoment(owner, eventId);
     await owner.mutation(api.moments.update, {
@@ -73,10 +78,7 @@ describe("moments.update", () => {
       place: "Porto",
       blocks: [{ type: "note", text: "edited" }],
     });
-    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
-    expect(days.map((g) => g.key)).toEqual(["2026-06-03"]);
-    const places = await owner.query(api.itinerary.grouped, { eventId, groupBy: "place" });
-    expect(places.map((g) => g.label)).toEqual(["Porto"]);
+    expect(dayOf(moment!)).toBe("2026-06-03");
   });
 
   test("an empty place clears it", async () => {
@@ -85,8 +87,6 @@ describe("moments.update", () => {
     await owner.mutation(api.moments.update, { momentId, place: "" });
     const [moment] = await owner.query(api.moments.list, { eventId });
     expect(moment?.place).toBeUndefined();
-    const places = await owner.query(api.itinerary.grouped, { eventId, groupBy: "place" });
-    expect(places.map((g) => g.label)).toEqual(["No place"]);
   });
 
   test("edits are logged by field name, never by content", async () => {
@@ -159,25 +159,29 @@ describe("moments.update", () => {
 });
 
 describe("moments.remove", () => {
-  test("removes the moment and its itinerary row, and frees a slot", async () => {
+  test("removes the moment and frees a slot", async () => {
     const { t, owner, eventId } = await setup();
-    // Ten, not the default: a hundred moments would make the test slow.
-    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 10 }));
+    // Counted up to ten short of the limit, then ten added: adding one by one
+    // up to the limit would make the test slow.
+    await t.run((ctx) => ctx.db.patch("events", eventId, { momentCount: MOMENT_LIMIT - 10 }));
     for (let i = 0; i < 10; i++) await addMoment(owner, eventId, `m${i}`);
     await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
 
     const [first] = await owner.query(api.moments.list, { eventId });
     await owner.mutation(api.moments.remove, { momentId: first!._id });
 
-    expect((await owner.query(api.events.get, { eventId }))?.momentCount).toBe(9);
-    const rows = await t.run((ctx) =>
-      ctx.db
-        .query("itinerary")
-        .withIndex("by_moment", (q) => q.eq("momentId", first!._id))
-        .collect(),
-    );
-    expect(rows).toEqual([]);
+    expect((await owner.query(api.events.get, { eventId }))?.momentCount).toBe(MOMENT_LIMIT - 1);
     await addMoment(owner, eventId, "fits again");
+  });
+
+  test("an experience holding more than the limit (from before it) lists every moment", async () => {
+    const { t, owner, ownerId, eventId } = await setup();
+    await t.run(async (ctx) => {
+      for (let i = 0; i <= MOMENT_LIMIT; i++) await ctx.db.insert("moments", { eventId, authorId: ownerId, startsAt: i, blocks: [] });
+      await ctx.db.patch("events", eventId, { momentCount: MOMENT_LIMIT + 1 });
+    });
+    expect(await owner.query(api.moments.list, { eventId })).toHaveLength(MOMENT_LIMIT + 1);
+    await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
   });
 
   test("returns the moment's photos and detaches them", async () => {
@@ -470,7 +474,7 @@ describe("the zone a moment happened in", () => {
   // 22:15 UTC on 8 November is 07:15 on 9 November in Japan (UTC+9).
   const KYOTO_MORNING = Date.UTC(2025, 10, 8, 22, 15);
 
-  test("is kept with the moment, and its itinerary day follows it", async () => {
+  test("is kept with the moment, and its day follows it", async () => {
     const { owner, eventId } = await setup();
     await owner.mutation(api.moments.create, {
       eventId,
@@ -481,11 +485,10 @@ describe("the zone a moment happened in", () => {
     });
     const [moment] = await owner.query(api.moments.list, { eventId });
     expect(moment?.tzOffsetMinutes).toBe(540);
-    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
-    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+    expect(dayOf(moment!)).toBe("2025-11-09");
   });
 
-  test("an edit can set a new offset; the itinerary day follows", async () => {
+  test("an edit can set a new offset; the day follows", async () => {
     const { owner, eventId } = await setup();
     const momentId = await addMoment(owner, eventId);
     await owner.mutation(api.moments.update, {
@@ -495,8 +498,7 @@ describe("the zone a moment happened in", () => {
     });
     const [moment] = await owner.query(api.moments.list, { eventId });
     expect(moment?.tzOffsetMinutes).toBe(540);
-    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
-    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+    expect(dayOf(moment!)).toBe("2025-11-09");
   });
 
   test("moving a time without an offset keeps the one the moment has", async () => {
@@ -511,8 +513,7 @@ describe("the zone a moment happened in", () => {
     await owner.mutation(api.moments.update, { momentId, startsAt: KYOTO_MORNING - 3_600_000 });
     const [moment] = await owner.query(api.moments.list, { eventId });
     expect(moment?.tzOffsetMinutes).toBe(540);
-    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
-    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+    expect(dayOf(moment!)).toBe("2025-11-09");
   });
 
   test("an offset alone is stored with no edit mark and no change log row", async () => {
@@ -524,9 +525,7 @@ describe("the zone a moment happened in", () => {
       blocks: [{ type: "note", text: "Fushimi Inari" }],
     });
     const logBefore = (await t.run((ctx) => ctx.db.query("changes").take(500))).length;
-    expect((await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" })).map((g) => g.key)).toEqual([
-      "2025-11-08",
-    ]);
+    expect(dayOf((await owner.query(api.moments.list, { eventId }))[0]!)).toBe("2025-11-08");
 
     await owner.mutation(api.moments.update, { momentId, startsAt: KYOTO_MORNING, tzOffsetMinutes: 540 });
     const [moment] = await owner.query(api.moments.list, { eventId });
@@ -534,8 +533,7 @@ describe("the zone a moment happened in", () => {
     expect(moment?.editedAt).toBeUndefined();
     const logAfter = (await t.run((ctx) => ctx.db.query("changes").take(500))).length;
     expect(logAfter).toBe(logBefore);
-    const days = await owner.query(api.itinerary.grouped, { eventId, groupBy: "day" });
-    expect(days.map((g) => g.key)).toEqual(["2025-11-09"]);
+    expect(dayOf(moment!)).toBe("2025-11-09");
   });
 
   test("an offset outside UTC-12 to UTC+14 is a bad request", async () => {

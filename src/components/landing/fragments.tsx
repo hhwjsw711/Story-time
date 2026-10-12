@@ -13,7 +13,7 @@ import {
   TrainFrontIcon,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment } from "react";
 import { useInView, useReducedMotion } from "@/components/landing/paper";
 import { DrawnPhoto, PHOTOS } from "@/components/landing/photos";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ const DAYS: Array<{ day: string; moments: Moment[] }> = [
         time: "9:40 AM",
         by: "IN",
       },
-      { title: "Pastéis for the train home", stops: [{ place: "Belém" }], time: "5:20 PM", by: "CC", agent: true },
+      { title: "Pastéis for the train home", stops: [{ place: "Belém" }], time: "5:20 PM", by: "Scribe", agent: true },
     ],
   },
 ];
@@ -163,122 +163,6 @@ export function LinkFragment() {
         </span>
       </div>
       <p className="text-xs text-muted-foreground">Switch it off and the link stops working.</p>
-    </div>
-  );
-}
-
-// An assistant connected over MCP, adding a moment from a terminal. Once in
-// view it types the commands out and the answers follow, as a session would.
-type Line = { prompt: string; typed: string } | { out: ReactNode };
-const SESSION: Line[] = [
-  { prompt: "$", typed: "claude mcp add --transport http story-time https://…/mcp" },
-  { out: <span className="text-stone-500">Added HTTP MCP server story-time</span> },
-  { prompt: "›", typed: "Add the pastéis we bought in Belém before the train home." },
-  {
-    out: (
-      <>
-        <span className="text-violet-300">● add_moment</span>
-        <span className="text-stone-500"> A week in Portugal · Mon, May 4, 5:20 PM · Belém</span>
-      </>
-    ),
-  },
-  {
-    out: (
-      <>
-        <span className="text-emerald-400">✓</span> {'Added "Pastéis for the train home", labelled Claude Code · agent.'}
-      </>
-    ),
-  },
-];
-const CHAR_MS = 26;
-
-export function AgentFragment() {
-  const reduced = useReducedMotion();
-  const [ref, inView] = useInView<HTMLDivElement>();
-  // The line being written, and how much of it is typed.
-  const [line, setLine] = useState(reduced ? SESSION.length : 0);
-  const [chars, setChars] = useState(0);
-
-  useEffect(() => {
-    if (!inView || line >= SESSION.length) return;
-    const current = SESSION[line]!;
-    const typing = "typed" in current && chars < current.typed.length;
-    const timer = setTimeout(
-      () => {
-        if (typing) setChars((c) => c + 1);
-        else {
-          setLine((l) => l + 1);
-          setChars(0);
-        }
-      },
-      typing ? CHAR_MS : "typed" in current ? 380 : 520,
-    );
-    return () => clearTimeout(timer);
-  }, [inView, line, chars]);
-
-  return (
-    <div
-      ref={ref}
-      aria-hidden
-      className="overflow-hidden rounded-xl border bg-[#0d0c0b] font-mono text-[12.5px] leading-relaxed text-stone-300 shadow-2xl shadow-black/40"
-    >
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2.5 text-xs text-stone-500">
-        <span className="flex gap-1.5">
-          <span className="size-2.5 rounded-full bg-white/15" />
-          <span className="size-2.5 rounded-full bg-white/15" />
-          <span className="size-2.5 rounded-full bg-white/15" />
-        </span>
-        <span className="mx-auto">claude · ~/trips</span>
-      </div>
-      <div className="min-h-[11.5rem] space-y-2 overflow-x-auto p-4 whitespace-pre sm:p-5">
-        {SESSION.slice(0, line + 1).map((l, i) => {
-          if (i > line || (i === line && !("typed" in l))) return null;
-          if ("out" in l) return <p key={i}>{l.out}</p>;
-          const shown = i < line ? l.typed : l.typed.slice(0, chars);
-          return (
-            <p key={i}>
-              <span className="text-amber-300">{l.prompt}</span> {shown}
-              {i === line && <span className="ml-px inline-block h-[1.1em] w-[0.55em] translate-y-[0.15em] animate-pulse bg-stone-300" />}
-            </p>
-          );
-        })}
-        {line >= SESSION.length && <span className="inline-block h-[1.1em] w-[0.55em] translate-y-[0.15em] animate-pulse bg-stone-300" />}
-      </div>
-    </div>
-  );
-}
-
-// The Activity tab: who did what, a person or an agent, in plain sentences.
-const ACTIVITY = [
-  { who: "Claude Code", agent: true, what: 'added "Pastéis for the train home"', when: "just now" },
-  { who: "Sam", what: 'added 3 photos to "Ferry back at sunset"', when: "2h ago" },
-  { who: "Scribe", agent: true, what: 'wrote a first line for "Palaces in the fog"', when: "2h ago" },
-  { who: "Inês", what: 'edited "Dinner after the ceremony"', when: "yesterday" },
-];
-
-export function ActivityFragment() {
-  return (
-    <div aria-hidden className="rounded-xl border bg-card text-sm text-card-foreground shadow-2xl shadow-black/40">
-      <p className="border-b px-4 py-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">Today</p>
-      <ul className="divide-y">
-        {ACTIVITY.map((a) => (
-          <li key={a.who + a.what} className="flex items-center gap-3 px-4 py-3">
-            <Avatar by={a.who.slice(0, 1)} agent={a.agent} />
-            <p className="min-w-0 flex-1 leading-snug">
-              {a.agent ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-200">
-                  <BotIcon className="size-3" />
-                  {a.who} · agent
-                </span>
-              ) : (
-                <span className="font-medium">{a.who}</span>
-              )}{" "}
-              <span className="text-muted-foreground">{a.what}</span>
-            </p>
-            <span className="shrink-0 text-xs text-muted-foreground">{a.when}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

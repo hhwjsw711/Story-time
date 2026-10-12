@@ -1,5 +1,5 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useAction, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import { ArrowDownIcon, ArrowUpIcon, ImageIcon, PlusIcon, Trash2Icon, VideoIcon, XIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -8,6 +8,7 @@ import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { AuthImage } from "@/components/auth-image";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { type Geo, PlaceInput, reversePlace } from "@/components/event/place-input";
 import { stopsOf, TRANSPORT_VALUES, TRANSPORTS, type Transport } from "@/components/event/transport";
 import type { MomentView } from "@/components/event/types";
@@ -17,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { deletePhotos } from "@/lib/actions";
-import { enrichMoment } from "@/lib/add-moments";
 import { errorMessage } from "@/lib/errors";
 import { fromInput, toInput } from "@/lib/local-time";
 import { readPhotoMeta } from "@/lib/photo-meta";
@@ -99,25 +99,20 @@ function stopValuesOf(moment: MomentView): StopValue[] {
   });
 }
 
-// Creates a moment, or edits one when `moment` is given. A moment is a
-// journey of stops; `day` (YYYY-MM-DD) prefills the first stop at noon.
+// Edits a moment: a journey of stops, each with its time, place, photos and
+// words. Deleting it lives here too.
 export function MomentForm({
   eventId,
   moment,
-  day,
-  full = false,
   onDone,
 }: {
   eventId: Id<"events">;
-  moment?: MomentView;
-  day?: string;
-  full?: boolean;
+  moment: MomentView;
   onDone?: () => void;
 }) {
-  const create = useMutation(api.moments.create);
   const update = useMutation(api.moments.update);
-  const enrich = useAction(api.ai.enrich.enrich);
-  const requestMore = useMutation(api.quota.request);
+  const remove = useMutation(api.moments.remove);
+  const [confirming, setConfirming] = useState(false);
   const token = useAuthToken();
   // The stop whose photos are uploading, if any.
   const [uploadingStop, setUploadingStop] = useState<number | null>(null);
@@ -167,7 +162,7 @@ export function MomentForm({
 
   // Link titles aren't editable here; keep them for links that stay.
   const linkTitles = new Map(
-    (moment ? stopsOf(moment) : [])
+    stopsOf(moment)
       .flatMap((s) => s.blocks)
       .flatMap((b) => (b.type === "link" && b.title ? [[b.url, b.title] as const] : [])),
   );
@@ -181,11 +176,11 @@ export function MomentForm({
 
   const form = useForm({
     defaultValues: {
-      labels: moment?.labels.join(", ") ?? "",
-      stops: moment ? stopValuesOf(moment) : [emptyStop(day ? `${day}T12:00` : "")],
+      labels: moment.labels.join(", ") ?? "",
+      stops: stopValuesOf(moment),
     },
     validators: { onChange: schema },
-    onSubmit: async ({ value, formApi }) => {
+    onSubmit: async ({ value }) => {
       const [first, ...rest] = value.stops;
       if (!first?.startsAt) {
         toast.error("Pick when the first stop happened");
@@ -210,7 +205,7 @@ export function MomentForm({
       }
       // An edited moment's times are read in the zone it happened in, as they
       // show. A new moment, or one with no zone yet, reads them in the viewer's.
-      const zone = moment?.tzOffsetMinutes;
+      const zone = moment.tzOffsetMinutes;
       const startsAt = fromInput(first.startsAt, zone);
       const tzOffsetMinutes = zone ?? -new Date(first.startsAt).getTimezoneOffset();
       // Coordinates only go with a place.
@@ -224,50 +219,23 @@ export function MomentForm({
       }));
       const labels = value.labels.split(",").map((l) => l.trim()).filter(Boolean);
       try {
-        if (moment) {
-          // The time, and with it the zone and the day the moment is grouped
-          // under, only change when the first stop's time did. Fixing a typo
-          // keeps the author's day.
-          const timeChanged = first.startsAt !== toInput(moment.startsAt, zone);
-          const { removedMediaIds } = await update({
-            momentId: moment._id,
-            ...(timeChanged ? { startsAt, tzOffsetMinutes } : {}),
-            place: first.place.trim(),
-            geo: geoOf(first),
-            transport: first.transport || null,
-            blocks: blocksPerStop[0]!,
-            stops,
-            labels,
-          });
-          const dropped = settle(value.stops);
-          if (latestToken.current) await deletePhotos([...removedMediaIds, ...dropped], latestToken.current);
-          toast.success("Moment saved");
-        } else {
-          // The photos this moment uses, as the AI's thumbnails: read before
-          // `settle` forgets them.
-          const photos = value.stops.flatMap((s) =>
-            s.media.flatMap((m) => {
-              const file = m.kind === "photo" ? picked.current.get(m.mediaId) : undefined;
-              return file ? [{ mediaId: m.mediaId as Id<"media">, file }] : [];
-            }),
-          );
-          const momentId = await create({
-            eventId,
-            startsAt,
-            tzOffsetMinutes,
-            place: first.place.trim() || undefined,
-            geo: geoOf(first),
-            transport: first.transport || undefined,
-            blocks: blocksPerStop[0]!,
-            stops,
-            labels,
-          });
-          const dropped = settle(value.stops);
-          if (latestToken.current && dropped.length > 0) void deletePhotos(dropped, latestToken.current);
-          enrichMoment(enrich, momentId, photos);
-          toast.success("Moment added");
-          formApi.reset();
-        }
+        // The time, and with it the zone and the day the moment is grouped
+        // under, only change when the first stop's time did. Fixing a typo
+        // keeps the author's day.
+        const timeChanged = first.startsAt !== toInput(moment.startsAt, zone);
+        const { removedMediaIds } = await update({
+          momentId: moment._id,
+          ...(timeChanged ? { startsAt, tzOffsetMinutes } : {}),
+          place: first.place.trim(),
+          geo: geoOf(first),
+          transport: first.transport || null,
+          blocks: blocksPerStop[0]!,
+          stops,
+          labels,
+        });
+        const dropped = settle(value.stops);
+        if (latestToken.current) await deletePhotos([...removedMediaIds, ...dropped], latestToken.current);
+        toast.success("Moment saved");
         // Closed mid-save: whatever is open now isn't this form's to close.
         if (!closed.current) onDone?.();
       } catch (e) {
@@ -328,24 +296,6 @@ export function MomentForm({
     const now = form.state.values.stops[stop];
     const same = now?.geo?.lat === geo.lat && now.geo.lng === geo.lng;
     if (label && !closed.current && same && !now.place.trim()) form.setFieldValue(`stops[${stop}].place`, label);
-  }
-
-  if (full && !moment) {
-    return (
-      <div className="space-y-3 rounded-lg border p-4">
-        <p className="text-sm">You've used all the moments this experience allows.</p>
-        <Button
-          variant="outline"
-          onClick={() =>
-            void requestMore({ eventId, extra: 10 })
-              .then(() => toast.success("Requested 10 more moments"))
-              .catch((e) => toast.error(errorMessage(e)))
-          }
-        >
-          Request 10 more
-        </Button>
-      </div>
-    );
   }
 
   // Where to centre place search for stop `i`: the nearest earlier stop on
@@ -604,17 +554,33 @@ export function MomentForm({
           {(submitting) => (
             <>
               <Button type="submit" disabled={submitting || uploading}>
-                {uploading ? "Uploading…" : submitting ? "Saving…" : moment ? "Save moment" : "Add moment"}
+                {uploading ? "Uploading…" : submitting ? "Saving…" : "Save moment"}
               </Button>
               {onDone && (
                 <Button type="button" variant="ghost" disabled={submitting} onClick={onDone}>
                   Cancel
                 </Button>
               )}
+              <Button type="button" variant="ghost" className="ml-auto text-destructive" disabled={submitting || uploading} onClick={() => setConfirming(true)}>
+                <Trash2Icon /> Delete
+              </Button>
             </>
           )}
         </form.Subscribe>
       </div>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Delete this moment?"
+        description="Its notes, links and photos are removed for everyone. This can't be undone."
+        confirmLabel="Delete moment"
+        onConfirm={async () => {
+          const { removedMediaIds } = await remove({ momentId: moment._id });
+          if (latestToken.current) await deletePhotos(removedMediaIds, latestToken.current);
+          toast.success("Moment deleted");
+          onDone?.();
+        }}
+      />
     </form>
   );
 }

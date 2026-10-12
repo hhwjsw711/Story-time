@@ -3,7 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import type { vLastEdit } from "../schema";
 
 // Who is acting: a person, an agent working for a person (the AI that drafts
-// notes, an assistant connected over MCP) or the system itself. What an agent
+// notes) or the system itself. What an agent
 // writes carries its name, so people can tell it from their own edits.
 export type Actor =
   | { kind: "human"; userId: Id<"users"> }

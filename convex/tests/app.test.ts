@@ -4,6 +4,7 @@ import type { FunctionReturnType } from "convex/server";
 import { beforeAll, describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
+import { MAX_MEDIA_PER_EVENT, MOMENT_LIMIT } from "../lib/limits";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
@@ -51,23 +52,14 @@ async function changeCount(
   ).length;
 }
 
-describe("moment limit and credits", () => {
-  test("11th moment is rejected; an approved request raises the limit", async () => {
+describe("the moment limit", () => {
+  test("one more than the limit is rejected", async () => {
     const { t, owner } = await setup();
     const eventId = await owner.mutation(api.events.createDraft, {});
-    // Ten, not the default: a hundred moments would make the test slow.
-    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 10 }));
-    for (let i = 0; i < 10; i++) await addMoment(owner, eventId, `m${i}`);
-    await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
-
-    const requestId = await owner.mutation(api.quota.request, {
-      eventId,
-      extra: 5,
-    });
-    await t.mutation(internal.quota.resolve, { requestId, approve: true });
+    // Counted up to the limit, not added one by one: that would make the test slow.
+    await t.run((ctx) => ctx.db.patch("events", eventId, { momentCount: MOMENT_LIMIT - 1 }));
     await addMoment(owner, eventId);
-    const event = await owner.query(api.events.get, { eventId });
-    expect(event?.momentLimit).toBe(15);
+    await expect(addMoment(owner, eventId)).rejects.toThrow(/MOMENT_LIMIT/);
   });
 
   test("archived experiences reject new moments", async () => {
@@ -80,7 +72,7 @@ describe("moment limit and credits", () => {
     await addMoment(owner, eventId);
   });
 
-  test("archived experiences reject uploads and quota requests", async () => {
+  test("archived experiences reject uploads", async () => {
     const { owner } = await setup();
     const eventId = await owner.mutation(api.events.createDraft, {});
     const { mediaId } = await owner.mutation(api.media.reserveUpload, {
@@ -100,48 +92,6 @@ describe("moment limit and credits", () => {
     await expect(
       owner.mutation(api.media.confirmUpload, { mediaId }),
     ).rejects.toThrow(/ARCHIVED/);
-    await expect(
-      owner.mutation(api.quota.request, { eventId, extra: 5 }),
-    ).rejects.toThrow(/ARCHIVED/);
-  });
-
-  test("the moment limit stops at the maximum", async () => {
-    const { t, owner } = await setup();
-    const eventId = await owner.mutation(api.events.createDraft, {});
-    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 450 }));
-    const requestId = await owner.mutation(api.quota.request, {
-      eventId,
-      extra: 100,
-    });
-    await t.mutation(internal.quota.resolve, { requestId, approve: true });
-    expect((await owner.query(api.events.get, { eventId }))?.momentLimit).toBe(
-      500,
-    );
-    await expect(
-      owner.mutation(api.quota.request, { eventId, extra: 1 }),
-    ).rejects.toThrow(/MOMENT_LIMIT/);
-  });
-
-  test("pending requests are listed even after many resolved ones", async () => {
-    const { t, owner, ownerId } = await setup();
-    const eventId = await owner.mutation(api.events.createDraft, {});
-    await t.run(async (ctx) => {
-      for (let i = 0; i < 60; i++) {
-        await ctx.db.insert("quotaRequests", {
-          eventId,
-          requestedBy: ownerId,
-          extra: 1,
-          status: "approved",
-        });
-      }
-    });
-    const pendingId = await owner.mutation(api.quota.request, {
-      eventId,
-      extra: 5,
-    });
-    const rows = await owner.query(api.quota.listForEvent, { eventId });
-    expect(rows).toHaveLength(50);
-    expect(rows[0]?._id).toBe(pendingId);
   });
 });
 
@@ -190,21 +140,12 @@ describe("change tracking", () => {
     await t.run((ctx) => ctx.db.patch("events", eventId, { description: "from before" }));
     expect((await owner.query(api.events.get, { eventId }))?.description).toBe("from before");
 
-    // Run on one page: the events are done, and it moves on to quota reasons.
+    // One page is enough here; a second run finds nothing left.
     expect(await t.mutation(internal.migrations.encryptPlainText, {})).toBe(1);
     const event = await t.run((ctx) => ctx.db.get("events", eventId));
     expect(typeof event?.description).toBe("object");
     expect((await owner.query(api.events.get, { eventId }))?.description).toBe("from before");
     expect(await t.mutation(internal.migrations.encryptPlainText, {})).toBe(0);
-  });
-
-  test("a quota request's reason is stored encrypted, for the operator to read", async () => {
-    const { t, owner } = await setup();
-    const eventId = await owner.mutation(api.events.createDraft, {});
-    const requestId = await owner.mutation(api.quota.request, { eventId, extra: 5, reason: "secret-reason" });
-    const row = await t.run((ctx) => ctx.db.get("quotaRequests", requestId));
-    expect(JSON.stringify(row)).not.toContain("secret-reason");
-    expect(await t.query(internal.quota.reasonOf, { requestId })).toBe("secret-reason");
   });
 });
 
@@ -367,11 +308,9 @@ describe("uploads", () => {
       });
     const reserve = () =>
       owner.mutation(api.media.reserveUpload, { eventId, size: 100, mime: "image/png" });
-    // The default 10-moment limit allows 50 live uploads.
+    // Deleted uploads don't count towards the cap.
     await fill("deleted", 60);
-    // Ten moments, so the upload cap is fifty.
-    await t.run((ctx) => ctx.db.patch("events", eventId, { momentLimit: 10 }));
-    await fill("ready", 49);
+    await fill("ready", MAX_MEDIA_PER_EVENT - 1);
     await reserve();
     await expect(reserve()).rejects.toThrow(/MEDIA_LIMIT/);
   });
@@ -471,31 +410,6 @@ describe("uploads", () => {
     await expect(
       owner.mutation(api.media.reserveUpload, { eventId, size: 1, mime: "image/png" }),
     ).rejects.toThrow(/UPLOAD_BUDGET/);
-  });
-});
-
-describe("itinerary", () => {
-  test("groups by day, month and place", async () => {
-    const { owner } = await setup();
-    const eventId = await owner.mutation(api.events.createDraft, {});
-    const at = (d: number) => Date.UTC(2026, 5, d, 12);
-    for (const [d, place] of [
-      [1, "Lisbon"],
-      [1, "lisbon"],
-      [2, "Porto"],
-    ] as const) {
-      await owner.mutation(api.moments.create, {
-        eventId,
-        startsAt: at(d),
-        place,
-        blocks: note("x"),
-      });
-    }
-    const by = (groupBy: "day" | "month" | "place") =>
-      owner.query(api.itinerary.grouped, { eventId, groupBy });
-    expect((await by("day")).map((g) => g.moments.length)).toEqual([2, 1]);
-    expect(await by("month")).toHaveLength(1);
-    expect((await by("place")).length).toBe(2);
   });
 });
 

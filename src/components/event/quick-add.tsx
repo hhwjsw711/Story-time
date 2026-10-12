@@ -13,14 +13,13 @@ export const canAddTo = (event: EventView) => event.role !== "viewer" && event.s
 
 type ButtonProps = ComponentProps<typeof Button>;
 
-// Picks photos and videos and makes their moments in one go, grouped as the
-// review sheet groups them, each with its AI note. "Add from photos" stays in
-// the menu for choosing which days to add.
+// Picks photos and videos and makes their moments in one go, grouped by day
+// and place, each with its AI note.
 export function QuickAddButton({
   event,
   variant = "default",
   size,
-  children = "Add",
+  children = "Add photos",
 }: {
   event: EventView;
   variant?: ButtonProps["variant"];

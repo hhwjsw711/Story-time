@@ -18,7 +18,7 @@ function DataSettings() {
               Anthropic to draft the first note and labels, along with any words you typed about them; the copies aren't kept.
             </li>
             <li>
-              When you type in the box above the itinerary, your words go through the same gateway. TypeSafe's Jev model
+              When you type in the box above the moments, your words go through the same gateway. TypeSafe's Jev model
               reads them to tell a new moment from a change or a removal. For a change, Anthropic's Haiku model also gets
               your experience's title and each moment's time, place, labels and the start of its first note. Working out how
               you travelled between two stops sends their places and times to Jev. Nothing is kept.

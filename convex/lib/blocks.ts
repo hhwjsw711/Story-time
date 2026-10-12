@@ -2,7 +2,7 @@ import { ConvexError } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import type { PlainBlock, PlainStop } from "../moments";
-import { encryptGeo, encryptText, placeKeyFor, type Encrypted, type Geo } from "./crypto";
+import { encryptGeo, encryptText, type Encrypted, type Geo } from "./crypto";
 import {
   MAX_BLOCKS_PER_MOMENT,
   MAX_LABEL_LENGTH,
@@ -22,13 +22,6 @@ export function checkText(field: string, text: string, max = MAX_TEXT_LENGTH) {
   return t;
 }
 
-// Day and month in the author's local time, for itinerary grouping.
-export function localKeys(startsAt: number, tzOffsetMinutes: number) {
-  const tz = Math.max(-840, Math.min(840, tzOffsetMinutes));
-  const iso = new Date(startsAt + tz * 60_000).toISOString();
-  return { dayKey: iso.slice(0, 10), monthKey: iso.slice(0, 7) };
-}
-
 // The offset a moment happened at, when one is sent. Real clocks run from
 // UTC-12 to UTC+14, so anything outside that is a bad request.
 export function checkOffset(tzOffsetMinutes: number | undefined): number | undefined {
@@ -39,20 +32,10 @@ export function checkOffset(tzOffsetMinutes: number | undefined): number | undef
   return tzOffsetMinutes;
 }
 
-// An empty place means "no place". The key groups equal places without
-// storing the place itself.
-export async function encodePlace(
-  event: Doc<"events">,
-  raw: string | undefined,
-): Promise<{ place: Encrypted | undefined; placeKey: string | undefined }> {
-  if (raw === undefined || raw.trim() === "") {
-    return { place: undefined, placeKey: undefined };
-  }
-  const text = checkText("place", raw, 200);
-  return {
-    place: await encryptText(event._id, event.keyVersion, text),
-    placeKey: await placeKeyFor(event._id, event.keyVersion, text),
-  };
+// An empty place means "no place".
+export async function encodePlace(event: Doc<"events">, raw: string | undefined): Promise<Encrypted | undefined> {
+  if (raw === undefined || raw.trim() === "") return undefined;
+  return encryptText(event._id, event.keyVersion, checkText("place", raw, 200));
 }
 
 // Coordinates pin a place on the map, so they're only valid with one. The
@@ -179,7 +162,7 @@ export async function encodeStops(
     if (s.startsAt !== undefined && !Number.isFinite(s.startsAt)) {
       invalid(`${field}.startsAt`, "Pick a date");
     }
-    const { place } = await encodePlace(args.event, s.place);
+    const place = await encodePlace(args.event, s.place);
     const geo = await encodeGeo(args.event, s.geo, {
       field: `${field}.geo`,
       hasPlace: place !== undefined,

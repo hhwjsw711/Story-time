@@ -2,6 +2,7 @@ import type { FunctionArgs } from "convex/server";
 import { toast } from "sonner";
 import type { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { MOMENT_LIMIT } from "../../convex/lib/limits";
 import { reversePlace } from "@/components/event/place-input";
 import type { EventView } from "@/components/event/types";
 import { deletePhotos } from "@/lib/actions";
@@ -51,7 +52,7 @@ function details(problems: string[]): string {
 // note as written, and guides the notes the AI drafts for the rest. Returns
 // whether any moment was made. Progress and problems are shown as toasts.
 export async function addPhotos(args: {
-  event: Pick<EventView, "_id" | "momentLimit" | "momentCount">;
+  event: Pick<EventView, "_id" | "momentCount">;
   files: File[];
   note?: string;
   // Read at each call: tokens are short-lived and a batch can run for minutes.
@@ -73,10 +74,10 @@ export async function addPhotos(args: {
     const days = groupPhotos(picked.map((p) => p.point));
     // Checked before anything uploads, so no photo goes up that can't be added.
     const planned = days.reduce((count, d) => count + d.moments.length, 0);
-    const left = Math.max(0, event.momentLimit - event.momentCount);
+    const left = Math.max(0, MOMENT_LIMIT - event.momentCount);
     if (planned > left) {
       toast.error(
-        `These photos make ${plural(planned, "moment")}, and this experience has room for ${left}. Choose fewer, or pick days with Add from photos.`,
+        `These photos make ${plural(planned, "moment")}, and this experience has room for ${left}. Choose fewer.`,
         { id: toastId },
       );
       return false;

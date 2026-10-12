@@ -4,7 +4,6 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { requireEventAccessFor } from "../lib/access";
-import { agentKeyFor, shareKeyFor } from "../lib/crypto";
 import { createMoment } from "../moments";
 import schema from "../schema";
 
@@ -149,21 +148,5 @@ describe("access for a given person", () => {
     await expect(check(helperId)).resolves.toBe("contributor");
     await expect(check(viewerId)).rejects.toThrow("Event not found");
     await expect(check(strangerId)).rejects.toThrow("Event not found");
-  });
-});
-
-describe("agent tokens", () => {
-  test("hash to a stable key that a share link's token can never match", async () => {
-    const { t } = await setup();
-    const [a1, a2, other, share] = await t.run(async () => [
-      await agentKeyFor("stk_one"),
-      await agentKeyFor("stk_one"),
-      await agentKeyFor("stk_two"),
-      await shareKeyFor("stk_one"),
-    ]);
-    expect(a1).toBe(a2);
-    expect(a1).not.toBe(other);
-    expect(a1).not.toBe(share);
-    expect(a1).not.toContain("stk_one");
   });
 });

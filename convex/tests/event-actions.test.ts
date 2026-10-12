@@ -48,7 +48,6 @@ async function fill(owner: Awaited<ReturnType<typeof setup>>["owner"], eventId: 
     blocks: [{ type: "photo", mediaId }, { type: "note", text: "hi" }],
   });
   await owner.mutation(api.invites.create, { eventId, role: "viewer" });
-  await owner.mutation(api.quota.request, { eventId, extra: 5 });
   return r2Key;
 }
 
@@ -59,16 +58,14 @@ async function leftovers(t: Awaited<ReturnType<typeof setup>>["t"], eventId: Id<
     return {
       event: await ctx.db.get("events", eventId),
       moments: count(await ctx.db.query("moments").collect()),
-      itinerary: count(await ctx.db.query("itinerary").collect()),
       media: count(await ctx.db.query("media").collect()),
       sessions: count(await ctx.db.query("sessions").collect()),
-      quotaRequests: count(await ctx.db.query("quotaRequests").collect()),
       changes: count(await ctx.db.query("changes").collect()),
     };
   });
 }
 
-const EMPTY = { event: null, moments: 0, itinerary: 0, media: 0, sessions: 0, quotaRequests: 0, changes: 0 };
+const EMPTY = { event: null, moments: 0, media: 0, sessions: 0, changes: 0 };
 
 describe("events.remove", () => {
   test("only the owner can delete, and everything in the experience goes", async () => {
@@ -90,6 +87,23 @@ describe("events.remove", () => {
     await owner.mutation(api.events.remove, { eventId });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect((await leftovers(t, eventId)).event).toBeNull();
+  });
+
+  test("rows in the tables being retired go with the experience too", async () => {
+    const { t, owner, ownerId, eventId } = await setup();
+    await t.run(async (ctx) => {
+      const momentId = await ctx.db.insert("moments", { eventId, authorId: ownerId, startsAt: 0, blocks: [] });
+      await ctx.db.insert("itinerary", { eventId, momentId, startsAt: 0, dayKey: "2026-06-01", monthKey: "2026-06", position: 0 });
+      await ctx.db.insert("quotaRequests", { eventId, requestedBy: ownerId, extra: 10, status: "pending" });
+      const canvasId = await ctx.db.insert("canvases", { eventId, desk: "cork" });
+      await ctx.db.insert("canvasNodes", { canvasId, eventId, kind: "frame", x: 0, y: 0, w: 1, h: 1, rotation: 0, z: 0 });
+    });
+    await owner.mutation(api.events.remove, { eventId });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const left = await t.run(async (ctx) =>
+      Promise.all((["itinerary", "quotaRequests", "canvases", "canvasNodes"] as const).map(async (table) => (await ctx.db.query(table).collect()).length)),
+    );
+    expect(left).toEqual([0, 0, 0, 0]);
   });
 
   test("a large activity log is deleted in batches", async () => {

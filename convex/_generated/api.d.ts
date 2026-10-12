@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as agentTokens from "../agentTokens.js";
 import type * as ai_apply from "../ai/apply.js";
 import type * as ai_command from "../ai/command.js";
 import type * as ai_decide from "../ai/decide.js";
@@ -19,13 +18,11 @@ import type * as ai_scribe from "../ai/scribe.js";
 import type * as ai_unfurl from "../ai/unfurl.js";
 import type * as ai_voice from "../ai/voice.js";
 import type * as auth from "../auth.js";
-import type * as canvas from "../canvas.js";
 import type * as changes from "../changes.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
-import type * as itinerary from "../itinerary.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_actors from "../lib/actors.js";
 import type * as lib_appUrl from "../lib/appUrl.js";
@@ -36,12 +33,9 @@ import type * as lib_geo from "../lib/geo.js";
 import type * as lib_limits from "../lib/limits.js";
 import type * as lib_profile from "../lib/profile.js";
 import type * as lib_rateLimit from "../lib/rateLimit.js";
-import type * as mcp from "../mcp.js";
-import type * as mcpTools from "../mcpTools.js";
 import type * as media from "../media.js";
 import type * as migrations from "../migrations.js";
 import type * as moments from "../moments.js";
-import type * as quota from "../quota.js";
 import type * as sessions from "../sessions.js";
 import type * as share from "../share.js";
 import type * as users from "../users.js";
@@ -53,7 +47,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  agentTokens: typeof agentTokens;
   "ai/apply": typeof ai_apply;
   "ai/command": typeof ai_command;
   "ai/decide": typeof ai_decide;
@@ -64,13 +57,11 @@ declare const fullApi: ApiFromModules<{
   "ai/unfurl": typeof ai_unfurl;
   "ai/voice": typeof ai_voice;
   auth: typeof auth;
-  canvas: typeof canvas;
   changes: typeof changes;
   crons: typeof crons;
   events: typeof events;
   http: typeof http;
   invites: typeof invites;
-  itinerary: typeof itinerary;
   "lib/access": typeof lib_access;
   "lib/actors": typeof lib_actors;
   "lib/appUrl": typeof lib_appUrl;
@@ -81,12 +72,9 @@ declare const fullApi: ApiFromModules<{
   "lib/limits": typeof lib_limits;
   "lib/profile": typeof lib_profile;
   "lib/rateLimit": typeof lib_rateLimit;
-  mcp: typeof mcp;
-  mcpTools: typeof mcpTools;
   media: typeof media;
   migrations: typeof migrations;
   moments: typeof moments;
-  quota: typeof quota;
   sessions: typeof sessions;
   share: typeof share;
   users: typeof users;

@@ -3,7 +3,6 @@ import type { api } from "../../../convex/_generated/api";
 
 export type EventView = NonNullable<FunctionReturnType<typeof api.events.get>>;
 export type MomentView = FunctionReturnType<typeof api.moments.list>[number];
-export type GroupBy = "day" | "place" | "month";
 
 // What a story reads of its experience. A shared story has no role: the people
 // watching it have no account here, so nothing shown depends on who they are.

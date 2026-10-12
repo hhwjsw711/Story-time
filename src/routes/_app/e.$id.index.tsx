@@ -1,39 +1,32 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { ArrowLeftIcon, PlayIcon } from "lucide-react";
-import { useCallback, useState } from "react";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api";
-import { CanvasEditor } from "@/components/canvas/editor";
 import { ActivityTab } from "@/components/event/activity-tab";
-import { BulkAddSheet } from "@/components/event/bulk-add-sheet";
+import { CommandBar } from "@/components/event/command-bar";
 import { EventActionsMenu } from "@/components/event/event-actions-menu";
 import { eventDates } from "@/components/event/event-dates";
-import { EditorPanel, MomentFeed, revealMoment, type Panel } from "@/components/event/itinerary-panel";
-import { ItineraryTab } from "@/components/event/itinerary-tab";
-import { MomentActionsMenu } from "@/components/event/moment-actions-menu";
-import { CommandBar } from "@/components/event/command-bar";
+import { EditorPanel, type Panel } from "@/components/event/itinerary-panel";
 import { QuickAddButton } from "@/components/event/quick-add";
-import { SettingsTab } from "@/components/event/settings-tab";
 import { SharedTab } from "@/components/event/shared-tab";
+import { Timeline } from "@/components/event/timeline";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDocumentTitle } from "@/hooks/use-document-title";
+import { cn } from "@/lib/utils";
 
 const search = z.object({
-  // Old "moments" links fall back to the itinerary, which now has a card view.
-  tab: z.enum(["itinerary", "canvas", "shared", "activity", "settings"]).default("itinerary").catch("itinerary"),
-  groupBy: z.enum(["day", "place", "month", "none"]).default("day").catch("day"),
-  view: z.enum(["table", "cards", "map"]).default("table").catch("table"),
-  panel: z.enum(["outline", "details", "new-moment", "moment"]).default("outline").catch("outline"),
+  // Links to tabs that are gone fall back to the moments.
+  tab: z.enum(["itinerary", "shared", "activity"]).default("itinerary").catch("itinerary"),
+  panel: z.enum(["outline", "details", "moment"]).default("outline").catch("outline"),
+  // The moment picked in the list.
   momentId: z.string().optional().catch(undefined),
-  // The moment open in the editor. Kept apart from `momentId`, which follows
-  // the feed as it scrolls, so scrolling never swaps out unsaved edits.
+  // The moment open in the editor, kept apart so picking another never swaps
+  // out unsaved edits.
   editId: z.string().optional().catch(undefined),
-  // YYYY-MM-DD: prefills the date of a new moment added from a day group.
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/_app/e/$id/")({
@@ -44,24 +37,13 @@ export const Route = createFileRoute("/_app/e/$id/")({
 
 function EventPage() {
   const { id } = Route.useParams();
-  const { tab, groupBy, view, panel, momentId, editId, day } = Route.useSearch();
+  const { tab, panel, momentId, editId } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   // A malformed id comes back as null ("not found"); nothing else queries
   // with the raw id before this resolves.
   const event = useQuery(api.events.get, { eventId: id });
   const me = useQuery(api.users.getCurrentUser);
   useDocumentTitle(event ? `${event.title} · Story-time` : undefined);
-  // The table's visible moments, in its order; the feed follows it.
-  const [order, setOrder] = useState<string[] | null>(null);
-  const [addingPhotos, setAddingPhotos] = useState(false);
-  // Scrolling the feed selects the moment in view, without new history
-  // entries. `resetScroll: false` stops the router restoring the feed's old
-  // scroll position (and the window's) after each of these navigations.
-  const onActiveChange = useCallback(
-    (mid: string) =>
-      void navigate({ search: (s) => ({ ...s, momentId: mid }), replace: true, resetScroll: false }),
-    [navigate],
-  );
 
   if (event === undefined) {
     // Shaped like the page, so it doesn't jump when the experience loads.
@@ -72,10 +54,8 @@ function EventPage() {
           <Skeleton className="h-4 w-48" />
         </div>
         <Skeleton className="h-8 w-60" />
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <Skeleton className="h-72 w-full lg:w-[28rem] lg:shrink-0" />
-          <Skeleton className="h-96 min-w-0 flex-1" />
-        </div>
+        <Skeleton className="h-10 w-full max-w-3xl" />
+        <Skeleton className="h-72 w-full max-w-3xl" />
       </div>
     );
   }
@@ -99,12 +79,10 @@ function EventPage() {
   const dates = eventDates(event);
   const isOwner = event.role === "owner";
   const archived = event.status === "archived";
-  const canAdd = event.role !== "viewer" && !archived;
   const canEditMoment = (authorId: string) => !archived && (isOwner || authorId === me?.id);
 
-  // Editors open under the itinerary, so opening one also shows that tab.
-  // `momentId` is the moment in the preview; editing one also selects it.
-  const openPanel = (next: Panel, nextMomentId?: string, nextDay?: string) =>
+  // Editors open beside the moments, so opening one also shows that tab.
+  const openPanel = (next: Panel, nextMomentId?: string) =>
     void navigate({
       search: (s) => ({
         ...s,
@@ -112,12 +90,12 @@ function EventPage() {
         panel: next,
         momentId: nextMomentId ?? (next === "outline" ? s.momentId : undefined),
         editId: next === "moment" ? nextMomentId : undefined,
-        day: nextDay,
       }),
     });
-  const selectMoment = (mid: string) => {
-    void navigate({ search: (s) => ({ ...s, tab: "itinerary" as const, momentId: mid }), resetScroll: false });
-    revealMoment(mid);
+  // Picking a moment edits it when you may; otherwise it opens in the story.
+  const pick = (moment: { _id: string; authorId: string }) => {
+    if (canEditMoment(moment.authorId)) openPanel("moment", moment._id);
+    else void navigate({ to: "/e/$id/story", params: { id }, search: { momentId: moment._id } });
   };
 
   return (
@@ -150,104 +128,40 @@ function EventPage() {
             </Button>
           )}
           <QuickAddButton event={event} variant={event.momentCount > 0 ? "outline" : "default"} />
-          <EventActionsMenu
-            event={event}
-            onEditDetails={() => openPanel("details")}
-            onAddMoment={() => openPanel("new-moment")}
-            onAddFromPhotos={() => setAddingPhotos(true)}
-          />
-          {canAdd && <BulkAddSheet event={event} open={addingPhotos} onOpenChange={setAddingPhotos} />}
+          <EventActionsMenu event={event} onEditDetails={() => openPanel("details")} />
         </div>
       </header>
 
       <Tabs value={tab} onValueChange={(t) => void navigate({ search: (s) => ({ ...s, tab: t as typeof tab }) })}>
-        <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <TabsList>
-            <TabsTrigger value="itinerary">Itinerary</TabsTrigger>
-            <TabsTrigger value="canvas">Canvas</TabsTrigger>
-            {isOwner && <TabsTrigger value="shared">Shared</TabsTrigger>}
-            {isOwner && <TabsTrigger value="activity">Activity</TabsTrigger>}
-            {isOwner && <TabsTrigger value="settings">Settings</TabsTrigger>}
-          </TabsList>
-        </div>
+        <TabsList>
+          <TabsTrigger value="itinerary">Moments</TabsTrigger>
+          {isOwner && <TabsTrigger value="shared">Shared</TabsTrigger>}
+          {isOwner && <TabsTrigger value="activity">Activity</TabsTrigger>}
+        </TabsList>
 
         <TabsContent value="itinerary">
-          {/* Left: the itinerary, with any open editor under it. Right: the
-              selected moment, stop by stop. Stacked on narrow screens. */}
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-            <div className="flex w-full min-w-0 flex-col gap-4 lg:w-[28rem] lg:shrink-0">
-              <CommandBar event={event} openMomentId={momentId} />
-              <ItineraryTab
-                eventId={eventId}
-                momentCount={event.momentCount}
-                meId={me?.id}
-                grouping={groupBy}
-                view={view}
-                onGroupingChange={(g) => void navigate({ search: (s) => ({ ...s, groupBy: g }) })}
-                onViewChange={(v) => void navigate({ search: (s) => ({ ...s, view: v }) })}
-                onAddToDay={canAdd ? (d) => openPanel("new-moment", undefined, d) : undefined}
-                onOrderChange={setOrder}
-                selectedMomentId={momentId}
-                onSelectMoment={selectMoment}
-                canEditMoment={canAdd ? canEditMoment : undefined}
-                // Checked against the URL as it is by then: the feed may
-                // have moved on while they were deleted.
-                onDeleted={(ids) =>
-                  void navigate({
-                    search: (s) => ({
-                      ...s,
-                      momentId: s.momentId && ids.includes(s.momentId) ? undefined : s.momentId,
-                      ...(s.editId && ids.includes(s.editId) ? { panel: "outline" as const, editId: undefined } : {}),
-                    }),
-                    replace: true,
-                    resetScroll: false,
-                  })
-                }
-                renderActions={(m) => (
-                  <MomentActionsMenu
-                    eventId={eventId}
-                    moment={m}
-                    canEdit={canEditMoment(m.authorId)}
-                    onEdit={() => openPanel("moment", m._id)}
-                    onDeleted={() => {
-                      if (momentId === m._id || editId === m._id) {
-                        void navigate({
-                          search: (s) => ({ ...s, panel: "outline" as const, momentId: undefined, editId: undefined }),
-                        });
-                      }
-                    }}
-                  />
-                )}
-              />
-              {panel !== "outline" && (
+          {/* The moments, and beside them whatever is being edited. Stacked on
+              narrow screens, the editor first. */}
+          <div className={cn("grid gap-6", panel !== "outline" && "lg:grid-cols-[minmax(0,1fr)_28rem] lg:items-start")}>
+            {panel !== "outline" && (
+              <div className="min-w-0 lg:order-2 lg:sticky lg:top-4">
                 <EditorPanel
                   event={event}
                   panel={panel}
                   momentId={editId}
-                  day={day}
                   canEditMoment={canEditMoment}
                   onClose={() => openPanel("outline")}
                 />
-              )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <MomentFeed
-                event={event}
-                order={order}
-                momentId={momentId}
-                meId={me?.id}
-                canAdd={canAdd}
-                canEditMoment={canEditMoment}
-                onEdit={(mid) => openPanel("moment", mid)}
-                onActiveChange={onActiveChange}
-              />
+              </div>
+            )}
+            <div className="min-w-0 max-w-3xl space-y-4 lg:order-1">
+              <CommandBar event={event} openMomentId={momentId} />
+              <Timeline event={event} meId={me?.id} selectedMomentId={momentId} onPick={pick} />
             </div>
           </div>
         </TabsContent>
-        <TabsContent value="canvas">{tab === "canvas" && <CanvasEditor event={event} />}</TabsContent>
         {isOwner && <TabsContent value="shared"><SharedTab eventId={eventId} archived={archived} /></TabsContent>}
         {isOwner && <TabsContent value="activity"><ActivityTab eventId={eventId} meId={me?.id} /></TabsContent>}
-        {isOwner && <TabsContent value="settings"><SettingsTab eventId={eventId} /></TabsContent>}
       </Tabs>
     </div>
   );
