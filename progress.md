@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- Printing a journal writes one page at a time into the file, on one canvas, at a lower scale and JPEG quality. The button shows how far it has got, and Cancel stops the rest.
 - The first paint no longer downloads the scrapbook fonts or MapLibre. Manrope and Newsreader are preloaded. The map, the film, and the move handles load when they are actually on screen.
 - A confirmed email is the reply address and the place a memory reminder goes (PR #49). Sign-in copies a verified address. One typed in Settings waits until its link is opened. Share links can be emailed. Once a day, if a past year has this date and the owner asked, the mail says a memory is waiting and links home, with nothing about the memory.
 - A share link can leave photos out. Pictures, stickers, a link card's preview image — including an http one — and the locked PDF's id stay off the public payload. The owner still sees them, and switching it off brings them back.
