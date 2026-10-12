@@ -376,7 +376,12 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
     if (!page || !journal.canEdit) return;
     const from = event.startsAt;
     const dates = from === undefined ? undefined : new Date(from).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    const id = await journal.addPage(page._id as PageId, idea.paper, idea.make({ title: event.title, photos, dates }));
+    const trip = { title: event.title, photos, dates };
+    let id = await journal.addPage(page._id as PageId, idea.paper, idea.make(trip));
+    for (const els of idea.more?.(trip) ?? []) {
+      if (id === undefined) break;
+      id = await journal.addPage(id, idea.paper, els);
+    }
     if (id) setIndex(Math.min(index, pages.length - 1) + 1);
   };
 
@@ -858,6 +863,24 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
             // Centred while it fits; scrollable to every edge once it doesn't.
             <div className="flex min-h-full min-w-max p-4">
               <div className="m-auto">
+              {summary?.gone && (
+                <p className="mb-3 max-w-md text-center text-stone-700" style={{ fontFamily: FONTS.hand, fontSize: 22 }}>
+                  This moment was taken out of the trip.{" "}
+                  {journal.canEdit && (
+                    <button type="button" className="underline" onClick={() => setRemoving(pageId)}>
+                      Take this page out
+                    </button>
+                  )}
+                </p>
+              )}
+              {summary?.stale && summary.edited && !summary.gone && journal.canEdit && (
+                <p className="mb-3 max-w-md text-center text-stone-700" style={{ fontFamily: FONTS.hand, fontSize: 22 }}>
+                  The moment changed.{" "}
+                  <button type="button" className="underline" onClick={() => void journal.refreshPage(summary._id as PageId)}>
+                    Update this page
+                  </button>
+                </p>
+              )}
               <ContextMenu>
                 <ContextMenuTrigger asChild>
                   <div

@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -34,8 +34,23 @@ export function useJournal(eventId: Id<"events">, index: number) {
   const movePage = useMutation(api.journal.movePage);
   const setLock = useMutation(api.journal.setLock);
   const importPages = useMutation(api.journal.importPages);
+  const refresh = useMutation(api.journal.refresh);
 
   const fail = useCallback((e: unknown) => toast.error(errorMessage(e)), []);
+
+  // An untouched page follows its moment the next time the book is open.
+  // A page the owner has saved waits for "Update this page".
+  const asked = useRef("");
+  useEffect(() => {
+    if (!data?.canEdit || data.locked) return;
+    const ids = data.pages
+      .filter((p) => p.stale && !p.edited && !p.gone)
+      .map((p) => p._id)
+      .join(" ");
+    if (ids === "" || asked.current === ids) return;
+    asked.current = ids;
+    void refresh({ eventId }).catch(fail);
+  }, [data, eventId, refresh, fail]);
 
   const openRef = useRef(open);
   openRef.current = open;
@@ -97,6 +112,7 @@ export function useJournal(eventId: Id<"events">, index: number) {
     lockJournal: (locked: boolean) => setLock({ eventId, locked }).catch(fail),
     importPages: (list: Array<{ paper: string; elements: JournalElement[] }>) =>
       importPages({ eventId, pages: list.map((p) => ({ paper: p.paper, elements: p.elements.map(asArg) })) }),
+    refreshPage: (pageId: PageId) => refresh({ eventId, pageId }).catch(fail),
   };
 }
 

@@ -260,6 +260,18 @@ export function momentPage(m: LayoutMoment, index: number): PageSpec {
   return { paper: LIGHT_PAPERS[(index + Math.floor(rnd() * LIGHT_PAPERS.length)) % LIGHT_PAPERS.length]!, momentId: m._id, elements };
 }
 
+// Ids the layout still owns. Anything else on the page was added by the owner.
+export function layoutPrefix(momentId: string): string {
+  return `${momentId.slice(-6)}-`;
+}
+
+// A fresh layout, plus whatever the owner put on the page themselves.
+// The layout's own pieces (its prints, its note, its title) are replaced.
+export function catchUpElements<T extends { id: string }>(existing: readonly T[], fresh: readonly T[], momentId: string): T[] {
+  const prefix = layoutPrefix(momentId);
+  return [...fresh, ...existing.filter((e) => !e.id.startsWith(prefix))];
+}
+
 // The cover: the trip's name cut from letters, its dates typed, the first
 // photo as a polaroid, and shapes behind.
 export function coverPage(trip: { id: string; title: string; dates?: string; photo?: string }): PageSpec {

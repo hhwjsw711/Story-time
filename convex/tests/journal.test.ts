@@ -7,7 +7,7 @@ import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
 import invitesSchema from "../components/invites/schema";
 import { isPublicWebUrl, previewFromHtml, publicRedirect } from "../ai/unfurl";
-import { coverPage, momentPage, PAGE, rangeLabel, readLink } from "../lib/journal";
+import { catchUpElements, coverPage, type JournalElement, momentPage, PAGE, rangeLabel, readLink } from "../lib/journal";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
@@ -110,6 +110,16 @@ describe("laying out pages", () => {
     const cover = coverPage({ id: "ev", title: "A week in Lisbon", dates: "1 Jun – 7 Jun 2026", photo: "p1" });
     expect(cover.elements.filter((e) => e.kind === "title").map((e) => e.text)).toEqual(["A week in Lisbon", "1 Jun – 7 Jun 2026"]);
     expect(cover.elements.find((e) => e.kind === "photo")?.mediaId).toBe("p1");
+  });
+
+  test("catching up replaces the layout and keeps what the owner added", () => {
+    const fresh = momentPage({ _id: "moment1", startsAt: JUNE_1, blocks: [{ type: "note", text: "Better" }], stops: [] }, 0).elements;
+    const old = fresh.map((e) => (e.kind === "note" ? { ...e, text: "Old" } : e));
+    const sticker: JournalElement = { id: "mine", kind: "sticker", x: 12, y: 12, w: 40, h: 40, rotation: 0, z: 40 };
+    const merged = catchUpElements([...old, sticker], fresh, "moment1");
+    expect(merged.find((e) => e.kind === "note")?.text).toBe("Better");
+    expect(merged.find((e) => e.id === "mine")).toEqual(sticker);
+    expect(merged.filter((e) => e.kind === "note")).toHaveLength(1);
   });
 
   test("dates read as a range, or one day", () => {
@@ -267,6 +277,68 @@ describe("filling a journal", () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     const notes = (await owner.query(api.journal.get, { eventId })).pages.map((p) => p.elements.find((e) => e.kind === "note")?.text);
     expect(notes).toEqual([undefined, "Next"]);
+  });
+
+  test("a page catches up when its moment changes, and a saved page waits to be asked", async () => {
+    vi.setSystemTime(new Date("2026-06-01T12:00:00Z"));
+    const { owner, viewer, eventId, moment, photo } = await setup();
+    const momentId = await moment(JUNE_1, "First words");
+    await owner.mutation(api.journal.fill, { eventId });
+    const before = (await owner.query(api.journal.get, { eventId })).pages[1]!;
+    expect(before.stale).toBe(false);
+    expect(before.edited).toBe(false);
+    expect(before.elements.find((e) => e.kind === "note")?.text).toBe("First words");
+
+    vi.setSystemTime(new Date("2026-06-01T12:01:00Z"));
+    await owner.mutation(api.moments.update, { momentId, blocks: [{ type: "note", text: "Better words" }] });
+    expect((await owner.query(api.journal.outline, { eventId })).pages[1]!.stale).toBe(true);
+    expect(await owner.mutation(api.journal.refresh, { eventId })).toBe(1);
+    const caught = (await owner.query(api.journal.page, { pageId: before._id }))!;
+    expect(caught.elements.find((e) => e.kind === "note")?.text).toBe("Better words");
+    expect(caught.stale).toBe(false);
+    expect(caught.edited).toBe(false);
+
+    const loose = await photo();
+    await owner.mutation(api.journal.keepSticker, { mediaId: loose });
+    await owner.mutation(api.journal.savePage, {
+      pageId: before._id,
+      elements: [
+        ...caught.elements.map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          x: e.x,
+          y: e.y,
+          w: e.w,
+          h: e.h,
+          rotation: e.rotation,
+          z: e.z,
+          ...(e.style !== undefined ? { style: e.style } : {}),
+          ...(e.text !== undefined ? { text: e.text } : {}),
+          ...(e.mediaId !== undefined ? { mediaId: e.mediaId } : {}),
+          ...(e.momentId !== undefined ? { momentId: e.momentId } : {}),
+        })),
+        { id: "mine", kind: "sticker" as const, x: 40, y: 900, w: 80, h: 80, rotation: 0, z: 40, mediaId: loose },
+      ],
+    });
+    vi.setSystemTime(new Date("2026-06-01T12:02:00Z"));
+    await owner.mutation(api.moments.update, { momentId, blocks: [{ type: "note", text: "Later words" }] });
+    expect(await owner.mutation(api.journal.refresh, { eventId })).toBe(0);
+    const held = (await owner.query(api.journal.page, { pageId: before._id }))!;
+    expect(held.edited).toBe(true);
+    expect(held.elements.find((e) => e.kind === "note")?.text).toBe("Better words");
+
+    expect(await owner.mutation(api.journal.refresh, { eventId, pageId: before._id })).toBe(1);
+    const updated = (await owner.query(api.journal.page, { pageId: before._id }))!;
+    expect(updated.elements.find((e) => e.kind === "note")?.text).toBe("Later words");
+    expect(updated.elements.some((e) => e.id === "mine" && e.mediaId === loose)).toBe(true);
+    expect(updated.edited).toBe(true);
+
+    await owner.mutation(api.moments.remove, { momentId });
+    const gone = (await owner.query(api.journal.page, { pageId: before._id }))!;
+    expect(gone.gone).toBe(true);
+    expect(gone.elements.find((e) => e.kind === "note")?.text).toBe("Later words");
+    expect(await owner.mutation(api.journal.refresh, { eventId, pageId: before._id })).toBe(0);
+    await expect(viewer.mutation(api.journal.refresh, { eventId })).rejects.toThrow();
   });
 
   test("words are encrypted at rest", async () => {

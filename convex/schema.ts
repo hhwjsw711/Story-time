@@ -322,6 +322,12 @@ export default defineSchema({
     paper: v.string(),
     locked: v.optional(v.boolean()),
     momentId: v.optional(v.id("moments")),
+    // The moment time this page was laid out from: its last edit, or its
+    // creation when it has never been edited. A later edit leaves the page
+    // behind. Absent on a cover, a blank page, and a page made before this.
+    builtFrom: v.optional(v.number()),
+    // The owner has saved this page, so it is not rewritten until they ask.
+    edited: v.optional(v.boolean()),
     elements: v.array(vJournalElement),
   })
     .index("by_event_and_order", ["eventId", "order"])

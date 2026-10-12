@@ -277,7 +277,7 @@ function Picture({ mediaId, tone, contain = false, className, style }: { mediaId
   }
   return (
     <div className={cn("grid size-full place-items-center bg-stone-300/70 text-xs text-stone-600", !failed && "animate-pulse", className)} style={style}>
-      {failed ? "Photo unavailable" : null}
+      {failed ? "This photo was removed" : null}
     </div>
   );
 }
