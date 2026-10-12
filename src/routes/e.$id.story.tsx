@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useConvexAuth, useQuery } from "convex/react";
-import { useCallback } from "react";
+import { PlayIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { pageForPlay, playSurface } from "@/components/journal/play";
+import { Reader } from "@/components/journal/reader";
 import { SignInScreen } from "@/components/sign-in-screen";
 import { StoryPlayer } from "@/components/story/story-player";
 import { StoryScroll } from "@/components/story/story-scroll";
@@ -13,12 +16,16 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 import { buildStorySteps, stepForMoment } from "@/lib/story-steps";
 
 const search = z.object({
-  // The scene in view, kept up to date as the story scrolls.
+  // The scene in view, kept up to date as the film plays or the story scrolls.
   step: z.number().int().min(0).default(0).catch(0),
-  // Start at this moment's first scene, then drop out of the URL.
+  // Which page of the book is open.
+  page: z.number().int().min(0).default(0).catch(0),
+  // Start at this moment, then drop out of the URL.
   momentId: z.string().optional().catch(undefined),
-  // The memoir to read, or the film to watch.
-  mode: z.enum(["read", "film"]).default("read").catch("read"),
+  // The book, the film, or the story when a page clipped the note.
+  mode: z.enum(["read", "film", "words"]).default("read").catch("read"),
+  // Closing the film returns here when it was opened from the full note.
+  back: z.enum(["words"]).optional().catch(undefined),
 });
 
 // Outside `_app`, so there's no sidebar or header: the story fills the window.
@@ -30,25 +37,36 @@ export const Route = createFileRoute("/e/$id/story")({
 function StoryPage() {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const { id } = Route.useParams();
-  const { step, momentId, mode } = Route.useSearch();
+  const { step, page, momentId, mode } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const eventId = id as Id<"events">;
   const event = useQuery(api.events.get, isAuthenticated ? { eventId } : "skip");
   const moments = useQuery(api.moments.list, event ? { eventId } : "skip");
+  const book = useQuery(api.journal.outline, event && mode === "read" ? { eventId } : "skip");
   const me = useQuery(api.users.getCurrentUser, isAuthenticated ? {} : "skip");
   useDocumentTitle(event ? `${event.title} · Story-time` : undefined);
+  const momentById = useMemo(() => new Map((moments ?? []).map((moment) => [moment._id, moment])), [moments]);
+  const stage = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 800, h: 900 });
   // The URL follows the scroll without adding history; stable, so the
   // player's effects don't rerun on unrelated renders. It keeps the mode and
   // drops momentId.
   const onStep = useCallback(
-    (next: number) => void navigate({ search: (prev) => ({ step: next, mode: prev.mode }), replace: true, resetScroll: false }),
+    (next: number) => void navigate({ search: (prev) => ({ step: next, mode: prev.mode, back: prev.back }), replace: true, resetScroll: false }),
     [navigate],
   );
-  // Playing the film from a scene is a step forward; closing it goes back to
-  // the memoir, at the scene the film had reached.
-  const playFilm = useCallback((next: number) => void navigate({ search: { step: next, mode: "film" } }), [navigate]);
+  const onPage = useCallback(
+    (next: number) => void navigate({ search: (prev) => ({ page: next, mode: "read", back: prev.back }), replace: true, resetScroll: false }),
+    [navigate],
+  );
+  // Playing the film is a step forward. Closing it returns to the book, or to
+  // the full note when that is what opened the film.
+  const playFilm = useCallback(
+    (next: number) => void navigate({ search: (prev) => ({ step: next, page: prev.page, mode: "film", back: prev.mode === "words" ? "words" : undefined }) }),
+    [navigate],
+  );
   const closeFilm = useCallback(
-    (next: number) => void navigate({ search: { step: next, mode: "read" }, replace: true, resetScroll: false }),
+    (next: number) => void navigate({ search: (prev) => ({ step: next, page: prev.page, mode: prev.back === "words" ? "words" : "read" }), replace: true, resetScroll: false }),
     [navigate],
   );
 
@@ -69,18 +87,65 @@ function StoryPage() {
     );
   }
 
-  const start = momentId ? stepForMoment(buildStorySteps(event.title, moments ?? []), momentId) : step;
+  const listed = moments ?? [];
+  const start = momentId ? stepForMoment(buildStorySteps(event.title, listed), momentId) : step;
   if (mode === "film") {
     return (
-      <StoryPlayer
-        event={event}
-        moments={moments ?? []}
-        meId={me?.id}
-        step={start}
-        onStep={onStep}
-        onClose={closeFilm}
-      />
+      <StoryPlayer event={event} moments={listed} meId={me?.id} step={start} onStep={onStep} onClose={closeFilm} />
     );
   }
-  return <StoryScroll event={event} moments={moments ?? []} meId={me?.id} step={start} onStep={onStep} onPlayFilm={playFilm} />;
+  const pages = book?.pages ?? [];
+  const surface = mode === "words" ? "story" : book === undefined ? "loading" : playSurface(pages, momentId);
+  if (surface === "loading") return <Skeleton className="h-svh w-full rounded-none" />;
+  if (surface === "story") {
+    return <StoryScroll event={event} moments={listed} meId={me?.id} step={start} onStep={onStep} onPlayFilm={playFilm} />;
+  }
+  const at = momentId ? pageForPlay(pages, momentId) : page;
+  const openMoment = pages[at]?.momentId;
+  const filmFrom = openMoment ? stepForMoment(buildStorySteps(event.title, listed), openMoment) : start;
+  return (
+    <div className="flex h-svh flex-col bg-[#e9dfcb] text-[#1f1a16]">
+      <header className="flex items-center justify-between gap-3 px-4 py-3">
+        <h1 className="min-w-0 truncate font-serif text-xl">
+          <Link to="/e/$id" params={{ id: event._id }} className="hover:underline">
+            {event.title}
+          </Link>
+        </h1>
+        {listed.length > 0 && (
+          <Button variant="outline" size="sm" onClick={() => playFilm(filmFrom)}>
+            <PlayIcon aria-hidden />
+            Play
+          </Button>
+        )}
+      </header>
+      <BookStage stage={stage} setSize={setSize}>
+        <Reader pages={pages} moments={momentById} size={size} start={at} onPage={onPage} eventId={event._id} />
+      </BookStage>
+    </div>
+  );
+}
+
+function BookStage({
+  stage,
+  setSize,
+  children,
+}: {
+  stage: RefObject<HTMLDivElement | null>;
+  setSize: (size: { w: number; h: number }) => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const report = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [stage, setSize]);
+  return (
+    <div ref={stage} className="min-h-0 flex-1">
+      {children}
+    </div>
+  );
 }

@@ -1,4 +1,5 @@
 import { useQuery } from "convex/react";
+import { Link } from "@tanstack/react-router";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
@@ -6,20 +7,46 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { PAGE } from "../../../convex/lib/journal";
 import type { StoryMoment } from "@/components/event/types";
 import { Button } from "@/components/ui/button";
+import { firstNote, noteWasCut } from "./play";
 import { FONTS } from "./look";
 import { JournalPage } from "./page";
 
-function SpreadPage({ pageId, moments, scale, token }: { pageId: string; moments: ReadonlyMap<string, StoryMoment>; scale: number; token?: string }) {
+function SpreadPage({
+  pageId,
+  moments,
+  scale,
+  token,
+  eventId,
+}: {
+  pageId: string;
+  moments: ReadonlyMap<string, StoryMoment>;
+  scale: number;
+  token?: string;
+  eventId?: string;
+}) {
   const member = useQuery(api.journal.page, token ? "skip" : { pageId: pageId as Id<"journalPages"> });
   const shared = useQuery(api.share.page, token ? { token, pageId: pageId as Id<"journalPages"> } : "skip");
   const page = token ? shared : member;
   if (page === undefined || page === null) {
     return <div className="animate-pulse bg-[#efe6d2]" style={{ width: PAGE.w * scale, height: PAGE.h * scale }} />;
   }
+  const moment = page.momentId === undefined ? undefined : moments.get(page.momentId);
+  const cut = noteWasCut(page.elements.find((element) => element.kind === "note")?.text, firstNote(moment));
   return (
     <div className="flex flex-col items-center gap-2">
       <JournalPage page={page} moments={moments} scale={scale} reading />
       <PageNotice page={page} />
+      {cut && eventId !== undefined && page.momentId !== undefined && (
+        <Link
+          to="/e/$id/story"
+          params={{ id: eventId }}
+          search={{ momentId: page.momentId, mode: "words" }}
+          className="text-stone-700 underline"
+          style={{ fontFamily: FONTS.hand, fontSize: 22 }}
+        >
+          Read the moment
+        </Link>
+      )}
     </div>
   );
 }
@@ -45,6 +72,7 @@ export function Reader({
   start,
   onPage,
   token,
+  eventId,
 }: {
   pages: Array<{ _id: string }>;
   moments: ReadonlyMap<string, StoryMoment>;
@@ -53,6 +81,8 @@ export function Reader({
   onPage: (index: number) => void;
   // Set on a share link, which has no signed-in reader.
   token?: string;
+  // Set when Play can offer the full note of a clipped page.
+  eventId?: string;
 }) {
   const pair = size.w >= 900;
   // Spreads: the cover alone, then pages side by side.
@@ -99,7 +129,7 @@ export function Reader({
           {pair && shown.length === 1 && at > 0 && <div style={{ width: PAGE.w * scale, height: PAGE.h * scale }} className="bg-[#efe6d2]" />}
           {shown.map((i, k) => (
             <div key={pages[i]!._id} className="relative">
-              <SpreadPage pageId={pages[i]!._id} moments={moments} scale={scale} token={token} />
+              <SpreadPage pageId={pages[i]!._id} moments={moments} scale={scale} token={token} eventId={eventId} />
               {/* The fold down the middle of a spread. */}
               {pair && shown.length === 2 && (
                 <div aria-hidden className="pointer-events-none absolute inset-y-0 w-10" style={{ [k === 0 ? "right" : "left"]: 0, background: `linear-gradient(${k === 0 ? "to left" : "to right"}, rgba(60,40,15,.28), transparent)` }} />

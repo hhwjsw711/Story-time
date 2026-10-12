@@ -5,6 +5,7 @@ import type { MomentView } from "@/components/event/types";
 import { formatDay } from "@/lib/local-time";
 import { groupByDay } from "@/lib/timeline";
 import { contentsByDay } from "./contents";
+import { noteWasCut, pageForPlay, playSurface } from "./play";
 import { behind, placed, sizeOf, tapedTo } from "./add";
 import { journalFile, readJournalFile, wholeJournalPdfLabel } from "./export";
 import { dayIdea, IDEAS, tierIdea } from "./ideas";
@@ -62,6 +63,24 @@ describe("journal files", () => {
     const back = await readJournalFile(file);
     expect(back).toHaveLength(1);
     expect(back[0]!.elements.map((e) => e.id)).toEqual(["ok"]);
+  });
+});
+
+describe("play", () => {
+  test("opens the book on that moment's page, and the story when there is no page", () => {
+    const pages = [{ momentId: undefined }, { momentId: "m1" }, { momentId: "m2" }];
+    expect(playSurface(pages, "m2")).toBe("book");
+    expect(pageForPlay(pages, "m2")).toBe(2);
+    expect(playSurface(pages, "gone")).toBe("story");
+    expect(playSurface([], undefined)).toBe("story");
+    expect(pageForPlay(pages, undefined)).toBe(0);
+  });
+
+  test("a clipped note still has the whole moment to read", () => {
+    const printed = `${"a".repeat(397)}…`;
+    expect(noteWasCut(printed, "a".repeat(500))).toBe(true);
+    expect(noteWasCut("A short note", "A short note")).toBe(false);
+    expect(noteWasCut(undefined, "A short note")).toBe(false);
   });
 });
 
