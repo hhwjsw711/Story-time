@@ -31,7 +31,7 @@ import {
 } from "./lib/journal";
 import { IMAGE_MIME_TYPES, momentsToRead } from "./lib/limits";
 import { rateLimiter } from "./lib/rateLimit";
-import { type LinkPreview, previewOf } from "./ai/unfurl";
+import { type LinkPreview, previewFromHtml } from "./ai/unfurl";
 import { viewMoment } from "./moments";
 import { vJournalKind } from "./schema";
 
@@ -873,6 +873,8 @@ export const linkPreview = action({
     }
     const { ok } = await rateLimiter.limit(ctx, "enrich", { key: userId });
     if (!ok) throw new ConvexError({ code: "RATE_LIMITED", message: "That's a lot of links this hour. Try again a little later." });
-    return (await previewOf(url.href)) ?? { url: url.href, site: url.hostname.replace(/^www\./, "") };
+    const read = await ctx.runAction(internal.ai.publicFetch.fetchPage, { url: url.href, limit: 256 * 1024 });
+    if (read === null) return { url: url.href, site: url.hostname.replace(/^www\./, "") };
+    return previewFromHtml(read.html, read.url);
   },
 });

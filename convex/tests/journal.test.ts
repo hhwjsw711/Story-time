@@ -566,6 +566,12 @@ describe("drawings, links and new pages", () => {
     expect(allowed("http://10.0.0.8/")).toBe(false);
     expect(allowed("http://192.168.0.1/")).toBe(false);
     expect(allowed("http://localhost/")).toBe(false);
+    expect(allowed("http://localhost./")).toBe(false);
+    expect(allowed("http://127.1/")).toBe(false);
+    expect(allowed("http://0177.0.0.1/")).toBe(false);
+    expect(allowed("http://0x7f.0.0.1/")).toBe(false);
+    expect(allowed("http://printer.local/")).toBe(false);
+    expect(allowed("http://nas.home.arpa/")).toBe(false);
     expect(allowed("http://metadata.google.internal/")).toBe(false);
     expect(allowed("https://user:pass@example.com/")).toBe(false);
     expect(publicRedirect("https://example.com/a", "/b")).toBe("https://example.com/b");
