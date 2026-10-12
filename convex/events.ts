@@ -15,7 +15,7 @@ import {
   type EventRole,
 } from "./lib/access";
 import { recordChange } from "./lib/changes";
-import { followCover } from "./journal";
+import { coverWords, followCover } from "./lib/cover";
 import { decryptGeo, encryptText, readText } from "./lib/crypto";
 import { MAX_EVENTS_PER_USER } from "./lib/limits";
 import { vGeo } from "./schema";
@@ -246,7 +246,7 @@ export const update = mutation({
     await ctx.db.patch("events", args.eventId, patch);
     if (fields.includes("title") || fields.includes("startsAt") || fields.includes("endsAt")) {
       const updated = await ctx.db.get("events", args.eventId);
-      if (updated !== null) await followCover(ctx, event, updated);
+      if (updated !== null) await followCover(ctx, updated, await coverWords(ctx, event), await coverWords(ctx, updated));
     }
     await recordChange(ctx, {
       eventId: args.eventId,

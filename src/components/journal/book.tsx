@@ -12,6 +12,7 @@ import {
   ImageDownIcon,
   Maximize2Icon,
   LockIcon,
+  LockKeyholeIcon,
   PencilIcon,
   PencilRulerIcon,
   PlusIcon,
@@ -43,6 +44,7 @@ import { uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import { newId, placed, type NewThing } from "./add";
 import { StickerCutter } from "./cutter";
+import { LockedPdfDialog } from "./locked-pdf-dialog";
 import { PageEditor, writable } from "./editor";
 import { pathThrough, readDrawing, writeDrawing } from "./elements";
 import type { Idea } from "./ideas";
@@ -143,6 +145,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
   // The panel as a sheet, on a phone.
   const [sheet, setSheet] = useState(false);
   const [printing, setPrinting] = useState<{ done: number; total: number } | null>(null);
+  const [locking, setLocking] = useState(false);
   const [sheetPage, setSheetPage] = useState<PageData | null>(null);
   const importer = useRef<HTMLInputElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -152,6 +155,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
   const keepPicture = useMutation(api.journal.keepSticker);
   const dropSticker = useMutation(api.journal.dropSticker);
   const previewLink = useAction(api.journal.linkPreview);
+  const suggestTitle = useAction(api.ai.title.suggest);
   // The pen, when drawing: what draws and in which ink. Strokes drawn in one go
   // gather into one drawing (`session`) until the pen is put down.
   const [pen, setPen] = useState<{ style: string; color: string } | null>(null);
@@ -479,14 +483,14 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
     const loaded = await convex.query(api.journal.page, { pageId });
     if (!loaded) throw new Error("The page couldn't be drawn.");
     setSheetPage(loaded as PageData);
-    const node = await waitForPage(offstage.current, loaded._id);
+    const node = await waitForPage(() => offstage.current, loaded._id);
     return { node, hasMap: false, paper: paperLook(loaded.paper).color };
   }
-  async function printPdf(ids: PageId[], done: string) {
-    if (ids.length === 0) return;
+  // Pages drawn one at a time offstage into one PDF, with the count shown.
+  async function makePdf(ids: PageId[]): Promise<Blob> {
     setPrinting({ done: 0, total: ids.length });
     try {
-      const blob = await journalPdf(
+      return await journalPdf(
         ids.length,
         async (i) => {
           setPrinting({ done: i, total: ids.length });
@@ -494,13 +498,18 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
         },
         (n) => setPrinting({ done: n, total: ids.length }),
       );
-      download(blob, `${fileName(event.title)}.pdf`);
-      toast.success(done);
-    } catch (e) {
-      toast.error(errorMessage(e));
     } finally {
       setPrinting(null);
       setSheetPage(null);
+    }
+  }
+  async function printPdf(ids: PageId[], done: string) {
+    if (ids.length === 0) return;
+    try {
+      download(await makePdf(ids), `${fileName(event.title)}.pdf`);
+      toast.success(done);
+    } catch (e) {
+      toast.error(errorMessage(e));
     }
   }
   async function printPage() {
@@ -508,7 +517,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
     setPrinting({ done: 0, total: 1 });
     try {
       setSheetPage(page);
-      const node = await waitForPage(offstage.current, page._id);
+      const node = await waitForPage(() => offstage.current, page._id);
       download(await pagePng({ node, hasMap: false, paper: paperLook(page.paper).color }), `${fileName(event.title)}-page-${index + 1}.png`);
     } catch (e) {
       toast.error(errorMessage(e));
@@ -581,6 +590,7 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
       onDuplicate={() => duplicate()}
       onDelete={() => remove()}
       onCut={() => setCutting({ open: true, photo: chosen.mediaId })}
+      onSuggest={page?.momentId && journal.canEdit ? () => suggestTitle({ pageId, current: chosen.text }) : undefined}
     />
   ) : (
     <AddTray
@@ -733,6 +743,11 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
               <DropdownMenuItem onSelect={() => void printPage()}>
                 <ImageDownIcon /> This page as a picture
               </DropdownMenuItem>
+              {journal.canEdit && (
+                <DropdownMenuItem onSelect={() => setLocking(true)}>
+                  <LockKeyholeIcon /> Share as a locked PDF…
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() =>
@@ -991,6 +1006,13 @@ export function JournalBook({ event, momentId }: { event: EventView; momentId?: 
           {panel}
         </SheetContent>
       </Sheet>
+      <LockedPdfDialog
+        event={event}
+        pages={pages.length}
+        open={locking}
+        onOpenChange={setLocking}
+        print={() => makePdf(pages.map((p) => p._id as PageId))}
+      />
       <StickerCutter
         eventId={event._id}
         photos={photos}

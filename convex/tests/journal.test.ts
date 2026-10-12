@@ -7,7 +7,7 @@ import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
 import invitesSchema from "../components/invites/schema";
 import { isPublicWebUrl, previewFromHtml, publicRedirect } from "../ai/unfurl";
-import { catchUpElements, coverPage, type JournalElement, momentPage, PAGE, rangeLabel, readLink } from "../lib/journal";
+import { catchUpElements, coverPage, type JournalElement, momentPage, PAGE, rangeLabel, readLink, tripDates } from "../lib/journal";
 import schema from "../schema";
 
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
@@ -124,6 +124,31 @@ describe("laying out pages", () => {
     const kept = catchUpElements([{ ...locked!, locked: true }, sticker], fresh, "moment1");
     expect(kept.find((e) => e.kind === "note")?.text).toBe("Old");
     expect(kept.filter((e) => e.kind === "note")).toHaveLength(1);
+  });
+
+  test("a layout piece whose words the owner changed is theirs and stays", () => {
+    const fresh = momentPage({ _id: "moment1", startsAt: JUNE_1, place: "Lisbon, Portugal", blocks: [{ type: "note", text: "Better" }], stops: [] }, 0).elements;
+    const retitled = fresh.map((e) => (e.kind === "title" ? { ...e, text: "Our best day", own: true } : e.kind === "note" ? { ...e, text: "Old" } : e));
+    const merged = catchUpElements(retitled, fresh, "moment1");
+    expect(merged.filter((e) => e.kind === "title").map((e) => e.text)).toEqual(["Our best day"]);
+    expect(merged.find((e) => e.kind === "note")?.text).toBe("Better");
+  });
+
+  test("a cover's dates are the trip's calendar days, or the days its moments happened where they happened", () => {
+    // 07:10 on 1 April in Tokyo is still 31 March in UTC.
+    const tokyo = { startsAt: Date.UTC(2025, 2, 31, 22, 10), tzOffsetMinutes: 540 };
+    const osaka = { startsAt: Date.UTC(2025, 3, 10, 4, 40), tzOffsetMinutes: 540 };
+    expect(tripDates({}, tokyo, osaka)).toBe("1 Apr – 10 Apr 2025");
+    // Saved at local midnight in UTC+3 and in UTC−5: the same calendar days.
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 21), endsAt: Date.UTC(2025, 3, 9, 21) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({ startsAt: Date.UTC(2025, 3, 1, 5), endsAt: Date.UTC(2025, 3, 10, 5) })).toBe("1 Apr – 10 Apr 2025");
+    // Local midnight in UTC+13 and just east of UTC+12 (Chatham, UTC+12:45).
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 11), endsAt: Date.UTC(2025, 3, 9, 11) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 11, 15), endsAt: Date.UTC(2025, 3, 9, 11, 15) })).toBe("1 Apr – 10 Apr 2025");
+    // Hawaii, UTC−10, keeps the day it picked. UTC+12 still rounds onto that day.
+    expect(tripDates({ startsAt: Date.UTC(2025, 3, 1, 10), endsAt: Date.UTC(2025, 3, 10, 10) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({ startsAt: Date.UTC(2025, 2, 31, 12), endsAt: Date.UTC(2025, 3, 9, 12) })).toBe("1 Apr – 10 Apr 2025");
+    expect(tripDates({})).toBeUndefined();
   });
 
   test("dates read as a range, or one day", () => {
@@ -384,7 +409,8 @@ describe("filling a journal", () => {
     expect(await words()).toContain("A week in Porto");
     expect(await words()).not.toContain("A week in Lisbon");
 
-    await owner.mutation(api.events.update, { eventId, startsAt: JUNE_1, endsAt: JUNE_1 + 6 * 86_400_000 });
+    // What a browser at UTC+3 saves for 1 and 7 June: their local midnights.
+    await owner.mutation(api.events.update, { eventId, startsAt: Date.UTC(2026, 4, 31, 21), endsAt: Date.UTC(2026, 5, 6, 21) });
     expect(await words()).toContain("1 Jun – 7 Jun 2026");
     expect(await words()).not.toContain("1 Jun 2026");
 
@@ -411,6 +437,54 @@ describe("filling a journal", () => {
     expect(kept).toContain("Our trip");
     expect(kept).not.toContain("Something else entirely");
     expect(kept).toContain("1 Jun – 7 Jun 2026");
+  });
+
+  test("a title the owner retyped stays through \"Update this page\"", async () => {
+    vi.setSystemTime(new Date("2026-06-01T12:00:00Z"));
+    const { owner, eventId, moment } = await setup();
+    const momentId = await moment(JUNE_1, "First words");
+    await owner.mutation(api.journal.fill, { eventId });
+    const page = (await owner.query(api.journal.get, { eventId })).pages[1]!;
+    const title = page.elements.find((e) => e.kind === "title")!;
+    await owner.mutation(api.journal.savePage, {
+      pageId: page._id,
+      elements: page.elements.map((e) => ({ ...e, text: e.id === title.id ? "Our best day" : e.text })),
+    });
+    const saved = (await owner.query(api.journal.page, { pageId: page._id }))!;
+    expect(saved.elements.find((e) => e.id === title.id)?.own).toBe(true);
+    // Moving something without changing its words doesn't make it the owner's.
+    expect(saved.elements.find((e) => e.kind === "note")?.own).toBeUndefined();
+
+    vi.setSystemTime(new Date("2026-06-01T12:05:00Z"));
+    await owner.mutation(api.moments.update, { momentId, blocks: [{ type: "note", text: "Later words" }] });
+    expect(await owner.mutation(api.journal.refresh, { eventId, pageId: page._id })).toBe(1);
+    const updated = (await owner.query(api.journal.page, { pageId: page._id }))!;
+    expect(updated.elements.filter((e) => e.kind === "title").map((e) => e.text)).toEqual(["Our best day"]);
+    expect(updated.elements.find((e) => e.kind === "note")?.text).toBe("Later words");
+  });
+
+  test("a trip with no dates keeps its cover's dates in step with its first and last moment", async () => {
+    const { owner, eventId, moment } = await setup();
+    await moment(JUNE_1, "First");
+    await owner.mutation(api.journal.fill, { eventId });
+    const dates = async () =>
+      (await owner.query(api.journal.get, { eventId })).pages[0]!.elements.filter((e) => e.kind === "title").map((e) => e.text);
+    expect(await dates()).toContain("1 Jun 2026");
+    const later = await moment(JUNE_1 + 3 * 86_400_000, "Later");
+    expect(await dates()).toContain("1 Jun – 4 Jun 2026");
+    await owner.mutation(api.moments.remove, { momentId: later });
+    expect(await dates()).toContain("1 Jun 2026");
+    expect(await dates()).not.toContain("1 Jun – 4 Jun 2026");
+  });
+
+  test("only the owner asks for another title, and only for a moment's page", async () => {
+    const { owner, viewer, eventId, moment } = await setup();
+    const momentId = await moment(JUNE_1, "First");
+    await owner.mutation(api.journal.fill, { eventId });
+    const [cover, page] = (await owner.query(api.journal.get, { eventId })).pages;
+    expect(await owner.query(internal.ai.title.pageMoment, { pageId: page!._id })).toMatchObject({ momentId });
+    await expect(viewer.query(internal.ai.title.pageMoment, { pageId: page!._id })).rejects.toThrow();
+    await expect(owner.query(internal.ai.title.pageMoment, { pageId: cover!._id })).rejects.toThrow(/moment's page/);
   });
 
   test("words are encrypted at rest", async () => {

@@ -22,6 +22,8 @@ export const IMAGE_MIME_TYPES = [
   "image/avif",
 ];
 export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+// A journal printed to a locked PDF, for its share link.
+export const MAX_PDF_BYTES = 50 * 1024 * 1024;
 export const VIDEO_MIME_TYPES = ["video/mp4", "video/webm", "video/quicktime"];
 export const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 export const AVATAR_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];

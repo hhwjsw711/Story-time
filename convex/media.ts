@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { isSharedPdf } from "./lib/sharedPdf";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -31,7 +32,7 @@ const BUDGET_SCAN = 5000;
 // One person's live bytes across every experience, so one account can't fill
 // the bucket. Profile images count too. Deleted uploads don't, so removing
 // frees room.
-async function assertUploadBudget(ctx: MutationCtx, userId: Id<"users">, size: number) {
+export async function assertUploadBudget(ctx: MutationCtx, userId: Id<"users">, size: number) {
   let liveBytes = 0;
   let uncounted = false;
   for (const status of ["ready", "reserved"] as const) {
@@ -217,8 +218,14 @@ export const getForDownload = query({
     const access = await getEventAccess(ctx, media.eventId);
     if (access === null) return null;
     // Photos not yet attached to a moment are visible to their uploader only;
-    // a sticker belongs to the journal, so everyone who can see it sees it.
-    if (media.momentId === undefined && media.purpose !== "sticker" && media.uploaderId !== access.userId) {
+    // a sticker belongs to the journal, so everyone who can see it sees it,
+    // and so does the journal's locked PDF while it is the one shared.
+    if (
+      media.momentId === undefined &&
+      media.purpose !== "sticker" &&
+      !(media.purpose === "pdf" && (await isSharedPdf(ctx, media.eventId, media._id))) &&
+      media.uploaderId !== access.userId
+    ) {
       return null;
     }
     return {
@@ -333,6 +340,8 @@ async function deletableBy(
   // A sticker still pasted on a page is part of the journal. Taking it off
   // the shelf is refused until every page lets it go.
   if (media.purpose === "sticker" && (await mediaOnAPage(ctx, media.eventId, media._id))) return false;
+  // The PDF on the share link stays until it is replaced or taken off.
+  if (media.purpose === "pdf" && (await isSharedPdf(ctx, media.eventId, media._id))) return false;
   // Checked now, not when the photo was added: someone whose access was
   // revoked, or who is only a viewer now, can no longer delete.
   const access = await getEventAccess(ctx, media.eventId);

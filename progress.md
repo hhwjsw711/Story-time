@@ -4,6 +4,10 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-12
 
+- **Share the journal as a locked PDF.** Export → "Share as a locked PDF…" prints the whole book in the browser, locks it with the PDF standard's AES-256 encryption and a password (generated, or your own), and puts it on the share link, where a PDF button downloads it. Any reader asks for the password; the link never gives it out. The file is stored encrypted like photos; the password is kept under the experience's key so the owner can copy it again, replace the PDF or take it off. Also fixed: exporting a PDF stopped on its first page (the offstage sheet was looked up before it existed).
+- **Journal gaps closed.** A title you retyped is yours: "Update this page" keeps it. A trip with no dates keeps its cover's dates in step as moments are added, moved or deleted. A moment page's title can "Try another" (Haiku, from the moment; nothing stored until you use it). Cover dates now print the calendar day people picked, including UTC+13 and just east of UTC+12, or the day a moment happened where it happened.
+- **Experiences in the sidebar.** Every experience is listed under a folding Experiences tab.
+- **A seeded trip to Japan** for trying the app: on a dev deployment, `pnpm exec convex run seed:japan '{"userId":"..."}'` makes "Spring in Japan", ten days from Tokyo to Osaka with places, routes, notes, moods and labels, and its journal cuts itself. It refuses production and will not pick an account on its own. No photos.
 - Activity shows how many new moments, pages, and guestbook notes arrived since it was last opened. Deleting the trip removes those notes and the read mark. A burst of other changes cannot hide a new one.
 - A link preview will not open a hostname that resolves to a private address. The connection is pinned to the addresses just checked, so a later DNS answer cannot move it. Trailing dots, short numeric hosts, and local names are refused before any fetch.
 - Pressing / focuses the box only when moment search is not on the page. Search keeps /.
