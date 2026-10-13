@@ -21,6 +21,7 @@ After the eight, in this order. Each one stays inside "photos or a sentence in, 
 
 ## Later
 
+- Voice with zero data retention: turn on `provider.zdr` in `convex/model/ai/voice.ts` once the gateway's transcription route accepts it (it answers 400 today).
 - Journal photo frames that take the photo's shape: keep each photo's width and height when it's uploaded, and size frames from it when a page is cut, so a tall photo gets a tall frame instead of paper at its sides.
 - Databuddy: after the next production deploy, check the dashboard shows the first page view (localhost is ignored).
 - The AI allowance (10 a day, `AI_PER_DAY` in `convex/lib/limits.ts`) includes the notes drafted for imported photos, so one big import uses the day's 10. Decide whether drafted notes get their own, larger allowance.

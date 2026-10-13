@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-13
 
+- AI requests go only to zero-data-retention endpoints (`{ zdr: true }`, `@convex-dev/ai-sdk-provider` 0.3.0): Haiku and Jev, checked against dev. Voice can't yet: the gateway's transcription route refuses the setting, and Settings → Data & privacy says so.
 - A journal photo on paper (polaroid, print, deckle) shows the whole photo instead of filling its frame and cutting the top and bottom off a tall one; the paper fills the gap. Stamps and cut-out shapes still fill theirs.
 - The guestbook moved out of the journal into its own section, Guestbook, in the experience's sidebar between Journal and Shared. The journal is only the book now.
 - Databuddy events: a few buttons are counted by a fixed name (`data-track`: sign in, new experience, add photos, play, share, copy link, export, guestbook), every AI request is counted by feature and outcome (`ai_used`: ok, limit or error, plus `ai_plan_applied`), and the Worker reports AI crawler reads (GPTBot, ClaudeBot...) of the home page and `/llms.txt`. No words, titles, ids or links are sent.
