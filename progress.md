@@ -4,6 +4,7 @@ What has landed, newest first. One line per change; the PR has the detail.
 
 ## 2026-10-13
 
+- A journal photo on paper (polaroid, print, deckle) shows the whole photo instead of filling its frame and cutting the top and bottom off a tall one; the paper fills the gap. Stamps and cut-out shapes still fill theirs.
 - The guestbook moved out of the journal into its own section, Guestbook, in the experience's sidebar between Journal and Shared. The journal is only the book now.
 - Databuddy events: a few buttons are counted by a fixed name (`data-track`: sign in, new experience, add photos, play, share, copy link, export, guestbook), every AI request is counted by feature and outcome (`ai_used`: ok, limit or error, plus `ai_plan_applied`), and the Worker reports AI crawler reads (GPTBot, ClaudeBot...) of the home page and `/llms.txt`. No words, titles, ids or links are sent.
 - Analytics with Databuddy, on production builds only: page views, Web Vitals and errors, without cookies. Trip ids and invite codes in paths are masked, the share link's `#` key is never read, nobody is identified, and click and outgoing-link tracking are off because they send labels and link text that can name a trip. Settings → Data & privacy says so.
