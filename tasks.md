@@ -21,6 +21,7 @@ After the eight, in this order. Each one stays inside "photos or a sentence in, 
 
 ## Later
 
+- Databuddy: after the next production deploy, check the dashboard shows the first page view (localhost is ignored).
 - The AI allowance (10 a day, `AI_PER_DAY` in `convex/lib/limits.ts`) includes the notes drafted for imported photos, so one big import uses the day's 10. Decide whether drafted notes get their own, larger allowance.
 - Lighthouse on a slow phone: the landing page's first screen now comes in the HTML, but the 120 KB core script still holds performance near 70. Server-rendering the landing page, or a smaller core bundle, would get it to 90.
 - Voice clips on a page: ten seconds, kept as a tap-to-play sticker (a new audio media type).

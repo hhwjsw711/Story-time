@@ -3,6 +3,7 @@ import type { RouterContext } from "@/router";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { Databuddy } from "@databuddy/sdk/react";
 import { LandingFirstPaint } from "@/components/landing/first-paint";
 import { LogoSplash } from "@/components/logo";
 import { pageMeta } from "@/lib/seo";
@@ -19,6 +20,9 @@ const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('theme')||
 // token), so the landing page's first screen stays hidden for someone on their
 // way to /home.
 const SESSION_SCRIPT = `(function(){try{for(var i=0;i<localStorage.length;i++){if((localStorage.key(i)||'').indexOf('__convexAuthRefreshToken')===0){document.documentElement.setAttribute('data-signed-in','');return}}}catch(e){}})();`;
+
+// Production builds only (.env.production), so local work isn't counted.
+const DATABUDDY_ID: string | undefined = import.meta.env.VITE_DATABUDDY_CLIENT_ID;
 
 // Crawlers need an absolute image URL, and the client has no other way to
 // know the site's origin.
@@ -111,6 +115,19 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         <Outlet />
         <Toaster />
       </TooltipProvider>
+      {DATABUDDY_ID && (
+        // Page views, page speed and errors, without cookies. Trip ids and
+        // invite tokens in paths are masked, and the part after # (a share
+        // link's key) is never read. Click and outgoing-link tracking stay
+        // off: they send element labels and link text, which can name a trip.
+        <Databuddy
+          clientId={DATABUDDY_ID}
+          trackWebVitals
+          trackErrors
+          trackInteractions={false}
+          maskPatterns={["/e/*", "/invite/*"]}
+        />
+      )}
     </ThemeProvider>
   ),
 });
