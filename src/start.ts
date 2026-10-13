@@ -1,6 +1,8 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
 import { pageMeta } from "@/lib/seo";
 import { markdownForAgents, wantsMarkdown } from "@/server/agents";
+import { trackAgents } from "@databuddy/sdk/agents";
+import { waitUntil } from "cloudflare:workers";
 
 // Pages can't be framed (clickjacking), sniffed into another type, or pass the
 // full URL on to other sites, which matters for share links that carry a token.
@@ -13,6 +15,16 @@ const securityHeaders = createMiddleware({ type: "request" }).server(async ({ ne
     headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   }
   return result;
+});
+
+// AI crawlers and agents (GPTBot, ClaudeBot, Perplexity...) never run the
+// page's script, so the Worker tells Databuddy about their reads: the path
+// without its query, the agent, and the format asked for. It runs after the
+// response and never delays it. Production builds only, like the page script.
+const DATABUDDY_ID: string | undefined = import.meta.env.VITE_DATABUDDY_CLIENT_ID;
+const aiAgents = createMiddleware({ type: "request" }).server(async ({ next, request }) => {
+  if (DATABUDDY_ID) waitUntil(trackAgents(request, { websiteId: DATABUDDY_ID }));
+  return next();
 });
 
 // Search engines get one answer per page: only the home page is indexed, and
@@ -35,5 +47,6 @@ const forCrawlers = createMiddleware({ type: "request" }).server(async ({ next, 
 // no-flash theme script.
 export const startInstance = createStart(() => ({
   defaultSsr: false,
-  requestMiddleware: [securityHeaders, forCrawlers],
+  // Crawler reads are recorded before the markdown answer can return early.
+  requestMiddleware: [securityHeaders, aiAgents, forCrawlers],
 }));
