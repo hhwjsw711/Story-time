@@ -10,6 +10,7 @@ export default defineConfig([
     "dist/",
     ".output/",
     ".tanstack/",
+    ".temp/",
     "src/routeTree.gen.ts",
     "convex/_generated/",
     "convex/components/*/_generated/",
