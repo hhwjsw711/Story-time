@@ -11,7 +11,7 @@
     "convex": "convex dev",
     "generate-routes": "tsr generate",
     "typegen": "wrangler types --env-file .dev.vars.example",
-    "postinstall": "wrangler types --env-file .dev.vars.example && cp node_modules/maplibre-gl/dist/maplibre-gl-worker.mjs public/",
+    "postinstall": "wrangler types --env-file .dev.vars.example && node scripts/copy-maplibre-worker.mjs",
     "build": "vp build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
