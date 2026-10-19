@@ -2,6 +2,17 @@
 
 What has landed, newest first. One line per change; the PR has the detail.
 
+## 2026-10-18
+
+- **A whole trip's photos upload.** A photo can be 20 MB (was 5 MB), and a bigger one is made smaller on the device and uploads instead of being left out. An experience holds 150 photos (was 50), and a batch stops as soon as the experience is full instead of trying every remaining photo.
+- **Worker traces.** `wrangler.jsonc` turns on Cloudflare traces next to the logs, for every request, kept in the dashboard. Query strings are redacted so the one-time sign-in `?code=` isn't stored.
+- **Logo in the README.** The app's logo (`public/favicon.svg`) sits centered above the title on GitHub. It has fixed colours, so one image works in light and dark mode.
+- **README cut to the essentials.** One line on what Story-time is, four bullets, how to run it, and links to the docs. Settings, commands, deploy steps, the Cloudflare Workers Builds settings and what data leaves the app are in `docs/architecture.md`.
+
+## 2026-10-15
+
+- **Collaboration.** On the Shared tab, an owner can change what each person can do (Can watch, Can add moments, Co-owner) without a new invite. A co-owner can do everything the owner can, including inviting, removing people and deleting the experience; an invite link never lowers anyone's role. Everyone on a trip now sees the Shared tab, with the people on it and what each can do (no join dates or last-seen). Editing a moment has "Who was there" to tag people on the trip, shown as "With …" on the moment's row. Tags stay out of the share link and the journal.
+
 ## 2026-10-14
 
 - **Dependency vulnerabilities fixed.** `pnpm audit` is clean: `seroval` and `sharp` are pinned to patched versions in `pnpm-workspace.yaml`, and the unused `@tailwindcss/typography` is gone.
