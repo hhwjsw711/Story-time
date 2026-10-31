@@ -1,6 +1,5 @@
 import { useAuthToken } from "@convex-dev/auth/react";
-import { useMutation } from "convex/react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, usePaginatedQuery } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import {
   ArrowDownIcon,
@@ -15,7 +14,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { api } from "@/lib/api";
-import { queries } from "@/lib/queries";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { AuthImage } from "@/components/auth-image";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -41,7 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { deletePhotos } from "@/lib/actions";
 import { errorMessage } from "@/lib/errors";
 import { fromInput, toInput } from "@/lib/local-time";
-import { readPhotoMeta } from "@/lib/photo-meta";
+import { combinePhotoMeta, type PhotoMeta, readPhotoMeta } from "@/lib/photo-meta";
 import { isVideoFile, MEDIA_ACCEPT, uploadMedia } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
@@ -146,7 +144,20 @@ export const MomentForm = ({
   onDone?: () => void;
 }) => {
   const update = useMutation(api.moments.update);
-  const { data: members } = useQuery(queries.sessions.members({ eventId }));
+  // Who can be tagged. Most trips fit in the first page; a bigger one shows
+  // "More people".
+  const people = usePaginatedQuery(api.sessions.members, { eventId }, { initialNumItems: 50 });
+  const members = people.status === "LoadingFirstPage" ? undefined : people.results;
+  // The form holds ids as strings; these are the people they name: those
+  // tagged before and those loaded here.
+  const idOf = new Map<string, Id<"users">>([
+    ...moment.people.map((p) => [p.userId, p.userId] as const),
+    ...people.results.map((m) => [m.userId, m.userId] as const),
+  ]);
+  // Someone who has since left the trip drops off; the server refuses them.
+  // That's only known with everyone loaded: a person on an unread page isn't gone.
+  const onTrip = (id: string) =>
+    people.status !== "Exhausted" || people.results.some((m) => m.userId === id);
   const remove = useMutation(api.moments.remove);
   const [confirming, setConfirming] = useState(false);
   const token = useAuthToken();
@@ -281,12 +292,10 @@ export const MomentForm = ({
           blocks: blocksPerStop[0]!,
           stops,
           labels,
-          // Someone who has since left the trip drops off; the server refuses them.
-          ...(members === undefined
-            ? {}
-            : {
-                people: members.filter((m) => value.people.includes(m.userId)).map((m) => m.userId),
-              }),
+          people: value.people.flatMap((id) => {
+            const user = idOf.get(id);
+            return user !== undefined && onTrip(id) ? [user] : [];
+          }),
         });
         const dropped = settle(value.stops);
         if (latestToken.current)
@@ -306,7 +315,11 @@ export const MomentForm = ({
     input.value = "";
     if (files.length === 0 || !latestToken.current) return;
     setUploadingStop(stop);
-    void locateFromPhotos(stop, files);
+    // Read before any upload: the uploaded copy has its camera details stripped.
+    const metas = await Promise.all(
+      files.map((file) => readPhotoMeta(file).catch((): PhotoMeta => ({}))),
+    );
+    void fillFromPhotos(stop, combinePhotoMeta(metas));
     for (const file of files) {
       // Read per file: tokens are short-lived.
       const token = latestToken.current;
@@ -332,19 +345,16 @@ export const MomentForm = ({
     setUploadingStop(null);
   };
 
-  // A stop with no location takes it from the first photo that has GPS (no
-  // network), then, if its Where is empty, a name for that spot from
-  // OpenStreetMap. Typed text is never overwritten. Stops can't move while
-  // photos upload, so `stop` still points at the same one.
-  const locateFromPhotos = async (stop: number, files: File[]) => {
-    if (form.state.values.stops[stop]?.geo) return;
-    let geo: Geo | undefined;
-    for (const file of files) {
-      geo = (await readPhotoMeta(file)).geo;
-      if (geo) break;
-    }
+  // A stop with no time takes the earliest the photos were taken, and one
+  // with no location the first photo GPS, then, if its Where is empty, a name
+  // for that spot from OpenStreetMap. Typed text is never overwritten. Stops
+  // can't move while photos upload, so `stop` still points at the same one.
+  const fillFromPhotos = async (stop: number, { takenAt, geo }: PhotoMeta) => {
     const current = form.state.values.stops[stop];
-    if (!geo || closed.current || !current || current.geo) return;
+    if (closed.current || !current) return;
+    if (takenAt !== undefined && !current.startsAt)
+      form.setFieldValue(`stops[${stop}].startsAt`, toInput(takenAt, moment.tzOffsetMinutes));
+    if (!geo || current.geo) return;
     form.setFieldValue(`stops[${stop}].geo`, geo);
     form.setFieldValue(`stops[${stop}].geoFromPhoto`, true);
     if (current.place.trim()) return;
@@ -670,6 +680,17 @@ export const MomentForm = ({
                   );
                 })}
               </div>
+              {people.status === "CanLoadMore" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => people.loadMore(50)}
+                >
+                  More people
+                </Button>
+              )}
               <FieldDescription>Only people on this experience see who was there.</FieldDescription>
             </Field>
           )}

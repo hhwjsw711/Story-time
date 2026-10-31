@@ -19,4 +19,4 @@ worker-configuration.d.ts
 public/maplibre-gl-worker.mjs
 .entire/
 .temp/
-
+.vitest/

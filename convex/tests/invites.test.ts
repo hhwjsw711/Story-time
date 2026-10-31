@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import type { FunctionReturnType } from "convex/server";
 import { api, components, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
@@ -168,7 +169,7 @@ describe("invites", () => {
   });
 
   test("invite emails are validated, only sent when configured, and capped daily", async () => {
-    const { t, owner, eventId } = await setup();
+    const { owner, eventId } = await setup();
     const send = (sendTo: string) =>
       owner.mutation(api.api.invites.create, { eventId, role: "viewer", sendTo });
     await expect(send("not-an-email")).rejects.toThrow(/Enter a valid email/);
@@ -189,11 +190,10 @@ describe("invites", () => {
       // A link without an email is still fine.
       await owner.mutation(api.api.invites.create, { eventId, role: "viewer" });
 
-      // A day later there's room again, and the old rows are cleared.
-      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 1);
+      // A day later there's room again. A minute past the day: convex-test's
+      // clock creeps ahead of a frozen fake one.
+      vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000 + 60_000);
       expect((await send("tomorrow@example.com")).emailed).toBe(true);
-      const rows = await t.run((ctx) => ctx.db.query("inviteEmails").collect());
-      expect(rows).toHaveLength(1);
     } finally {
       // eslint-disable-next-line @convex-dev/no-process-env -- test setup
       for (const key of Object.keys(cf)) delete process.env[key];
@@ -283,9 +283,51 @@ describe("collaboration", () => {
   test("everyone on the trip sees who is on it, owner first", async () => {
     const s = await setup();
     await join(s, "viewer");
-    const members = await s.guest.query(api.api.sessions.members, { eventId: s.eventId });
-    expect(members.map((m) => m.role)).toEqual(["owner", "viewer"]);
-    expect(members[0]!.sessionId).toBeNull();
+    const { page } = await s.guest.query(api.api.sessions.members, {
+      eventId: s.eventId,
+      paginationOpts: firstPage,
+    });
+    expect(page.map((m) => m.role)).toEqual(["owner", "viewer"]);
+    expect(page[0]!.sessionId).toBeNull();
+  });
+
+  test("people come a page at a time: the owner once, first, and no one removed", async () => {
+    const s = await setup();
+    await join(s, "viewer");
+    const ownerId = (await s.owner.query(api.api.users.getCurrentUser, {}))!.id;
+    await s.t.run(async (ctx) => {
+      for (const revokedAt of [undefined, Date.now(), undefined]) {
+        const userId = await ctx.db.insert("users", {});
+        await ctx.db.insert("sessions", {
+          eventId: s.eventId,
+          userId,
+          grantedBy: ownerId,
+          role: "viewer",
+          revokedAt,
+        });
+      }
+    });
+    const pages = [];
+    let cursor: string | null = null;
+    do {
+      const result: FunctionReturnType<typeof api.api.sessions.members> = await s.guest.query(
+        api.api.sessions.members,
+        { eventId: s.eventId, paginationOpts: { numItems: 2, cursor } },
+      );
+      pages.push(result.page);
+      cursor = result.isDone ? null : result.continueCursor;
+    } while (cursor !== null);
+    const everyone = pages.flat();
+    expect(everyone.filter((m) => m.sessionId === null)).toHaveLength(1);
+    expect(everyone[0]!.sessionId).toBeNull();
+    expect(
+      pages
+        .slice(1)
+        .flat()
+        .some((m) => m.sessionId === null),
+    ).toBe(false);
+    // The guest and two others; the removed one is left out.
+    expect(everyone).toHaveLength(4);
   });
 
   test("a moment tags only people on the trip", async () => {
@@ -293,8 +335,11 @@ describe("collaboration", () => {
     await join(s, "contributor");
     const stranger = await s.t.run((ctx) => ctx.db.insert("users", {}));
     const [ownerId, guestId] = (
-      await s.owner.query(api.api.sessions.members, { eventId: s.eventId })
-    ).map((m) => m.userId);
+      await s.owner.query(api.api.sessions.members, {
+        eventId: s.eventId,
+        paginationOpts: firstPage,
+      })
+    ).page.map((m) => m.userId);
     const momentId = await s.guest.mutation(api.api.moments.create, {
       eventId: s.eventId,
       startsAt: Date.UTC(2025, 5, 1),

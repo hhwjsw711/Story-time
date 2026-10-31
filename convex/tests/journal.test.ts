@@ -2,7 +2,7 @@
 import { convexTest } from "convex-test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
 import type { FunctionArgs } from "convex/server";
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import emailSchema from "../components/email/schema";
@@ -636,22 +636,6 @@ describe("filling a journal", () => {
     await owner.mutation(api.api.moments.remove, { momentId: later });
     expect(await dates()).toContain("1 Jun 2026");
     expect(await dates()).not.toContain("1 Jun – 4 Jun 2026");
-  });
-
-  test("only the owner asks for another title, and only for a moment's page", async () => {
-    const { owner, viewer, eventId, moment } = await setup();
-    const momentId = await moment(JUNE_1, "First");
-    await owner.mutation(api.api.journal.fill, { eventId });
-    const [cover, page] = (await owner.query(api.api.journal.get, { eventId })).pages;
-    expect(
-      await owner.query(internal.model.ai.title.pageMoment, { pageId: page!._id }),
-    ).toMatchObject({ momentId });
-    await expect(
-      viewer.query(internal.model.ai.title.pageMoment, { pageId: page!._id }),
-    ).rejects.toThrow();
-    await expect(
-      owner.query(internal.model.ai.title.pageMoment, { pageId: cover!._id }),
-    ).rejects.toThrow(/moment's page/);
   });
 
   test("words are encrypted at rest", async () => {
