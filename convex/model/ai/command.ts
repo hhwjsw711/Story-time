@@ -8,12 +8,18 @@ import { z } from "zod";
 import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { action, internalQuery, mutation, type MutationCtx } from "../../_generated/server";
-import { assertNotArchived, requireEventAccess } from "../../lib/access";
+import {
+  assertNotArchived,
+  mayChangeMoment,
+  requireEventAccess,
+  type EventRole,
+} from "../../lib/access";
 import { invalid } from "../../lib/blocks";
 import {
   MAX_BLOCKS_PER_MOMENT,
   MAX_COMMAND_CHARS,
   MAX_COMMAND_OPS,
+  MAX_EXTRA_STOPS_PER_MOMENT,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_MOMENT,
   MAX_STOPS_PER_MOMENT,
@@ -117,7 +123,7 @@ export const read = internalQuery({
         })),
         labels: m.labels,
         note: said?.slice(0, NOTE_PREVIEW),
-        editable: role === "owner" || m.authorId === userId,
+        editable: mayChangeMoment(m, userId, role),
       };
     });
     const open = moments.findIndex((m) => m.id === openId);
@@ -293,6 +299,9 @@ export const orderOps = (ops: Op[]): Op[] => {
     .map(({ op }) => op);
 };
 
+const FIRST_EXTRA_STOP = 2;
+const extraStopIndex = (stop: number) => stop - FIRST_EXTRA_STOP;
+
 export const resolvePlan = (
   raw: RawPlan,
   c: Context,
@@ -349,7 +358,7 @@ export const resolvePlan = (
         said.push(`That moment has only ${stops} ${stops === 1 ? "stop" : "stops"}.`);
         continue;
       }
-      const target = stop === 1 ? m.startsAt : m.stops[stop - 2]?.startsAt;
+      const target = stop === 1 ? m.startsAt : m.stops[extraStopIndex(stop)]?.startsAt;
       const startsAt =
         r.when === undefined ? undefined : fromLocal(r.when, offset, clockOf(target));
       if (r.when !== undefined && startsAt === undefined) {
@@ -376,7 +385,7 @@ export const resolvePlan = (
         said.push("A new stop needs a place or a few words.");
         continue;
       }
-      if (m.stops.length >= MAX_STOPS_PER_MOMENT - 1) {
+      if (m.stops.length >= MAX_EXTRA_STOPS_PER_MOMENT) {
         said.push("That moment can't take more stops.");
         continue;
       }
@@ -511,7 +520,7 @@ const changeableMoment = async (
   eventId: Id<"events">,
   momentId: Id<"moments"> | undefined,
   userId: Id<"users">,
-  role: string,
+  role: EventRole,
 ): Promise<Doc<"moments">> => {
   const moment = momentId === undefined ? null : await ctx.db.get("moments", momentId);
   if (moment === null || moment.eventId !== eventId) {
@@ -520,7 +529,7 @@ const changeableMoment = async (
       message: "A moment in this change no longer exists.",
     });
   }
-  if (role !== "owner" && moment.authorId !== userId) {
+  if (!mayChangeMoment(moment, userId, role)) {
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "You can only change moments you added yourself.",
@@ -534,7 +543,7 @@ const noMore = (what: string) =>
 
 const runOp = async (
   ctx: MutationCtx,
-  args: { eventId: Id<"events">; userId: Id<"users">; role: string; op: Op },
+  args: { eventId: Id<"events">; userId: Id<"users">; role: EventRole; op: Op },
 ): Promise<{ created?: Id<"moments">; removed: Id<"media">[] }> => {
   const { eventId, userId, role, op } = args;
   const event = await ctx.db.get("events", eventId);
@@ -544,7 +553,6 @@ const runOp = async (
     const note = trimmed(op.note);
     if (note === undefined) invalid("note", "A new moment needs a few words to go with it.");
     const created = await createMoment(ctx, {
-      event,
       userId,
       actor: human(userId),
       input: {
@@ -586,10 +594,10 @@ const runOp = async (
         patch.blocks = [...view.blocks, { type: "note", text: note }];
       }
     } else {
-      const was = stops[stop - 2];
+      const was = stops[extraStopIndex(stop)];
       if (was === undefined) invalid("stop", "That moment doesn't have that stop.");
       if (note !== undefined && was.blocks.length >= MAX_BLOCKS_PER_MOMENT) throw noMore("items");
-      stops[stop - 2] = {
+      stops[extraStopIndex(stop)] = {
         startsAt: op.startsAt ?? was.startsAt,
         place: op.place === undefined ? was.place : op.place || undefined,
         geo: op.place === undefined ? was.geo : op.geo,
@@ -599,12 +607,12 @@ const runOp = async (
       patch.stops = stops;
     }
   } else if (op.op === "addStop") {
-    if (stops.length >= MAX_STOPS_PER_MOMENT - 1) throw noMore("stops");
+    if (stops.length >= MAX_EXTRA_STOPS_PER_MOMENT) throw noMore("stops");
     if (op.place === undefined && note === undefined)
       invalid("place", "A new stop needs a place or a few words.");
     const at = Math.max(
       0,
-      Math.min(op.after === undefined ? stops.length : op.after - 1, stops.length),
+      Math.min(op.after === undefined ? stops.length : extraStopIndex(op.after) + 1, stops.length),
     );
     stops.splice(at, 0, {
       startsAt: op.startsAt,
@@ -615,9 +623,9 @@ const runOp = async (
     });
     patch.stops = stops;
   } else {
-    if (stop === 1 || stops[stop - 2] === undefined)
+    if (stop === 1 || stops[extraStopIndex(stop)] === undefined)
       invalid("stop", "That moment doesn't have that stop.");
-    stops.splice(stop - 2, 1);
+    stops.splice(extraStopIndex(stop), 1);
     patch.stops = stops;
   }
 

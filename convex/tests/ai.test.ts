@@ -12,7 +12,6 @@ import schema from "../schema";
 const modules = import.meta.glob(["../**/*.ts", "../**/*.js", "!../**/*.test.ts"]);
 
 beforeAll(() => {
-  // eslint-disable-next-line @convex-dev/no-process-env -- test setup
   process.env.ENCRYPTION_MASTER_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
 });
 
@@ -51,7 +50,6 @@ describe("AI: ten uses a day per person, across every feature", () => {
       for (let i = 0; i < 10; i++) expect(await take("sara")).toBe(true);
       expect(await take("sara")).toBe(false);
       expect(await take("sam")).toBe(true);
-      // Still the same day at 23:59 UTC; the next day starts fresh.
       vi.setSystemTime(Date.UTC(2026, 9, 13, 23, 59));
       expect(await take("sara")).toBe(false);
       vi.setSystemTime(Date.UTC(2026, 9, 14, 0, 1));

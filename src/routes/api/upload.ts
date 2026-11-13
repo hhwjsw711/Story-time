@@ -31,7 +31,6 @@ export const Route = createFileRoute("/api/upload")({
         if ((!isAvatar && !eventId) || !request.body || !Number.isInteger(size)) {
           return json({ error: "Bad request" }, 400);
         }
-        // A first, cheap cap; Convex re-checks size and type when reserving.
         const isVideo = mime.startsWith("video/");
         const cap = isAvatar ? MAX_AVATAR_BYTES : isVideo ? MAX_VIDEO_BYTES : MAX_PHOTO_BYTES;
         if (size < 1 || size > cap) {
@@ -43,13 +42,11 @@ export const Route = createFileRoute("/api/upload")({
           return json({ error }, 413);
         }
 
-        // Before anything is reserved: the bytes must start like the type named.
         const { head, body } = await peek(request.body);
         if (!looksLike(head, mime)) return json({ error: WRONG_TYPE }, 415);
 
         const convex = convexAs(token);
         try {
-          // Convex enforces access, type and caps before any bytes move.
           const reserved = isAvatar
             ? await convex.mutation(api.media.reserveAvatarUpload, { size, mime })
             : await convex.mutation(api.media.reserveUpload, {
@@ -57,8 +54,6 @@ export const Route = createFileRoute("/api/upload")({
                 size,
                 mime,
               });
-          // FixedLengthStream errors if the body isn't exactly `size` bytes,
-          // so the declared (checked) size is the real size.
           await env.MEDIA.put(reserved.r2Key, body.pipeThrough(new FixedLengthStream(size)), {
             httpMetadata: { contentType: mime },
             ssecKey: await ssecKeyFor(reserved.keyScope, reserved.keyVersion),
@@ -72,7 +67,6 @@ export const Route = createFileRoute("/api/upload")({
             const data = e.data as { message?: string } | string;
             return json({ error: typeof data === "string" ? data : data.message }, 400);
           }
-          // Keep the real cause in the server log; the client gets a generic message.
           console.error("[upload] failed", e);
           return json({ error: "Upload failed" }, 500);
         }
@@ -81,8 +75,6 @@ export const Route = createFileRoute("/api/upload")({
   },
 });
 
-// The small JPEG for lists. The original is already stored; a failed thumb
-// leaves that original in place and lists fall back to it.
 const storeThumb = async (
   convex: ReturnType<typeof convexAs>,
   request: Request,

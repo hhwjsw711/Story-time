@@ -23,7 +23,6 @@ const search = z.object({
   mode: z.enum(["read", "film"]).default("read").catch("read"),
 });
 
-// Client only (the page isn't server-rendered), but nothing here assumes it.
 const readToken = (): string => {
   return typeof window === "undefined" ? "" : window.location.hash.slice(1);
 };
@@ -35,7 +34,6 @@ const SharedStoryPage = () => {
   const [token] = useState(readToken);
   const { data: shared } = useQuery(queries.share.get(token ? { token } : "skip"));
   useDocumentTitle(shared ? `${shared.event.title} · Story-time` : undefined);
-  // An address without the link's name, or with an old one, moves to it.
   const slug = shared?.slug;
   useEffect(() => {
     if (slug === undefined || slug === name) return;
@@ -103,7 +101,6 @@ const SharedStoryPage = () => {
   );
 };
 
-// Off, switched off, replaced, or never real: the same page for all of them.
 const NotShared = () => {
   return (
     <SignedOutPage className="items-center justify-center px-4 py-16">

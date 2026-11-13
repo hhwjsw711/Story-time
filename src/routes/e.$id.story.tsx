@@ -20,9 +20,7 @@ const StoryScroll = lazy(() =>
 );
 
 const search = z.object({
-  // The scene in view, kept up to date as the film plays or the story scrolls.
   step: z.number().int().min(0).default(0).catch(0),
-  // Start at this moment, then drop out of the URL.
   momentId: z.string().optional().catch(undefined),
   // The story to read, or the film to watch.
   mode: z.enum(["read", "film"]).default("read").catch("read"),
@@ -39,9 +37,6 @@ const StoryPage = () => {
   const { data: me } = useQuery(queries.users.getCurrentUser(isAuthenticated ? {} : "skip"));
   useDocumentTitle(event ? `${event.title} · Story-time` : undefined);
   useSeen(event?._id);
-  // The URL follows the scroll without adding history; stable, so the
-  // player's effects don't rerun on unrelated renders. It keeps the mode and
-  // drops momentId.
   const onStep = useCallback(
     (next: number) =>
       void navigate({
@@ -68,7 +63,6 @@ const StoryPage = () => {
   );
 
   if (isLoading) return <Skeleton className="h-svh w-full rounded-none" />;
-  // Signing in here keeps the shared link: OAuth comes back to this URL.
   if (!isAuthenticated) return <SignInScreen />;
   if (event === undefined || (event !== null && moments === undefined)) {
     return <Skeleton className="h-svh w-full rounded-none" />;
@@ -112,10 +106,8 @@ const StoryPage = () => {
   );
 };
 
-// Outside `_app`, so there's no sidebar or header: the story fills the window.
 export const Route = createFileRoute("/e/$id/story")({
   validateSearch: search,
-  // Signed-in readers only; the page asks again once it knows.
   loader: ({ context: { prefetch }, params }) => {
     const eventId = params.id as Id<"events">;
     prefetch(queries.events.get({ eventId }));

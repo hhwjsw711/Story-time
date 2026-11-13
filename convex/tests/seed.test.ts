@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-/* eslint-disable @convex-dev/no-process-env -- this test switches the deployment variables seed:japan checks */
 import { convexTest } from "convex-test";
 import aggregateTest from "@convex-dev/aggregate/test";
 import rateLimiterTest from "@convex-dev/rate-limiter/test";
