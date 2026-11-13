@@ -12,20 +12,18 @@ import {
 import { formatDateTime } from "@/lib/local-time";
 import { cn } from "@/lib/utils";
 
-// A moment opened to look at, over the page: every photo and video uncropped,
-// then its words. Nothing here changes it; Edit hands over to the form.
 export const MomentPeek = ({
   moment,
   onEdit,
   onClose,
 }: {
   moment: MomentView;
-  // Absent when this person may not change the moment.
   onEdit?: () => void;
   onClose: () => void;
 }) => {
   const blocks = [...moment.blocks, ...moment.stops.flatMap((stop) => stop.blocks)];
   const media = blocks.filter((b) => b.type === "photo" || b.type === "video");
+  const hidden = media.filter((b) => b.hidden).length;
   const places = [moment.place, ...moment.stops.map((stop) => stop.place)].filter(Boolean);
   const when = formatDateTime(moment.startsAt, moment.tzOffsetMinutes, {
     dateStyle: "medium",
@@ -52,12 +50,16 @@ export const MomentPeek = ({
                   mediaId={b.mediaId}
                   alt=""
                   variant="full"
-                  // The photo's own shape, not a crop.
                   className="aspect-auto min-h-24 rounded-lg [&_img]:h-auto [&_img]:object-contain"
                 />
               ),
             )}
           </div>
+        )}
+        {hidden > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {hidden} of these {hidden === 1 ? "is" : "are"} hidden from other people.
+          </p>
         )}
         {blocks.map((b, i) =>
           b.type === "note" || b.type === "feeling" ? (

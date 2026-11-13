@@ -1,29 +1,32 @@
-import { Agent, createThread } from "@convex-dev/agent";
 import {
   experimental_decide,
   type Experimental_DecisionAnswer,
   type Experimental_DecisionQuestion,
 } from "ai";
-import { ConvexError, v } from "convex/values";
-import type { Infer } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { z } from "zod";
-import { components, internal } from "../../_generated/api";
+import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
-import type { MutationCtx } from "../../_generated/server";
-import { type ActionCtx, action, internalQuery, mutation } from "../../_generated/server";
-import { assertNotArchived, requireEventAccess } from "../../lib/access";
+import { action, internalQuery, mutation, type MutationCtx } from "../../_generated/server";
+import {
+  assertNotArchived,
+  mayChangeMoment,
+  requireEventAccess,
+  type EventRole,
+} from "../../lib/access";
 import { invalid } from "../../lib/blocks";
 import {
   MAX_BLOCKS_PER_MOMENT,
   MAX_COMMAND_CHARS,
   MAX_COMMAND_OPS,
+  MAX_EXTRA_STOPS_PER_MOMENT,
   MAX_LABEL_LENGTH,
   MAX_LABELS_PER_MOMENT,
   MAX_STOPS_PER_MOMENT,
   MAX_TEXT_LENGTH,
 } from "../../lib/limits";
-import { AI_LIMIT_MESSAGE, takeAi } from "../../lib/rateLimit";
-import { TRANSPORTS } from "../../schema";
+import { AI_LIMIT_MESSAGE, creditAi, takeAi } from "../../lib/rateLimit";
+import { TRANSPORTS, vGeo, vTransport } from "../../schema";
 import {
   createMoment,
   deleteMoment,
@@ -33,56 +36,29 @@ import {
   type MomentEdit,
   type PlainStop,
 } from "../moments";
-import { vGeo, vTransport } from "../../schema";
 import { generateStructured } from "../../lib/ai/generate";
-import { JEV, jevModel, scribeModel, skipReason } from "../../lib/ai/models";
-import { metered } from "../../lib/ai/budget";
+import { jevModel, skipReason } from "../../lib/ai/models";
 
-// One sentence in the box above the itinerary can add, change or remove
-// things. Two models read it, each for what it is good at:
-//   Jev answers two fast questions: is this a new moment, a change or a
-//   removal (a new one skips everything below), and does it ask to delete?
-//   Haiku turns a change into a short list of operations.
-// Nothing is written until the person presses Apply, and Apply is one
-// mutation: every operation lands together, or none does.
-
-// How many moments the model is shown. Beyond this the ones nearest the open
-// moment's date are kept.
 const LIST_CAP = 60;
 const MAX_OUTPUT_TOKENS = 900;
 const NOTE_PREVIEW = 80;
 
-// ---- What a plan is ---------------------------------------------------------
-
-// One operation, resolved: real ids and instants, ready to apply. `add` makes
-// a moment; `edit` changes a moment or one of its stops; `addStop` adds a stop;
-// `remove` deletes a stop, or the moment when no stop is given. Stops count
-// from 1, the moment's own place and time being stop 1.
 export const vOp = v.object({
   op: v.union(v.literal("add"), v.literal("edit"), v.literal("addStop"), v.literal("remove")),
   momentId: v.optional(v.id("moments")),
   stop: v.optional(v.number()),
-  // addStop: the stop it goes after. Without it, at the end.
   after: v.optional(v.number()),
   startsAt: v.optional(v.number()),
-  // add: the zone the new moment happened in.
   tzOffsetMinutes: v.optional(v.number()),
   place: v.optional(v.string()),
-  // Filled in by the app from the place's name; only with a place.
   geo: v.optional(vGeo),
-  // null clears it.
   transport: v.optional(v.union(vTransport, v.null())),
-  // add: the diary line. edit and addStop: a note added to the stop.
   note: v.optional(v.string()),
-  // edit, on stop 1: the moment's whole list of labels after the change.
   labels: v.optional(v.array(v.string())),
 });
 export type Op = Infer<typeof vOp>;
 
-// What `propose` answers: a new moment for the form, or a plan to apply.
 type Proposal = { kind: "new" } | { kind: "plan"; summary: string; needs?: string; ops: Op[] };
-
-// ---- What the models are shown ----------------------------------------------
 
 const vMomentLine = v.object({
   id: v.id("moments"),
@@ -107,26 +83,19 @@ const vContext = v.object({
   title: v.string(),
   moments: v.array(vMomentLine),
   total: v.number(),
-  // Where the open moment sits in `moments`.
   open: v.optional(v.number()),
-  // The zone new moments are assumed to be in: the open moment's, else the
-  // latest one with a zone.
   zone: v.optional(v.number()),
 });
 type Context = Infer<typeof vContext>;
 type Line = Context["moments"][number];
 
-// Who may ask, and what the models see. Anyone who can add to the experience
-// may ask; each moment says whether they may change it, by the rule `update`
-// uses: its author, or the owner.
 export const read = internalQuery({
-  // The open moment comes from the page's address, so a bad id is ignored.
   args: { eventId: v.id("events"), openMomentId: v.optional(v.string()) },
   returns: vContext,
   handler: async (ctx, args): Promise<Context> => {
     const { userId, event, role } = await requireEventAccess(ctx, args.eventId, "contributor");
     assertNotArchived(event);
-    const all = await listForEvent(ctx, event);
+    const all = await listForEvent(ctx, event, { userId, role });
     const openId =
       args.openMomentId === undefined ? null : ctx.db.normalizeId("moments", args.openMomentId);
     const anchor = all.find((m) => m._id === openId)?.startsAt ?? Date.now();
@@ -138,7 +107,9 @@ export const read = internalQuery({
             .slice(0, LIST_CAP)
             .sort((a, b) => a.startsAt - b.startsAt);
     const moments = kept.map((m): Line => {
-      const said = m.blocks.find((b) => b.type === "note" || b.type === "feeling");
+      const said = m.blocks.flatMap((b) =>
+        b.type === "note" || b.type === "feeling" ? [b.text] : [],
+      )[0];
       return {
         id: m._id,
         startsAt: m.startsAt,
@@ -151,11 +122,8 @@ export const read = internalQuery({
           transport: s.transport,
         })),
         labels: m.labels,
-        note:
-          said === undefined || (said.type !== "note" && said.type !== "feeling")
-            ? undefined
-            : said.text.slice(0, NOTE_PREVIEW),
-        editable: role === "owner" || m.authorId === userId,
+        note: said?.slice(0, NOTE_PREVIEW),
+        editable: mayChangeMoment(m, userId, role),
       };
     });
     const open = moments.findIndex((m) => m.id === openId);
@@ -174,8 +142,6 @@ export const read = internalQuery({
   },
 });
 
-// ---- Jev: what is being asked ------------------------------------------------
-
 const INTENTS = {
   new: "It tells what happened, or is a note to keep, and asks for nothing already saved to change.",
   change:
@@ -186,15 +152,12 @@ const INTENTS = {
 } as const;
 type Intent = keyof typeof INTENTS;
 
-const isIntent = (value: string): value is Intent => {
-  return value in INTENTS;
-};
+const isIntent = (value: string): value is Intent => value in INTENTS;
 
 export type Verdict = { intent: Intent | undefined; removes: number | undefined };
 
 type Answers = Record<string, Experimental_DecisionAnswer<Experimental_DecisionQuestion>>;
 
-// A choice counts when Jev gives it at least even odds, as in decide.ts.
 export const readVerdict = (answers: Answers): Verdict => {
   const intent = answers.intent;
   const removes = answers.removes;
@@ -209,31 +172,23 @@ export const readVerdict = (answers: Answers): Verdict => {
   };
 };
 
-const judge = async (
-  ctx: ActionCtx,
-  userId: string,
-  text: string,
-  open: boolean,
-): Promise<Verdict> => {
+const judge = async (text: string, open: boolean): Promise<Verdict> => {
   try {
-    const answers = await metered(ctx, { userId, feature: "intent", model: JEV }, async () => {
-      const out = await experimental_decide({
-        model: jevModel(),
-        state: { text, momentOpenOnScreen: open },
-        questions: {
-          intent: {
-            type: "choice",
-            instructions: "What is the person asking for? Read `text`. Say which of these it is.",
-            criteria: INTENTS,
-          },
-          removes: {
-            type: "boolean",
-            instructions:
-              "Does `text` ask to delete or remove something that is already saved (a moment, a stop, a note or a label)?",
-          },
+    const { answers } = await experimental_decide({
+      model: jevModel(),
+      state: { text, momentOpenOnScreen: open },
+      questions: {
+        intent: {
+          type: "choice",
+          instructions: "What is the person asking for? Read `text`. Say which of these it is.",
+          criteria: INTENTS,
         },
-      });
-      return { result: out.answers, usage: out.usage, providerMetadata: out.providerMetadata };
+        removes: {
+          type: "boolean",
+          instructions:
+            "Does `text` ask to delete or remove something that is already saved (a moment, a stop, a note or a label)?",
+        },
+      },
     });
     return readVerdict(answers);
   } catch (error) {
@@ -244,14 +199,10 @@ const judge = async (
 
 const REMOVAL_WORDS = /\b(delete|remove|drop|erase|cancel|get rid of|take out|scrap)\b/i;
 
-// A removal Haiku proposes is kept only when Jev, asked separately, agrees the
-// sentence asks for one. Without Jev's answer the plain words decide.
 export const allowsRemoval = (verdict: Verdict, text: string): boolean => {
   if (verdict.removes !== undefined) return verdict.removes >= 0.5;
   return verdict.intent === "remove" || REMOVAL_WORDS.test(text);
 };
-
-// ---- Haiku: the plan ----------------------------------------------------------
 
 const INSTRUCTIONS = [
   "You turn one sentence from the person into changes to their trip experience. Reply with the operations needed, in `ops`.",
@@ -287,27 +238,16 @@ const rawPlan = z.object({
       labels: z.array(z.string().max(MAX_LABEL_LENGTH)).max(MAX_LABELS_PER_MOMENT).optional(),
     }),
   ),
-  // Longer than the limit is cut in resolvePlan, not refused here.
 });
 export type RawPlan = z.infer<typeof rawPlan>;
 
-const planner = new Agent(components.agent, {
-  name: "Scribe",
-  languageModel: scribeModel,
-  instructions: INSTRUCTIONS,
-  storageOptions: { saveMessages: "none" },
-});
-
 const pad = (n: number) => String(n).padStart(2, "0");
 
-// The clock where it happened: "2025-02-20T17:29".
 export const localOf = (ms: number, offset: number): string => {
   const d = new Date(ms + offset * 60_000);
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 };
 
-// The instant a local time names at `offset`. A bare date keeps `clock`
-// (HH:mm). Undefined for a date that doesn't exist, like the 31st of February.
 export const fromLocal = (when: string, offset: number, clock: string): number | undefined => {
   const full = when.length === 10 ? `${when}T${clock}` : when;
   const at = Date.parse(`${full}:00Z`);
@@ -315,9 +255,6 @@ export const fromLocal = (when: string, offset: number, clock: string): number |
   return at - offset * 60_000;
 };
 
-// Notes and labels are other people's words, so they are data in the prompt,
-// never instructions: a removal in the plan still needs Jev's separate yes
-// about what the person themselves typed, and the person approves the plan.
 const describeLine = (line: Line, n: number, zone: number): string => {
   const offset = line.tzOffsetMinutes ?? zone;
   const route = [
@@ -353,18 +290,8 @@ const trimmed = (s: string | undefined) => {
   return t === undefined || t === "" ? undefined : t;
 };
 
-// How far down a plan an operation goes: new moments first, whole moments last,
-// so a stop's number still means what it did when the plan was read.
-const rank = (op: Op) =>
-  op.op === "add"
-    ? 0
-    : op.op === "edit"
-      ? 1
-      : op.op === "addStop"
-        ? 2
-        : op.stop !== undefined
-          ? 3
-          : 4;
+const RANK = { add: 0, edit: 1, addStop: 2, remove: 4 };
+const rank = (op: Op) => (op.op === "remove" && op.stop !== undefined ? 3 : RANK[op.op]);
 export const orderOps = (ops: Op[]): Op[] => {
   return ops
     .map((op, i) => ({ op, i }))
@@ -372,9 +299,9 @@ export const orderOps = (ops: Op[]): Op[] => {
     .map(({ op }) => op);
 };
 
-// Checks the model's plan against what exists, and turns numbers into ids and
-// local times into instants. Anything that doesn't hold up is dropped and
-// explained in `needs`, so a wrong guess never reaches Apply.
+const FIRST_EXTRA_STOP = 2;
+const extraStopIndex = (stop: number) => stop - FIRST_EXTRA_STOP;
+
 export const resolvePlan = (
   raw: RawPlan,
   c: Context,
@@ -431,7 +358,7 @@ export const resolvePlan = (
         said.push(`That moment has only ${stops} ${stops === 1 ? "stop" : "stops"}.`);
         continue;
       }
-      const target = stop === 1 ? m.startsAt : m.stops[stop - 2]?.startsAt;
+      const target = stop === 1 ? m.startsAt : m.stops[extraStopIndex(stop)]?.startsAt;
       const startsAt =
         r.when === undefined ? undefined : fromLocal(r.when, offset, clockOf(target));
       if (r.when !== undefined && startsAt === undefined) {
@@ -458,7 +385,7 @@ export const resolvePlan = (
         said.push("A new stop needs a place or a few words.");
         continue;
       }
-      if (m.stops.length >= MAX_STOPS_PER_MOMENT - 1) {
+      if (m.stops.length >= MAX_EXTRA_STOPS_PER_MOMENT) {
         said.push("That moment can't take more stops.");
         continue;
       }
@@ -485,7 +412,6 @@ export const resolvePlan = (
       continue;
     }
 
-    // remove
     if (!o.removesOk) {
       said.push(`I left out a removal. If you meant it, say "delete" and what.`);
       continue;
@@ -507,7 +433,6 @@ export const resolvePlan = (
     ops.push({ op: "remove", momentId: m.id, stop: r.stop });
   }
 
-  // Nothing else touches a moment that is going.
   const kept = ops.filter(
     (op) => op.op === "remove" || op.momentId === undefined || !removed.has(op.momentId),
   );
@@ -520,8 +445,6 @@ const propose = action({
     eventId: v.id("events"),
     text: v.string(),
     openMomentId: v.optional(v.string()),
-    // The person's own offset, minutes east of UTC: for new moments with no
-    // other zone to go by.
     zone: v.number(),
   },
   handler: async (ctx, args): Promise<Proposal> => {
@@ -547,10 +470,8 @@ const propose = action({
     }
 
     const t0 = Date.now();
-    const verdict = await judge(ctx, found.userId, text, found.open !== undefined);
+    const verdict = await judge(text, found.open !== undefined);
     const judged = Date.now() - t0;
-    // Just something that happened: no plan, no preview. The app saves it as a
-    // moment, as it always did.
     if (verdict.intent === "new") return { kind: "new" };
     if (verdict.intent === "unclear") {
       return {
@@ -563,45 +484,34 @@ const propose = action({
 
     const zone = found.zone ?? args.zone;
     const prompt = promptFor(found, text, Date.now(), zone);
-    const threadId = await createThread(ctx, components.agent);
     let plan: RawPlan;
     try {
-      plan = await generateStructured(
-        ctx,
-        planner,
-        threadId,
-        {
-          schema: rawPlan,
-          messages: [{ role: "user", content: prompt }],
-          jsonInstructions: JSON_INSTRUCTIONS,
-          maxOutputTokens: MAX_OUTPUT_TOKENS,
-        },
-        { userId: found.userId, feature: "plan" },
-      );
+      plan = await generateStructured({
+        schema: rawPlan,
+        instructions: INSTRUCTIONS,
+        jsonInstructions: JSON_INSTRUCTIONS,
+        messages: [{ role: "user", content: prompt }],
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+      });
     } catch (error) {
       console.warn("Scribe couldn't plan a request:", skipReason(error));
+      await creditAi(ctx, found.userId);
       throw new ConvexError({
         code: "AI_UNAVAILABLE",
         message:
           'I couldn\'t read that just now. Try again, or save it as a moment with "Add as a moment".',
       });
-    } finally {
-      // The thread held nothing; without this each request would leave a row behind.
-      await planner.deleteThreadSync(ctx, { threadId }).catch(() => undefined);
     }
     const { ops, needs } = resolvePlan(plan, found, {
       removesOk: allowsRemoval(verdict, text),
       zone,
     });
-    // Timings only, never the text: what is slow, if anything is.
     console.log(
       `command: Jev ${judged} ms, Haiku ${Date.now() - t0 - judged} ms, total ${Date.now() - started} ms, intent ${verdict.intent ?? "unsure"}`,
     );
     return { kind: "plan", summary: plan.summary, needs, ops };
   },
 });
-
-// ---- Apply: all of it, or none of it ----------------------------------------
 
 const human = (userId: Id<"users">) => ({ kind: "human" as const, userId });
 
@@ -610,7 +520,7 @@ const changeableMoment = async (
   eventId: Id<"events">,
   momentId: Id<"moments"> | undefined,
   userId: Id<"users">,
-  role: string,
+  role: EventRole,
 ): Promise<Doc<"moments">> => {
   const moment = momentId === undefined ? null : await ctx.db.get("moments", momentId);
   if (moment === null || moment.eventId !== eventId) {
@@ -619,8 +529,7 @@ const changeableMoment = async (
       message: "A moment in this change no longer exists.",
     });
   }
-  // The rule `update` and `remove` use.
-  if (role !== "owner" && moment.authorId !== userId) {
+  if (!mayChangeMoment(moment, userId, role)) {
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "You can only change moments you added yourself.",
@@ -632,11 +541,9 @@ const changeableMoment = async (
 const noMore = (what: string) =>
   new ConvexError({ code: "FULL", message: `That moment can't take any more ${what}.` });
 
-// One op's writes. The experience is read fresh each time: an earlier op may
-// have changed its moment count.
 const runOp = async (
   ctx: MutationCtx,
-  args: { eventId: Id<"events">; userId: Id<"users">; role: string; op: Op },
+  args: { eventId: Id<"events">; userId: Id<"users">; role: EventRole; op: Op },
 ): Promise<{ created?: Id<"moments">; removed: Id<"media">[] }> => {
   const { eventId, userId, role, op } = args;
   const event = await ctx.db.get("events", eventId);
@@ -646,7 +553,6 @@ const runOp = async (
     const note = trimmed(op.note);
     if (note === undefined) invalid("note", "A new moment needs a few words to go with it.");
     const created = await createMoment(ctx, {
-      event,
       userId,
       actor: human(userId),
       input: {
@@ -688,12 +594,11 @@ const runOp = async (
         patch.blocks = [...view.blocks, { type: "note", text: note }];
       }
     } else {
-      const was = stops[stop - 2];
+      const was = stops[extraStopIndex(stop)];
       if (was === undefined) invalid("stop", "That moment doesn't have that stop.");
       if (note !== undefined && was.blocks.length >= MAX_BLOCKS_PER_MOMENT) throw noMore("items");
-      stops[stop - 2] = {
+      stops[extraStopIndex(stop)] = {
         startsAt: op.startsAt ?? was.startsAt,
-        // A new place without a pin drops the old pin, as in the editor.
         place: op.place === undefined ? was.place : op.place || undefined,
         geo: op.place === undefined ? was.geo : op.geo,
         transport: op.transport === undefined ? was.transport : (op.transport ?? undefined),
@@ -702,12 +607,12 @@ const runOp = async (
       patch.stops = stops;
     }
   } else if (op.op === "addStop") {
-    if (stops.length >= MAX_STOPS_PER_MOMENT - 1) throw noMore("stops");
+    if (stops.length >= MAX_EXTRA_STOPS_PER_MOMENT) throw noMore("stops");
     if (op.place === undefined && note === undefined)
       invalid("place", "A new stop needs a place or a few words.");
     const at = Math.max(
       0,
-      Math.min(op.after === undefined ? stops.length : op.after - 1, stops.length),
+      Math.min(op.after === undefined ? stops.length : extraStopIndex(op.after) + 1, stops.length),
     );
     stops.splice(at, 0, {
       startsAt: op.startsAt,
@@ -718,10 +623,9 @@ const runOp = async (
     });
     patch.stops = stops;
   } else {
-    // remove a stop after the first
-    if (stop === 1 || stops[stop - 2] === undefined)
+    if (stop === 1 || stops[extraStopIndex(stop)] === undefined)
       invalid("stop", "That moment doesn't have that stop.");
-    stops.splice(stop - 2, 1);
+    stops.splice(extraStopIndex(stop), 1);
     patch.stops = stops;
   }
 
@@ -748,9 +652,6 @@ const summaryOf = (ops: Op[]): string => {
     .join(", ");
 };
 
-// Applies a plan the person approved. One transaction: if any operation is
-// refused (a moment gone, a stop that isn't there, a limit), nothing changes.
-// Photos dropped along the way come back so the app can clear them from R2.
 const apply = mutation({
   args: { eventId: v.id("events"), ops: v.array(vOp) },
   handler: async (ctx, args) => {
@@ -760,7 +661,6 @@ const apply = mutation({
     if (args.ops.length > MAX_COMMAND_OPS)
       invalid("ops", `A request can change at most ${MAX_COMMAND_OPS} things.`);
 
-    // One structural change per moment, and nothing else on a moment that goes.
     const structural = new Set<string>();
     const going = new Set(
       args.ops.flatMap((o) =>
@@ -789,5 +689,4 @@ const apply = mutation({
   },
 });
 
-// What the app calls. Registered once, by convex/api/ai/command.ts, which re-exports it.
 export const commandApi = { propose, apply };

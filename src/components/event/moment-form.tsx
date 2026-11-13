@@ -1,9 +1,12 @@
-import { useAuthToken } from "@convex-dev/auth/react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import { useForm } from "@tanstack/react-form";
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   ArrowDownIcon,
   ArrowUpIcon,
+  EyeIcon,
+  EyeOffIcon,
   ImageIcon,
   PlusIcon,
   Trash2Icon,
@@ -36,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useCurrentAuthToken } from "@/hooks/use-current-auth-token";
 import { deletePhotos } from "@/lib/actions";
 import { errorMessage } from "@/lib/errors";
 import { fromInput, toInput } from "@/lib/local-time";
@@ -46,14 +50,13 @@ import { cn } from "@/lib/utils";
 const MOODS = ["😊", "😍", "😌", "😂", "🥹", "😴"];
 const MAX_STOPS = 10;
 
-type Media = { mediaId: string; kind: "photo" | "video"; name: string };
+// `hidden`: kept from everyone but the experience's owners and whoever wrote the moment.
+type Media = { mediaId: string; kind: "photo" | "video"; name: string; hidden?: boolean };
 
 type StopValue = {
   transport: Transport | "";
   startsAt: string;
   place: string;
-  // Set by picking a suggested place (typing clears it), or read from a
-  // photo's GPS (`geoFromPhoto`; typing keeps it).
   geo?: Geo;
   geoFromPhoto?: boolean;
   media: Media[];
@@ -65,7 +68,7 @@ type StopValue = {
 
 const schema = z.object({
   labels: z.string().max(500, "At most 500 characters"),
-  people: z.array(z.string()),
+  people: z.array(z.custom<Id<"users">>()),
   stops: z.array(
     z.object({
       transport: z.enum(["", ...TRANSPORT_VALUES]),
@@ -74,7 +77,12 @@ const schema = z.object({
       geo: z.object({ lat: z.number(), lng: z.number() }).optional(),
       geoFromPhoto: z.boolean().optional(),
       media: z.array(
-        z.object({ mediaId: z.string(), kind: z.enum(["photo", "video"]), name: z.string() }),
+        z.object({
+          mediaId: z.string(),
+          kind: z.enum(["photo", "video"]),
+          name: z.string(),
+          hidden: z.boolean().optional(),
+        }),
       ),
       notes: z.array(z.string().max(5000, "At most 5000 characters")),
       links: z.array(
@@ -109,7 +117,6 @@ const stopValuesOf = (moment: MomentView): StopValue[] => {
     const feeling = s.blocks.find((b) => b.type === "feeling");
     return {
       transport: s.transport ?? "",
-      // Shown on the clock where the moment happened, as the story shows it.
       startsAt: s.startsAt === undefined ? "" : toInput(s.startsAt, moment.tzOffsetMinutes),
       place: s.place ?? "",
       geo: s.geo,
@@ -120,6 +127,7 @@ const stopValuesOf = (moment: MomentView): StopValue[] => {
                 mediaId: b.mediaId,
                 kind: b.type,
                 name: b.type === "photo" ? "Saved photo" : "Saved video",
+                hidden: b.hidden,
               },
             ]
           : [],
@@ -132,8 +140,6 @@ const stopValuesOf = (moment: MomentView): StopValue[] => {
   });
 };
 
-// Edits a moment: a journey of stops, each with its time, place, photos and
-// words. Deleting it lives here too.
 export const MomentForm = ({
   eventId,
   moment,
@@ -144,71 +150,56 @@ export const MomentForm = ({
   onDone?: () => void;
 }) => {
   const update = useMutation(api.moments.update);
-  // Who can be tagged. Most trips fit in the first page; a bigger one shows
-  // "More people".
   const people = usePaginatedQuery(api.sessions.members, { eventId }, { initialNumItems: 50 });
   const members = people.status === "LoadingFirstPage" ? undefined : people.results;
-  // The form holds ids as strings; these are the people they name: those
-  // tagged before and those loaded here.
-  const idOf = new Map<string, Id<"users">>([
-    ...moment.people.map((p) => [p.userId, p.userId] as const),
-    ...people.results.map((m) => [m.userId, m.userId] as const),
-  ]);
-  // Someone who has since left the trip drops off; the server refuses them.
-  // That's only known with everyone loaded: a person on an unread page isn't gone.
-  const onTrip = (id: string) =>
+  const onTripOrStillLoading = (id: Id<"users">) =>
     people.status !== "Exhausted" || people.results.some((m) => m.userId === id);
   const remove = useMutation(api.moments.remove);
+  const setArchived = useMutation(api.moments.setArchived);
+  const archive = async () => {
+    try {
+      await setArchived({ momentId: moment._id, archived: !moment.archived });
+      toast.success(
+        moment.archived
+          ? "Moment restored"
+          : "Moment archived. Only you and the experience's owners see it now.",
+      );
+      onDone?.();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const [confirming, setConfirming] = useState(false);
-  const token = useAuthToken();
-  // The stop whose photos are uploading, if any.
+  const currentToken = useCurrentAuthToken();
   const [uploadingStop, setUploadingStop] = useState<number | null>(null);
   const uploading = uploadingStop !== null;
-  // Unique ids, so labels stay tied to their inputs wherever this renders.
   const uid = useId();
-  // Set while a save is in flight: a second Enter or click must not create
-  // the moment twice.
   const saving = useRef(false);
 
-  // Uploads from this session that no saved moment uses yet. They count
-  // toward the experience's upload cap, so they're deleted (best effort) when
-  // removed or abandoned. Photos already saved on `moment` are never here.
   const unsaved = useRef(new Set<string>());
-  // The files uploaded in this session, by media id: a new moment's AI
-  // thumbnails come from them.
-  const picked = useRef(new Map<string, File>());
   const closed = useRef(false);
-  const latestToken = useRef(token);
-  useEffect(() => {
-    latestToken.current = token;
-  }, [token]);
   useEffect(() => {
     closed.current = false;
     const ids = unsaved.current;
     return () => {
       closed.current = true;
-      // A save in flight settles these itself.
       if (saving.current) return;
-      if (ids.size > 0 && latestToken.current) void deletePhotos([...ids], latestToken.current);
+      const token = currentToken();
+      if (ids.size > 0 && token) void deletePhotos([...ids], token);
       ids.clear();
     };
   }, []);
   const discard = (mediaId: string) => {
-    picked.current.delete(mediaId);
-    if (unsaved.current.delete(mediaId) && latestToken.current)
-      void deletePhotos([mediaId], latestToken.current);
+    const token = currentToken();
+    if (unsaved.current.delete(mediaId) && token) void deletePhotos([mediaId], token);
   };
-  // After a save: uploads the moment now uses are its own; any others (say,
-  // on a removed stop) are returned for deletion.
   const settle = (stops: StopValue[]) => {
     const kept = new Set(stops.flatMap((s) => s.media.map((m) => m.mediaId)));
     const dropped = [...unsaved.current].filter((id) => !kept.has(id));
     unsaved.current.clear();
-    picked.current.clear();
     return dropped;
   };
 
-  // Link titles aren't editable here; keep them for links that stay.
   const linkTitles = new Map(
     stopsOf(moment)
       .flatMap((s) => s.blocks)
@@ -216,7 +207,11 @@ export const MomentForm = ({
   );
 
   const toBlocks = (s: StopValue) => [
-    ...s.media.map((m) => ({ type: m.kind, mediaId: m.mediaId as Id<"media"> })),
+    ...s.media.map((m) => ({
+      type: m.kind,
+      mediaId: m.mediaId as Id<"media">,
+      ...(m.hidden && { hidden: true }),
+    })),
     ...s.links
       .filter(Boolean)
       .map((url) => ({ type: "link" as const, url, title: linkTitles.get(url) })),
@@ -229,7 +224,7 @@ export const MomentForm = ({
   const form = useForm({
     defaultValues: {
       labels: moment.labels.join(", ") ?? "",
-      people: moment.people.map((p): string => p.userId),
+      people: moment.people.map((p) => p.userId),
       stops: stopValuesOf(moment),
     },
     validators: { onChange: schema },
@@ -239,8 +234,6 @@ export const MomentForm = ({
         toast.error("Pick when the first stop happened");
         return;
       }
-      // A feeling needs words; the server rejects a mood on its own, so say
-      // so rather than dropping it.
       const moodOnly = value.stops.findIndex((s) => s.mood && !s.feeling.trim());
       if (moodOnly !== -1) {
         toast.error(
@@ -260,12 +253,9 @@ export const MomentForm = ({
         toast.error(`Stop ${emptyStopAt + 2} needs a place or something to share`);
         return;
       }
-      // An edited moment's times are read in the zone it happened in, as they
-      // show. A new moment, or one with no zone yet, reads them in the viewer's.
       const zone = moment.tzOffsetMinutes;
       const startsAt = fromInput(first.startsAt, zone);
       const tzOffsetMinutes = zone ?? -new Date(first.startsAt).getTimezoneOffset();
-      // Coordinates only go with a place.
       const geoOf = (s: StopValue) => (s.place.trim() ? s.geo : undefined);
       const stops = rest.map((s, i) => ({
         startsAt: s.startsAt ? fromInput(s.startsAt, zone) : undefined,
@@ -279,9 +269,6 @@ export const MomentForm = ({
         .map((l) => l.trim())
         .filter(Boolean);
       try {
-        // The time, and with it the zone and the day the moment is grouped
-        // under, only change when the first stop's time did. Fixing a typo
-        // keeps the author's day.
         const timeChanged = first.startsAt !== toInput(moment.startsAt, zone);
         const { removedMediaIds } = await update({
           momentId: moment._id,
@@ -292,16 +279,12 @@ export const MomentForm = ({
           blocks: blocksPerStop[0]!,
           stops,
           labels,
-          people: value.people.flatMap((id) => {
-            const user = idOf.get(id);
-            return user !== undefined && onTrip(id) ? [user] : [];
-          }),
+          people: value.people.filter(onTripOrStillLoading),
         });
         const dropped = settle(value.stops);
-        if (latestToken.current)
-          await deletePhotos([...removedMediaIds, ...dropped], latestToken.current);
+        const token = currentToken();
+        if (token) await deletePhotos([...removedMediaIds, ...dropped], token);
         toast.success("Moment saved");
-        // Closed mid-save: whatever is open now isn't this form's to close.
         if (!closed.current) onDone?.();
       } catch (e) {
         toast.error(errorMessage(e));
@@ -313,26 +296,22 @@ export const MomentForm = ({
     const files = Array.from(input.files ?? []);
     // Cleared, so picking the same file again (after removing it) still works.
     input.value = "";
-    if (files.length === 0 || !latestToken.current) return;
+    if (files.length === 0 || !currentToken()) return;
     setUploadingStop(stop);
-    // Read before any upload: the uploaded copy has its camera details stripped.
     const metas = await Promise.all(
       files.map((file) => readPhotoMeta(file).catch((): PhotoMeta => ({}))),
     );
     void fillFromPhotos(stop, combinePhotoMeta(metas));
     for (const file of files) {
-      // Read per file: tokens are short-lived.
-      const token = latestToken.current;
+      const token = currentToken();
       if (closed.current || !token) break;
       try {
         const mediaId = await uploadMedia(file, eventId, token);
-        // Closed mid-upload: nothing will ever save this one.
         if (closed.current) {
-          void deletePhotos([mediaId], latestToken.current ?? token);
+          void deletePhotos([mediaId], currentToken() ?? token);
           break;
         }
         unsaved.current.add(mediaId);
-        picked.current.set(mediaId, file);
         form.pushFieldValue(`stops[${stop}].media`, {
           mediaId,
           kind: isVideoFile(file) ? "video" : "photo",
@@ -345,10 +324,6 @@ export const MomentForm = ({
     setUploadingStop(null);
   };
 
-  // A stop with no time takes the earliest the photos were taken, and one
-  // with no location the first photo GPS, then, if its Where is empty, a name
-  // for that spot from OpenStreetMap. Typed text is never overwritten. Stops
-  // can't move while photos upload, so `stop` still points at the same one.
   const fillFromPhotos = async (stop: number, { takenAt, geo }: PhotoMeta) => {
     const current = form.state.values.stops[stop];
     if (closed.current || !current) return;
@@ -365,8 +340,6 @@ export const MomentForm = ({
       form.setFieldValue(`stops[${stop}].place`, label);
   };
 
-  // Where to centre place search for stop `i`: the nearest earlier stop on
-  // the map, else any stop of this moment that is.
   const biasFor = (i: number) => {
     const stops = form.state.values.stops;
     return (
@@ -377,7 +350,6 @@ export const MomentForm = ({
     );
   };
 
-  // One stop's fields. `i` addresses the stop inside the form's array.
   const stopFields = (i: number) => {
     const id = (name: string) => `${uid}-stop-${i}-${name}`;
     return (
@@ -423,7 +395,6 @@ export const MomentForm = ({
               </Field>
             )}
           </form.Field>
-          {/* The place's text, its pin and where the pin came from. */}
           <form.Field name={`stops[${i}].place`}>
             {(f) => (
               <form.Field name={`stops[${i}].geo`}>
@@ -489,7 +460,10 @@ export const MomentForm = ({
                       {m.kind === "video" ? (
                         <div
                           title={m.name}
-                          className="grid aspect-square place-items-center rounded-md bg-muted text-muted-foreground"
+                          className={cn(
+                            "grid aspect-square place-items-center rounded-md bg-muted text-muted-foreground",
+                            m.hidden && "opacity-40",
+                          )}
                         >
                           <VideoIcon aria-hidden className="size-5" />
                           <span className="sr-only">{m.name}</span>
@@ -501,9 +475,23 @@ export const MomentForm = ({
                           width={160}
                           height={160}
                           sizes="160px"
-                          className="aspect-square rounded-md"
+                          className={cn("aspect-square rounded-md", m.hidden && "opacity-40")}
                         />
                       )}
+                      <button
+                        type="button"
+                        aria-pressed={m.hidden === true}
+                        aria-label={`Hide ${m.name} from other people`}
+                        title={m.hidden ? "Hidden from other people" : "Hide from other people"}
+                        onClick={() => f.replaceValue(j, { ...m, hidden: !m.hidden })}
+                        className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm ring-1 ring-border outline-none hover:bg-background focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {m.hidden ? (
+                          <EyeOffIcon className="size-3.5" />
+                        ) : (
+                          <EyeIcon className="size-3.5" />
+                        )}
+                      </button>
                       <button
                         type="button"
                         aria-label={`Remove ${m.name}`}
@@ -521,6 +509,11 @@ export const MomentForm = ({
                     <li aria-hidden className="aspect-square animate-pulse rounded-md bg-muted" />
                   )}
                 </ul>
+              )}
+              {f.state.value.some((m) => m.hidden) && (
+                <FieldDescription>
+                  Hidden ones are only seen by you and the experience's owners.
+                </FieldDescription>
               )}
             </Field>
           )}
@@ -627,9 +620,9 @@ export const MomentForm = ({
         saving.current = true;
         void form.handleSubmit().finally(() => {
           saving.current = false;
-          // Closed mid-save and it failed: nothing will save these now.
-          if (closed.current && unsaved.current.size > 0 && latestToken.current) {
-            void deletePhotos([...unsaved.current], latestToken.current);
+          const token = currentToken();
+          if (closed.current && unsaved.current.size > 0 && token) {
+            void deletePhotos([...unsaved.current], token);
             unsaved.current.clear();
           }
         });
@@ -651,7 +644,6 @@ export const MomentForm = ({
         )}
       </form.Field>
 
-      {/* Only worth asking once someone else is on the trip. */}
       {members !== undefined && members.length > 1 && (
         <form.Field name="people">
           {(f) => (
@@ -706,8 +698,6 @@ export const MomentForm = ({
                 <fieldset key={i} className="space-y-4 rounded-lg border p-3">
                   <div className="flex items-center justify-between gap-2">
                     <legend className="text-sm font-medium">Stop {i + 1}</legend>
-                    {/* Locked during uploads: a finished upload lands on the
-                        stop at the index it started from. */}
                     <div className="flex items-center gap-0.5">
                       <Button
                         type="button"
@@ -759,7 +749,6 @@ export const MomentForm = ({
       </form.Field>
 
       <div className="flex gap-2">
-        {/* Subscribed, so the button re-renders (and disables) while saving. */}
         <form.Subscribe selector={(state) => state.isSubmitting}>
           {(submitting) => (
             <>
@@ -774,7 +763,17 @@ export const MomentForm = ({
               <Button
                 type="button"
                 variant="ghost"
-                className="ml-auto text-destructive"
+                className="ml-auto"
+                disabled={submitting || uploading}
+                onClick={() => void archive()}
+              >
+                {moment.archived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
+                {moment.archived ? "Restore" : "Archive"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-destructive"
                 disabled={submitting || uploading}
                 onClick={() => setConfirming(true)}
               >
@@ -792,7 +791,8 @@ export const MomentForm = ({
         confirmLabel="Delete moment"
         onConfirm={async () => {
           const { removedMediaIds } = await remove({ momentId: moment._id });
-          if (latestToken.current) await deletePhotos(removedMediaIds, latestToken.current);
+          const token = currentToken();
+          if (token) await deletePhotos(removedMediaIds, token);
           toast.success("Moment deleted");
           onDone?.();
         }}

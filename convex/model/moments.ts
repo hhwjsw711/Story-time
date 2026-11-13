@@ -1,10 +1,17 @@
 import { ConvexError, v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import type { Infer, ObjectType } from "convex/values";
-import { internal } from "../_generated/api";
 import { mutation, query } from "../_generated/server";
 import { MOMENT_LIMIT, momentsToRead } from "../lib/limits";
-import { assertNotArchived, getEventAccessFor, requireEventAccess } from "../lib/access";
+import {
+  assertNotArchived,
+  denyAsNotFound,
+  getEventAccessFor,
+  mayChangeMoment,
+  type Reader,
+  requireEventAccess,
+  seesAllOf,
+} from "../lib/access";
 import { changeFields, lastEditOf, type Actor } from "../lib/actors";
 import {
   checkOffset,
@@ -18,16 +25,14 @@ import {
 } from "../lib/blocks";
 import { vGeo, vTransport } from "../schema";
 import { recordChange } from "../lib/changes";
-import { datesBefore } from "../lib/cover";
 import { decryptGeo, decryptText } from "../lib/crypto";
 import { monthDayOf } from "../lib/monthDay";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
-// The decrypted shape clients send and receive.
 export const vPlainBlock = v.union(
-  v.object({ type: v.literal("photo"), mediaId: v.id("media") }),
-  v.object({ type: v.literal("video"), mediaId: v.id("media") }),
+  v.object({ type: v.literal("photo"), mediaId: v.id("media"), hidden: v.optional(v.boolean()) }),
+  v.object({ type: v.literal("video"), mediaId: v.id("media"), hidden: v.optional(v.boolean()) }),
   v.object({
     type: v.literal("link"),
     url: v.string(),
@@ -42,11 +47,9 @@ export const vPlainBlock = v.union(
 );
 export type PlainBlock = Infer<typeof vPlainBlock>;
 
-// A stop after the first, as clients send and receive it.
 export const vPlainStop = v.object({
   startsAt: v.optional(v.number()),
   place: v.optional(v.string()),
-  // Where the place is on the map; only with a place.
   geo: v.optional(vGeo),
   transport: v.optional(vTransport),
   blocks: v.array(vPlainBlock),
@@ -56,31 +59,25 @@ export type PlainStop = Infer<typeof vPlainStop>;
 export const vMomentView = v.object({
   _id: v.id("moments"),
   authorId: v.id("users"),
-  // The author's display name, if they set one. Nothing else from their profile.
   authorName: v.optional(v.string()),
-  // Set when an agent added the moment for `authorId`: the agent's name.
   authorAgent: v.optional(v.string()),
-  // Present once the moment has been edited: when, by which person (for an
-  // agent's edit, the person it acts for) and by which agent, if one did.
   editedAt: v.optional(v.number()),
-  // The person's id (an agent's edit: the one it acts for; Scribe's: none), so
-  // someone with no display name is still known to be a person.
   editedById: v.optional(v.id("users")),
   editedByName: v.optional(v.string()),
   editedByAgent: v.optional(v.string()),
   startsAt: v.number(),
-  // Minutes east of UTC where it happened, so its times read in that zone.
   tzOffsetMinutes: v.optional(v.number()),
   place: v.optional(v.string()),
   geo: v.optional(vGeo),
   blocks: v.array(vPlainBlock),
-  // How they got to the first stop; `stops` are the ones after it.
   transport: v.optional(vTransport),
   stops: v.array(vPlainStop),
   labels: v.array(v.string()),
-  // Who was there: people on the trip, by name when they set one.
   people: v.array(v.object({ userId: v.id("users"), name: v.optional(v.string()) })),
+  // Only ever true, and only for a reader the moment holds nothing back from.
+  archived: v.optional(v.boolean()),
 });
+type MomentView = Infer<typeof vMomentView>;
 
 const viewBlocks = async (
   event: Doc<"events">,
@@ -152,18 +149,29 @@ export const viewMoment = async (
         name: (await ctx.db.get("users", userId))?.displayName,
       })),
     ),
+    archived: moment.archived,
   };
 };
 
-// What a new moment takes. `create` takes these as they are; an agent adds
-// a moment through the same write.
+// The moment as a reader gets it. Someone it holds nothing back from gets it
+// whole. Anyone else gets it without its hidden photos and videos, and not at
+// all when it is archived or nothing of it is left to show.
+export const momentFor = (view: MomentView, seesAll: boolean): MomentView | null => {
+  if (seesAll) return view;
+  if (view.archived === true) return null;
+  const shown = (blocks: PlainBlock[]) =>
+    blocks.filter((b) => !((b.type === "photo" || b.type === "video") && b.hidden === true));
+  const blocks = shown(view.blocks);
+  const stops = view.stops.map((stop) => ({ ...stop, blocks: shown(stop.blocks) }));
+  if (blocks.length + stops.reduce((n, stop) => n + stop.blocks.length, 0) === 0) return null;
+  return { ...view, blocks, stops };
+};
+
 const momentCreate = {
   eventId: v.id("events"),
   startsAt: v.number(),
-  // Minutes east of UTC for the author's local day/month grouping.
   tzOffsetMinutes: v.optional(v.number()),
   place: v.optional(v.string()),
-  // Where the place is on the map; only with a place.
   geo: v.optional(vGeo),
   blocks: v.array(vPlainBlock),
   transport: v.optional(vTransport),
@@ -175,19 +183,18 @@ export type MomentCreate = ObjectType<typeof momentCreate>;
 const create = mutation({
   args: momentCreate,
   handler: async (ctx, args) => {
-    const { userId, event } = await requireEventAccess(ctx, args.eventId, "contributor");
-    return createMoment(ctx, { event, userId, actor: { kind: "human", userId }, input: args });
+    const { userId } = await requireEventAccess(ctx, args.eventId, "contributor");
+    return createMoment(ctx, { userId, actor: { kind: "human", userId }, input: args });
   },
 });
 
-// The write behind `create`, shared with agents. Access stays with the
-// caller; this checks the experience takes more moments and that the content
-// is valid. `userId` is the author: for an agent, the person it acts for.
 export const createMoment = async (
   ctx: MutationCtx,
-  args: { event: Doc<"events">; userId: Id<"users">; actor: Actor; input: MomentCreate },
+  args: { userId: Id<"users">; actor: Actor; input: MomentCreate },
 ): Promise<Id<"moments">> => {
-  const { event, userId, actor, input } = args;
+  const { userId, actor, input } = args;
+  const event = await ctx.db.get("events", input.eventId);
+  if (event === null) denyAsNotFound();
   assertNotArchived(event);
   if (event.momentCount >= MOMENT_LIMIT) {
     throw new ConvexError({
@@ -217,8 +224,6 @@ export const createMoment = async (
     hasPlace: place !== undefined,
   });
   const labels = await encodeLabels(event, input.labels ?? []);
-  // A dateless trip's cover runs from its first moment to its last.
-  const followCover = await datesBefore(ctx, event);
 
   const momentId = await ctx.db.insert("moments", {
     eventId: event._id,
@@ -242,7 +247,6 @@ export const createMoment = async (
     momentCount: event.momentCount + 1,
     status: event.status === "draft" ? "active" : event.status,
   });
-  await followCover(ctx);
 
   await recordChange(ctx, {
     eventId: event._id,
@@ -257,84 +261,74 @@ export const createMoment = async (
       stopCount: rest.stops.length + 1,
     },
   });
-  // The page is a later batch, not part of this write: a long import of photos
-  // must not decrypt and insert the whole book in one transaction.
-  await ctx.scheduler.runAfter(0, internal.model.journal.makePages, { eventId: event._id });
   return momentId;
 };
 
+// Every moment of the experience this reader may see, as they may see it.
 export const listForEvent = async (
   ctx: QueryCtx,
   event: Doc<"events">,
-): Promise<Array<Infer<typeof vMomentView>>> => {
+  reader: Reader,
+): Promise<MomentView[]> => {
   const moments = await ctx.db
     .query("moments")
     .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
     .take(momentsToRead(event.momentCount));
-  return Promise.all(moments.map((m) => viewMoment(ctx, event, m)));
+  const views = await Promise.all(
+    moments.map(async (m) => momentFor(await viewMoment(ctx, event, m), seesAllOf(reader, m))),
+  );
+  return views.filter((view) => view !== null);
 };
 
 const list = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    const { event } = await requireEventAccess(ctx, args.eventId, "viewer");
-    return listForEvent(ctx, event);
+    const { event, ...reader } = await requireEventAccess(ctx, args.eventId, "viewer");
+    return listForEvent(ctx, event, reader);
   },
 });
 
-// The same moments, oldest first, one page at a time: the moments list asks
-// for these, and only reads them all while searching.
 const page = query({
   args: {
     eventId: v.id("events"),
     paginationOpts: paginationOptsValidator,
-    // The latest moment first, for a list read from the top down.
     newestFirst: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { event } = await requireEventAccess(ctx, args.eventId, "viewer");
+    const { event, ...reader } = await requireEventAccess(ctx, args.eventId, "viewer");
     const result = await ctx.db
       .query("moments")
       .withIndex("by_event_and_startsAt", (q) => q.eq("eventId", event._id))
       .order(args.newestFirst === true ? "desc" : "asc")
       .paginate(args.paginationOpts);
-    return {
-      ...result,
-      page: await Promise.all(result.page.map((m) => viewMoment(ctx, event, m))),
-    };
+    const views = await Promise.all(
+      result.page.map(async (m) => momentFor(await viewMoment(ctx, event, m), seesAllOf(reader, m))),
+    );
+    // A page may come back short: the moments kept from this reader are in it.
+    return { ...result, page: views.filter((view) => view !== null) };
   },
 });
 
-// What an edit can change. `update` takes these with the moment's id; the AI
-// enrichment passes the same shape to `writeMomentUpdate`.
 const momentEdit = {
   startsAt: v.optional(v.number()),
   tzOffsetMinutes: v.optional(v.number()),
   place: v.optional(v.string()),
   geo: v.optional(vGeo),
   blocks: v.optional(v.array(vPlainBlock)),
-  // null clears it.
   transport: v.optional(v.union(vTransport, v.null())),
-  // Replace the whole list when passed.
   stops: v.optional(v.array(vPlainStop)),
   labels: v.optional(v.array(v.string())),
-  // Replace the whole list when passed; [] clears it.
   people: v.optional(v.array(v.id("users"))),
 };
 export type MomentEdit = ObjectType<typeof momentEdit>;
 
-// Edit a moment. Only fields that are passed change; "" clears the place.
-// `geo` travels with `place`: it's ignored without one, and a place passed
-// without it clears the old coordinates.
-// Returns photos dropped from the moment so the caller can delete them from
-// R2 (they are detached here; Convex can't reach R2).
 const update = mutation({
   args: { momentId: v.id("moments"), ...momentEdit },
   handler: async (ctx, args) => {
     const moment = await ctx.db.get("moments", args.momentId);
     if (moment === null) throw new Error("Moment not found");
     const { userId, event, role } = await requireEventAccess(ctx, moment.eventId, "contributor");
-    if (role !== "owner" && moment.authorId !== userId) {
+    if (!mayChangeMoment(moment, userId, role)) {
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "You can only edit your own moments",
@@ -351,9 +345,6 @@ const update = mutation({
   },
 });
 
-// Takes a photo off a moment. Its uploader may delete it afterwards, so they're
-// recorded as the detacher. Anyone else's photo stays for its uploader and the
-// experience owner to delete: someone who merely edits a moment gets no rights.
 const detachMedia = async (ctx: MutationCtx, mediaId: Id<"media">, userId: Id<"users">) => {
   const media = await ctx.db.get("media", mediaId);
   await ctx.db.patch("media", mediaId, {
@@ -362,17 +353,12 @@ const detachMedia = async (ctx: MutationCtx, mediaId: Id<"media">, userId: Id<"u
   });
 };
 
-// The write behind `update`, shared with the AI enrichment and with agents.
-// Encodes the edit, moves media on and off the moment, keeps the itinerary in
-// step, notes who edited and logs the change. Access checks stay with the caller.
 export const writeMomentUpdate = async (
   ctx: MutationCtx,
   args: {
     event: Doc<"events">;
     moment: Doc<"moments">;
-    // Whose uploads may be attached: the editor's own.
     userId: Id<"users">;
-    // Who the change log and the moment name as the editor.
     actor: Actor;
     patch: MomentEdit;
   },
@@ -397,7 +383,6 @@ export const writeMomentUpdate = async (
   > = {};
   const fields: string[] = [];
   let removedMediaIds: Id<"media">[] = [];
-  // Not a field the change log names, so an offset on its own is stored quietly.
   const tzOffsetMinutes = checkOffset(patch.tzOffsetMinutes);
   if (tzOffsetMinutes !== undefined) docPatch.tzOffsetMinutes = tzOffsetMinutes;
 
@@ -440,7 +425,6 @@ export const writeMomentUpdate = async (
     const people = [...new Set(patch.people)];
     if (people.length > 50) invalid("people", "Add at most 50 people");
     for (const person of people) {
-      // Tagging can't reach past the trip: no names from outside it.
       if ((await getEventAccessFor(ctx, person, event._id)) === null) {
         invalid("people", "Only people on this experience can be added");
       }
@@ -478,8 +462,6 @@ export const writeMomentUpdate = async (
     if (after.blocks.length + (after.stops ?? []).reduce((n, s) => n + s.blocks.length, 0) === 0) {
       invalid("blocks", "Add something to share");
     }
-    // Photos and videos dropped from any stop are detached and returned
-    // for deletion; new ones are attached to this moment.
     const before = mediaIdsOf(moment);
     const kept = new Set(mediaIdsOf(after));
     removedMediaIds = before.filter((id) => !kept.has(id));
@@ -494,13 +476,9 @@ export const writeMomentUpdate = async (
   }
 
   if (fields.length === 0 && tzOffsetMinutes === undefined) return { removedMediaIds: [] };
-  // Only a real field change counts as an edit: an offset alone leaves no "edited" mark.
   if (fields.length > 0) docPatch.lastEdit = lastEditOf(actor, Date.now());
-  const followCover = docPatch.startsAt !== undefined ? await datesBefore(ctx, event) : undefined;
   await ctx.db.patch("moments", moment._id, docPatch);
-  await followCover?.(ctx);
 
-  // The log keeps naming only the fields people changed.
   if (fields.length === 0) return { removedMediaIds };
   await recordChange(ctx, {
     eventId: event._id,
@@ -514,15 +492,13 @@ export const writeMomentUpdate = async (
   return { removedMediaIds };
 };
 
-// Delete a moment. Its photos are detached and returned so the caller can
-// delete them from R2.
 const remove = mutation({
   args: { momentId: v.id("moments") },
   handler: async (ctx, args) => {
     const moment = await ctx.db.get("moments", args.momentId);
     if (moment === null) throw new Error("Moment not found");
     const { userId, event, role } = await requireEventAccess(ctx, moment.eventId, "contributor");
-    if (role !== "owner" && moment.authorId !== userId) {
+    if (!mayChangeMoment(moment, userId, role)) {
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "You can only delete your own moments",
@@ -533,8 +509,39 @@ const remove = mutation({
   },
 });
 
-// The write behind `remove`, shared with typed requests. Detaches the moment's
-// photos (returned, so the caller can clear them from R2) and logs the change. Access checks stay with the caller.
+// Archive a moment, or bring it back. Archived, it is out of the story and
+// kept from everyone but the experience's owners and its author. Whoever may
+// edit the moment may archive it.
+const setArchived = mutation({
+  args: { momentId: v.id("moments"), archived: v.boolean() },
+  handler: async (ctx, args) => {
+    const moment = await ctx.db.get("moments", args.momentId);
+    if (moment === null) throw new Error("Moment not found");
+    const { userId, event, role } = await requireEventAccess(ctx, moment.eventId, "contributor");
+    if (!mayChangeMoment(moment, userId, role)) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "You can only archive your own moments",
+      });
+    }
+    assertNotArchived(event);
+    if ((moment.archived === true) === args.archived) return null;
+    await ctx.db.patch("moments", moment._id, { archived: args.archived ? true : undefined });
+    await ctx.db.patch("events", event._id, {
+      archivedCount: Math.max(0, (event.archivedCount ?? 0) + (args.archived ? 1 : -1)),
+    });
+    await recordChange(ctx, {
+      eventId: event._id,
+      entity: "moment",
+      entityId: moment._id,
+      actorId: userId,
+      action: "update",
+      fields: ["archived"],
+    });
+    return null;
+  },
+});
+
 export const deleteMoment = async (
   ctx: MutationCtx,
   args: { event: Doc<"events">; moment: Doc<"moments">; userId: Id<"users"> },
@@ -544,12 +551,14 @@ export const deleteMoment = async (
   for (const id of removedMediaIds) {
     await detachMedia(ctx, id, userId);
   }
-  const followCover = await datesBefore(ctx, event);
   await ctx.db.delete("moments", moment._id);
   await ctx.db.patch("events", event._id, {
     momentCount: Math.max(0, event.momentCount - 1),
+    // Spread, not `undefined`: a patch with undefined would clear the count.
+    ...(moment.archived === true && {
+      archivedCount: Math.max(0, (event.archivedCount ?? 0) - 1),
+    }),
   });
-  await followCover(ctx);
 
   await recordChange(ctx, {
     eventId: event._id,
@@ -562,5 +571,4 @@ export const deleteMoment = async (
   return { removedMediaIds };
 };
 
-// What the app calls. Registered once, by convex/api/moments.ts, which re-exports it.
-export const momentsApi = { create, list, page, update, remove };
+export const momentsApi = { create, list, page, update, remove, setArchived };

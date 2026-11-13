@@ -9,10 +9,6 @@ export const MEDIA_ACCEPT = `image/*,${VIDEO_TYPES.join(",")}`;
 
 export const isVideoFile = (file: File) => VIDEO_TYPES.includes(file.type);
 
-// Streams a photo or video through our server route, which encrypts it into R2.
-// A JPEG goes up without its camera details (where and when it was taken),
-// since a share link can reach it; the file the caller holds is untouched.
-// A photo over the cap (most full-size phone photos) goes up as a smaller JPEG.
 export const uploadMedia = async (file: File, eventId: string, token: string): Promise<string> => {
   let upload: Blob;
   if (isVideoFile(file)) {
@@ -31,7 +27,6 @@ export const uploadMedia = async (file: File, eventId: string, token: string): P
       Authorization: `Bearer ${token}`,
       "Content-Type": upload.type || file.type,
       "X-Event-Id": eventId,
-      // The server streams exactly this many bytes, so it must be the stripped size.
       "X-File-Size": String(upload.size),
     },
     body: upload,
@@ -47,7 +42,6 @@ export const uploadMedia = async (file: File, eventId: string, token: string): P
   return body.mediaId;
 };
 
-// Best effort: a list can still show the original when this does not land.
 const uploadThumb = async (file: File, mediaId: string, token: string, eventId?: string) => {
   const thumb = await displayThumbnail(file).catch(() => undefined);
   if (!thumb || thumb.blob.size > MAX_THUMB_BYTES) return;
@@ -64,34 +58,9 @@ const uploadThumb = async (file: File, mediaId: string, token: string, eventId?:
   await fetch("/api/upload", { method: "POST", headers, body: thumb.blob }).catch(() => undefined);
 };
 
-// The journal printed to a locked PDF, through the same route, which
-// encrypts it into R2 like a photo. Only the experience's owner may.
-export const uploadJournalPdf = async (
-  pdf: Uint8Array,
-  eventId: string,
-  token: string,
-): Promise<string> => {
-  const body = new Blob([pdf.slice().buffer], { type: "application/pdf" });
-  const res = await fetch("/api/upload", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/pdf",
-      "X-Event-Id": eventId,
-      "X-Purpose": "journal-pdf",
-      "X-File-Size": String(body.size),
-    },
-    body,
-  });
-  const reply = (await res.json().catch(() => null)) as { mediaId?: string; error?: string } | null;
-  if (!res.ok || !reply?.mediaId) throw new Error(reply?.error ?? "Upload failed");
-  return reply.mediaId;
-};
-
 export const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 export const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp", "image/avif"];
 
-// Profile images go through the same server route, with an avatar purpose.
 export const uploadAvatar = async (file: File, token: string): Promise<string> => {
   if (!AVATAR_TYPES.includes(file.type)) throw new Error("Use a JPEG, PNG, WebP or AVIF image");
   if (file.size > MAX_AVATAR_BYTES) throw new Error("Profile images can be at most 2 MB");
@@ -114,8 +83,6 @@ export const uploadAvatar = async (file: File, token: string): Promise<string> =
   return body.mediaId;
 };
 
-// Removes a replaced or cleared image from storage; failures are not fatal
-// because the image is no longer referenced either way.
 export const deleteMedia = async (mediaId: string, token: string): Promise<void> => {
   await fetch(`/api/media/${mediaId}`, {
     method: "DELETE",

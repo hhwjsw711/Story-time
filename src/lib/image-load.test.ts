@@ -9,8 +9,7 @@ import {
   type MountedImage,
 } from "./image-load";
 
-// A zoomed journal page has 8 photos and 3 of them are in the viewport.
-// The moments shelf holds 24 photos (its cap). At 640px, 10 tiles fit.
+// An open page has 8 photos and 3 of them are in the viewport.
 const fixture = (): MountedImage[] => {
   const shown = visibleTiles(640);
   const page = Array.from({ length: 8 }, (_, i) => ({

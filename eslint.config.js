@@ -30,15 +30,10 @@ export default defineConfig([
   },
   {
     files: ["**/*.{ts,tsx}"],
-    // Functions are arrow functions: `const name = () => {}`, never
-    // `function name() {}`. A rare exception (a generator, an overload, an
-    // assertion function) says why on an eslint-disable line.
     rules: { "func-style": ["error", "expression"] },
   },
   {
     files: ["src/**/*.{ts,tsx}"],
-    // The app reads Convex through TanStack Query, so a page and its route's
-    // loader share one cache entry. convex/react's own query hooks would not.
     rules: {
       "no-restricted-imports": [
         "error",
@@ -56,4 +51,8 @@ export default defineConfig([
     },
   },
   ...convexPlugin.configs.recommended,
+  {
+    files: ["convex/tests/**/*.ts"],
+    rules: { "@convex-dev/no-process-env": "off" },
+  },
 ]);

@@ -13,20 +13,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useSeen } from "@/hooks/use-seen";
 
-// An experience, loaded once for whichever of its sections is open (moments,
-// journal, sharing, activity): the not-found and loading states, and, unless
-// `bare`, the header with its name and, unless the page places them itself
-// (`actions={false}`), its Play, Add and More.
+// sharing, activity): the not-found and loading states, and the header with
+// its name and, unless the page places them itself (`actions={false}`), its
+// Play, Add and More.
 export const ExperienceShell = ({
   id,
   section,
-  bare = false,
   actions = true,
   children,
 }: {
   id: string;
   section?: string;
-  bare?: boolean;
   actions?: boolean;
   children: (event: EventView) => ReactNode;
 }) => {
@@ -62,13 +59,11 @@ export const ExperienceShell = ({
       </div>
     );
   }
-  if (bare) return <>{children(event)}</>;
 
   const dates = eventDates(event);
   const archived = event.status === "archived";
   return (
     <div className="mx-auto w-full max-w-[80rem] space-y-5">
-      {/* The experience's name, dates and size. */}
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0 space-y-1">
           <h1 className="font-serif text-2xl font-semibold tracking-tight text-balance break-words sm:text-3xl">
@@ -90,7 +85,6 @@ export const ExperienceShell = ({
   );
 };
 
-// Play, Add and More. Playing it as a story is the payoff, so that leads.
 export const ExperienceActions = ({ event }: { event: EventView }) => {
   const navigate = useNavigate();
   return (

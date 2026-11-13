@@ -13,20 +13,17 @@ describe("upload signatures", () => {
     expect(looksLike(of("RIFF", [0, 0, 0, 0], "WEBP"), "image/webp")).toBe(true);
     expect(looksLike(of([0, 0, 0, 0x1c], "ftypavif"), "image/avif")).toBe(true);
     expect(looksLike(of([0, 0, 0, 0x18], "ftypisom"), "video/mp4")).toBe(true);
-    expect(looksLike(of("%PDF-1.7"), "application/pdf")).toBe(true);
 
-    // A Windows program, a script and a page, each named a photo.
     expect(looksLike(of("MZ", [0x90, 0]), "image/jpeg")).toBe(false);
     expect(looksLike(of("#!/bin/sh\n"), "image/png")).toBe(false);
     expect(looksLike(of("<html><script>"), "image/gif")).toBe(false);
-    // The right bytes under the wrong name, a short file, an unknown type.
     expect(looksLike(of([0xff, 0xd8, 0xff]), "image/png")).toBe(false);
     expect(looksLike(of([0xff]), "image/jpeg")).toBe(false);
     expect(looksLike(of([0xff, 0xd8, 0xff]), "application/zip")).toBe(false);
   });
 
   test("peeking keeps every byte, however the upload is cut up", async () => {
-    const all = of("%PDF-1.7 and then the rest of the file");
+    const all = of("GIF89a and then the rest of the file");
     const cuts = [all.subarray(0, 3), all.subarray(3, 20), all.subarray(20)];
     const source = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -35,7 +32,7 @@ describe("upload signatures", () => {
       },
     });
     const { head, body } = await peek(source);
-    expect(looksLike(head, "application/pdf")).toBe(true);
+    expect(looksLike(head, "image/gif")).toBe(true);
     expect(head).toHaveLength(16);
     expect(new Uint8Array(await new Response(body).arrayBuffer())).toEqual(all);
   });

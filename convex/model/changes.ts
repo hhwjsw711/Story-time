@@ -5,12 +5,11 @@ import { mutation, query, type QueryCtx } from "../_generated/server";
 import { requireEventAccess } from "../lib/access";
 import { changeCounts } from "../lib/aggregates";
 
-// What the Activity badge counts: new moments, new pages, and guestbook notes.
-const NOTABLE = ["moment", "page", "guestNote"] as const;
+// What the Activity badge counts: new moments and guestbook notes.
+const NOTABLE = ["moment", "guestNote"] as const;
 
-// Per kind, not a shared window. A trip holds at most 400 pages and a few
-// hundred moments, so this covers a burst of creates of one kind. Edits of
-// other kinds are not in the index range and cannot crowd a note out.
+// Per kind, not a shared window. A trip holds at most a few hundred
+// moments, so this covers a burst of creates of one kind. Edits of
 const UNREAD_SCAN = 1000;
 
 const countCreates = async (
@@ -28,8 +27,7 @@ const countCreates = async (
   return rows.length;
 };
 
-// How many new moments, pages and guestbook notes the owner has not opened
-// Activity for. Zero until something notable is created after the last look.
+// How many new moments and guestbook notes the owner has not opened
 const unreadCount = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
@@ -47,7 +45,7 @@ const unreadCount = query({
   },
 });
 
-// The owner has looked. Later moments, pages and notes count again.
+// The owner has looked. Later moments and notes count again.
 const markRead = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
@@ -66,7 +64,6 @@ const markRead = mutation({
   },
 });
 
-// Activity feed, newest first. Owner only; a revoked session sees nothing.
 const listForEvent = query({
   args: { eventId: v.id("events"), paginationOpts: paginationOptsValidator },
   handler: async (ctx, args) => {
@@ -77,7 +74,6 @@ const listForEvent = query({
       .order("desc")
       .paginate(args.paginationOpts);
 
-    // A page is small, so look each person up once however many rows name them.
     const ids = new Set(page.page.flatMap((c) => (c.actorId === undefined ? [] : [c.actorId])));
     const names = new Map<Id<"users">, string | undefined>(
       await Promise.all(
@@ -94,9 +90,6 @@ const listForEvent = query({
   },
 });
 
-// How many changes each kind of actor made, for Activity's filters: people,
-// agents, and Story-time itself (no person or agent), which add up to all of
-// them. Kept as running counts (lib/aggregates.ts), so nothing is scanned.
 const counts = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
@@ -109,5 +102,4 @@ const counts = query({
   },
 });
 
-// What the app calls. Registered once, by convex/api/changes.ts, which re-exports it.
 export const changesApi = { unreadCount, markRead, listForEvent, counts };

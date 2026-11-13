@@ -3,17 +3,11 @@ import { getServiceToken } from "convex/server";
 import { z } from "zod";
 import { action } from "../../_generated/server";
 import { MAX_COMMAND_CHARS, MAX_VOICE_BYTES } from "../../lib/limits";
-import { AI_LIMIT_MESSAGE, takeAi } from "../../lib/rateLimit";
+import { AI_LIMIT_MESSAGE, creditAi, takeAi } from "../../lib/rateLimit";
 import { TRANSCRIPTION_MODEL } from "../../lib/ai/models";
-import { metered } from "../../lib/ai/budget";
-
-// Turns a short recording into text for the box above the itinerary. The clip
-// goes to the gateway's speech-to-text model and nowhere else: it isn't stored,
-// logged or kept, and neither is the text.
 
 const GATEWAY = "https://ai-gateway.convex.dev/v1/audio/transcriptions";
 
-// What a browser's recorder makes, by the names the gateway knows.
 export const FORMATS = ["webm", "ogg", "m4a", "mp3", "wav"] as const;
 export type Format = (typeof FORMATS)[number];
 
@@ -32,7 +26,6 @@ export const toBase64 = (bytes: Uint8Array): string => {
 
 const reply = z.object({ text: z.string() });
 
-// The words in the gateway's reply, tidied, or undefined when it isn't one.
 export const readTranscript = (body: unknown): string | undefined => {
   const parsed = reply.safeParse(body);
   if (!parsed.success) return undefined;
@@ -66,41 +59,23 @@ const transcribe = action({
       });
     }
 
-    const res = await metered(
-      ctx,
-      { userId: identity.subject, feature: "voice", model: TRANSCRIPTION_MODEL },
-      async () => {
-        const out = await fetch(GATEWAY, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${await getServiceToken("ai-gateway")}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: TRANSCRIPTION_MODEL,
-            input_audio: { data: toBase64(new Uint8Array(args.audio)), format: args.format },
-            // No `provider.zdr` here: the transcription route refuses it (400,
-            // unsupported parameter), so voice is the one model call that can't
-            // ask for zero-data-retention endpoints yet.
-          }),
-        });
-        // The gateway's cost, from a clone: the body is read again below.
-        const body: unknown = out.ok ? await out.clone().json() : undefined;
-        const usage: unknown =
-          typeof body === "object" && body !== null && "usage" in body ? body.usage : undefined;
-        const cost =
-          typeof usage === "object" &&
-          usage !== null &&
-          "cost" in usage &&
-          typeof usage.cost === "number"
-            ? usage.cost
-            : undefined;
-        return { result: out, costUsd: cost };
+    const res = await fetch(GATEWAY, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${await getServiceToken("ai-gateway")}`,
+        "Content-Type": "application/json",
       },
-    );
-    // Status only: an error body can echo the request, and the request is the recording.
-    if (!res.ok) {
-      console.warn(`Transcription failed with status ${res.status}`);
+      body: JSON.stringify({
+        model: TRANSCRIPTION_MODEL,
+        input_audio: { data: toBase64(new Uint8Array(args.audio)), format: args.format },
+        // No `provider.zdr` here: the transcription route refuses it (400,
+        // unsupported parameter), so voice is the one model call that can't
+        // ask for zero-data-retention endpoints yet.
+      }),
+    }).catch(() => undefined);
+    if (!res?.ok) {
+      console.warn(`Transcription failed with status ${res?.status ?? "none"}`);
+      await creditAi(ctx, identity.subject);
       throw new ConvexError({
         code: "AI_UNAVAILABLE",
         message: "I couldn't make that out just now. Try again, or type it.",
@@ -117,5 +92,4 @@ const transcribe = action({
   },
 });
 
-// What the app calls. Registered once, by convex/api/ai/voice.ts, which re-exports it.
 export const voiceApi = { transcribe };

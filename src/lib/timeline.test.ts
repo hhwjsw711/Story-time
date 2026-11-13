@@ -16,7 +16,6 @@ const moment = (id: string, startsAt: number, over: Partial<MomentView> = {}): M
 
 describe("days", () => {
   test("group by the day in the zone the moment happened in, oldest first", () => {
-    // 22:15 UTC on 8 November is 07:15 on 9 November in Japan (UTC+9).
     const kyoto = Date.UTC(2025, 10, 8, 22, 15);
     const days = groupByDay([
       moment("b", kyoto, { tzOffsetMinutes: 540 }),
@@ -73,12 +72,12 @@ describe("a moment's row", () => {
   test("its photos and videos, in order across stops", () => {
     const m = moment("a", 0, {
       blocks: [photo("p1"), video("v1")],
-      stops: [{ blocks: [photo("p2")] }],
+      stops: [{ blocks: [{ ...photo("p2"), hidden: true }] }],
     });
     expect(mediaOf(m)).toEqual([
-      { mediaId: "p1", video: false },
-      { mediaId: "v1", video: true },
-      { mediaId: "p2", video: false },
+      { mediaId: "p1", video: false, hidden: false },
+      { mediaId: "v1", video: true, hidden: false },
+      { mediaId: "p2", video: false, hidden: true },
     ]);
     expect(rowLabel(m)).toBe("2 photos · 1 video");
   });

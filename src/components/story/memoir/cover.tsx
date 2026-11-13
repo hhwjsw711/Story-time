@@ -5,7 +5,6 @@ import { dateRange } from "@/components/story/title-card";
 import { Button } from "@/components/ui/button";
 import { stopsOf } from "@/lib/story-steps";
 
-// The story's first photo in time order: the picture on the cover.
 const firstPhoto = (moments: StoryMoment[]): string | undefined => {
   const blocks = [...moments]
     .sort((a, b) => a.startsAt - b.startsAt)
@@ -14,8 +13,6 @@ const firstPhoto = (moments: StoryMoment[]): string | undefined => {
   return photo?.type === "photo" ? photo.mediaId : undefined;
 };
 
-// The top of the memoir: what the story is, when, and a first picture. The
-// film is one tap away from here, too.
 export const Cover = ({
   event,
   moments,
@@ -27,7 +24,7 @@ export const Cover = ({
   moments: StoryMoment[];
   days: number;
   stops: number;
-  onPlayFilm: () => void;
+  onPlayFilm?: () => void;
 }) => {
   const range = dateRange(event, moments);
   const photo = firstPhoto(moments);
@@ -62,13 +59,15 @@ export const Cover = ({
         />
       )}
       <div className="mt-6 flex flex-wrap items-center gap-4">
-        <Button
-          size="lg"
-          className="rounded-full bg-[#c2410c] px-5 text-white hover:bg-[#c2410c]/90"
-          onClick={onPlayFilm}
-        >
-          <PlayIcon /> Play as film
-        </Button>
+        {onPlayFilm && (
+          <Button
+            size="lg"
+            className="rounded-full bg-[#c2410c] px-5 text-white hover:bg-[#c2410c]/90"
+            onClick={onPlayFilm}
+          >
+            <PlayIcon /> Play as film
+          </Button>
+        )}
         <p className="text-sm text-stone-600 dark:text-muted-foreground">{counts}</p>
       </div>
     </section>

@@ -11,12 +11,10 @@ import {
 } from "@/components/ui/breadcrumb";
 
 const SECTION_NAMES: Record<string, string> = {
-  "/journal": "Journal",
   "/shared": "People",
   "/activity": "Activity",
 };
 
-// Navbar trail for the experiences side: Experiences › <experience> › <section>.
 export const AppBreadcrumb = () => {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const open = /^\/e\/([^/]+)(\/[a-z]+)?\/?$/.exec(pathname);

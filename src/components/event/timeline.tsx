@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthToken } from "@convex-dev/auth/react";
 import { useMutation, usePaginatedQuery } from "convex/react";
 import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
   ArrowDownUpIcon,
+  EyeOffIcon,
   ImagesIcon,
   PencilIcon,
   PlayIcon,
@@ -22,27 +25,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { deletePhotos } from "@/lib/actions";
+import { errorMessage } from "@/lib/errors";
 import { authorOf } from "@/lib/actors";
 import { formatTime } from "@/lib/local-time";
 import { matchesSearch } from "@/lib/moment-filters";
 import { viewerDay } from "@/lib/photo-groups";
 import { type Day, groupByDay, mediaOf, rowLabel } from "@/lib/timeline";
+import { readStored, writeStored } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
 const PAGE = 30;
 
 const ORDER_KEY = "moments-order";
-const readNewestFirst = (): boolean => {
-  try {
-    return localStorage.getItem(ORDER_KEY) === "newest";
-  } catch {
-    return false;
-  }
-};
+const readNewestFirst = (): boolean => readStored("local", ORDER_KEY) === "newest";
 
-// The moments of an experience as a grid of cards, oldest first, with a search
-// box. Picking one hands it to the page, which edits it or opens it in the
-// story. Each card you may change has its own Edit and Delete buttons.
 export const Timeline = ({
   event,
   meId,
@@ -60,19 +56,11 @@ export const Timeline = ({
 }) => {
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
-  // Which end of the trip leads. Remembered on this device.
   const [newestFirst, setNewestFirst] = useState(readNewestFirst);
   const flip = () => {
     setNewestFirst(!newestFirst);
-    try {
-      localStorage.setItem(ORDER_KEY, newestFirst ? "oldest" : "newest");
-    } catch {
-      // Private mode: the choice lasts until the page is left.
-    }
+    writeStored("local", ORDER_KEY, newestFirst ? "oldest" : "newest");
   };
-  // Thirty at a time, in that order. Searching needs every moment (places and
-  // notes are encrypted, so only the browser can match them), so it reads them
-  // all, and only while something is typed.
   const paged = usePaginatedQuery(
     api.moments.page,
     { eventId: event._id, newestFirst },
@@ -80,14 +68,24 @@ export const Timeline = ({
   );
   const { data: all } = useQuery(queries.moments.list(searching ? { eventId: event._id } : "skip"));
   const moments = searching ? all : paged.status === "LoadingFirstPage" ? undefined : paged.results;
-  const { data: leftOut } = useQuery(queries.journal.unpaged({ eventId: event._id }));
-  const unpaged = new Set(leftOut?.full ? leftOut.momentIds : []);
   const remove = useMutation(api.moments.remove);
+  const setArchived = useMutation(api.moments.setArchived);
+  const archive = async (m: MomentView) => {
+    try {
+      await setArchived({ momentId: m._id, archived: !m.archived });
+      toast.success(
+        m.archived
+          ? "Moment restored"
+          : "Moment archived. Only you and the experience's owners see it now.",
+      );
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
   const token = useAuthToken();
   const [deleting, setDeleting] = useState<MomentView | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
 
-  // "/" jumps to the search from anywhere outside a text field, as on most sites.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
@@ -98,7 +96,6 @@ export const Timeline = ({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // The moment named in the address comes into view, loading more until it is there.
   useEffect(() => {
     if (!selectedMomentId || moments === undefined) return;
     if (
@@ -180,7 +177,6 @@ export const Timeline = ({
   if (moments.length === 0) return <Empty event={event} />;
 
   const shown = moments.filter((m) => matchesSearch(m, query));
-  // Grouped oldest first, then turned round whole: days, and moments in a day.
   const ordered = groupByDay(shown, viewerDay());
   const days = newestFirst
     ? ordered.reverse().map((day) => ({ ...day, moments: [...day.moments].reverse() }))
@@ -198,8 +194,6 @@ export const Timeline = ({
           No moments match.
         </p>
       )}
-      {/* One bento grid of moments, oldest first: a tile's size follows what
-          it holds, and small tiles fill the gaps between big ones. */}
       <ul className="grid auto-rows-[9rem] grid-flow-dense grid-cols-2 gap-3 @2xl:grid-cols-4">
         {days.flatMap((day) =>
           day.moments.map((m) => {
@@ -211,7 +205,6 @@ export const Timeline = ({
                 moment={m}
                 day={day}
                 mine={m.authorId === meId}
-                unpaged={unpaged.has(m._id)}
                 overPhoto={media.length > 0}
                 roomForActions={media.length === 0 && editable}
               />
@@ -221,11 +214,11 @@ export const Timeline = ({
                 key={m._id}
                 className={cn(
                   "relative overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md",
-                  // Words get width, one photo height, several photos both.
                   media.length === 0 && "col-span-2",
                   media.length === 1 && "row-span-2",
                   media.length > 1 && "col-span-2 row-span-2",
                   selected && "ring-2 ring-ring",
+                  m.archived && "opacity-60",
                 )}
               >
                 <button
@@ -268,6 +261,16 @@ export const Timeline = ({
                       type="button"
                       variant="ghost"
                       size="icon-sm"
+                      aria-label={m.archived ? "Restore moment" : "Archive moment"}
+                      className="text-muted-foreground"
+                      onClick={() => void archive(m)}
+                    >
+                      {m.archived ? <ArchiveRestoreIcon /> : <ArchiveIcon />}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label="Delete moment"
                       className="text-muted-foreground hover:text-destructive"
                       onClick={() => setDeleting(m)}
@@ -292,7 +295,8 @@ export const Timeline = ({
         >
           {paged.status === "LoadingMore"
             ? "Loading…"
-            : `Show more (${event.momentCount - moments.length} left)`}
+            : // The count leaves archived moments out; this list may hold some.
+              `Show more (${Math.max(0, event.momentCount - moments.filter((m) => !m.archived).length)} left)`}
         </Button>
       )}
       <ConfirmDialog
@@ -324,21 +328,16 @@ const Empty = ({ event }: { event: EventView }) => {
   );
 };
 
-// When, what and who else, as a tile says it: over a photo in white on a dark
-// fade, else in the card's own colours. The author shows only when it isn't
-// the person looking.
 const Caption = ({
   moment: m,
   day,
   mine,
-  unpaged,
   overPhoto,
   roomForActions,
 }: {
   moment: MomentView;
   day: Day;
   mine: boolean;
-  unpaged: boolean;
   overPhoto: boolean;
   roomForActions: boolean;
 }) => {
@@ -355,8 +354,8 @@ const Caption = ({
         className={cn(
           "block font-mono text-[11px] tracking-[0.08em] uppercase",
           overPhoto ? "text-white/75" : "text-muted-foreground",
-          // Room for Edit and Delete, which sit over a tile with no photo.
-          roomForActions && "pr-16",
+          // Room for Edit, Archive and Delete, which sit over a tile with no photo.
+          roomForActions && "pr-24",
         )}
       >
         {day.label} · {formatTime(m.startsAt, m.tzOffsetMinutes)}
@@ -370,6 +369,7 @@ const Caption = ({
             Today
           </span>
         )}
+        {m.archived && <span className="ml-1.5 font-sans tracking-normal normal-case">Archived</span>}
       </span>
       <span
         className={cn(
@@ -390,13 +390,6 @@ const Caption = ({
           {more}
         </span>
       )}
-      {unpaged && (
-        <span
-          className={cn("block text-xs", overPhoto ? "text-white/75" : "text-muted-foreground")}
-        >
-          The journal is full, so this moment has no page.
-        </span>
-      )}
       {!mine && (
         <ActorBadge
           actor={authorOf(m)}
@@ -415,9 +408,11 @@ const isTyping = (target: EventTarget | null) => {
   );
 };
 
-// A moment's photos filling its tile: one, two side by side, or one large with
-// two beside it. Videos have no stored thumbnail, so they show as a play tile.
-const Mosaic = ({ media }: { media: Array<{ mediaId: string; video: boolean }> }) => {
+const Mosaic = ({
+  media,
+}: {
+  media: Array<{ mediaId: string; video: boolean; hidden: boolean }>;
+}) => {
   const shown = media.slice(0, 3);
   return (
     <span
@@ -427,7 +422,7 @@ const Mosaic = ({ media }: { media: Array<{ mediaId: string; video: boolean }> }
         shown.length === 3 && "grid-cols-3 grid-rows-2",
       )}
     >
-      {shown.map(({ mediaId, video }, i) => (
+      {shown.map(({ mediaId, video, hidden }, i) => (
         <span
           key={mediaId}
           className={cn(
@@ -441,6 +436,11 @@ const Mosaic = ({ media }: { media: Array<{ mediaId: string; video: boolean }> }
             </span>
           ) : (
             <AuthImage mediaId={mediaId} alt="" className="aspect-auto size-full rounded-none" />
+          )}
+          {hidden && (
+            <span className="absolute right-1 bottom-1 rounded-md bg-black/55 p-1 text-white backdrop-blur-sm">
+              <EyeOffIcon aria-label="Hidden from other people" className="size-3.5" />
+            </span>
           )}
         </span>
       ))}
