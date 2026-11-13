@@ -84,8 +84,6 @@ export const Timeline = ({
   );
   const { data: all } = useQuery(queries.moments.list(searching ? { eventId: event._id } : "skip"));
   const moments = searching ? all : paged.status === "LoadingFirstPage" ? undefined : paged.results;
-  const { data: leftOut } = useQuery(queries.journal.unpaged({ eventId: event._id }));
-  const unpaged = new Set(leftOut?.full ? leftOut.momentIds : []);
   const remove = useMutation(api.moments.remove);
   const setArchived = useMutation(api.moments.setArchived);
   const archive = async (m: MomentView) => {
@@ -228,7 +226,6 @@ export const Timeline = ({
                 moment={m}
                 day={day}
                 mine={m.authorId === meId}
-                unpaged={unpaged.has(m._id)}
                 overPhoto={media.length > 0}
                 roomForActions={media.length === 0 && editable}
               />
@@ -360,14 +357,12 @@ const Caption = ({
   moment: m,
   day,
   mine,
-  unpaged,
   overPhoto,
   roomForActions,
 }: {
   moment: MomentView;
   day: Day;
   mine: boolean;
-  unpaged: boolean;
   overPhoto: boolean;
   roomForActions: boolean;
 }) => {
@@ -418,13 +413,6 @@ const Caption = ({
           )}
         >
           {more}
-        </span>
-      )}
-      {unpaged && (
-        <span
-          className={cn("block text-xs", overPhoto ? "text-white/75" : "text-muted-foreground")}
-        >
-          The journal is full, so this moment has no page.
         </span>
       )}
       {!mine && (

@@ -1,4 +1,4 @@
-import { DAY, HOUR, MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
+import { DAY, MINUTE, RateLimiter } from "@convex-dev/rate-limiter";
 import { ConvexError } from "convex/values";
 import { components } from "../_generated/api";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
@@ -7,11 +7,9 @@ import { EMAIL_CHECKS_PER_DAY, INVITE_EMAILS_PER_DAY, SHARE_EMAILS_PER_DAY } fro
 // Per-person allowances, keyed by user id.
 export const rateLimiter = new RateLimiter(components.rateLimiter, {
   // Every AI feature draws on one allowance: a note written for a moment, a
-  // typed or spoken request, a journal title. The day starts at midnight UTC.
+  // typed or spoken request. The day starts at midnight UTC.
   ai: { kind: "fixed window", rate: 10, period: DAY, start: 0 },
-  // A link preview fetches someone else's page. Not AI, so it has its own.
-  linkPreview: { kind: "token bucket", rate: 60, period: HOUR },
-  // Changes a person makes (moments, journal pages, invites, sharing...):
+  // Changes a person makes (moments, invites, sharing...):
   // far more than anyone types, enough for a big photo import, and a stop
   // for a client stuck in a loop. Token buckets refill steadily.
   writes: { kind: "token bucket", rate: 300, period: MINUTE },
