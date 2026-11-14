@@ -15,6 +15,7 @@ import { Route as AuthDotmdRouteImport } from './routes/auth[.]md'
 import { Route as LlmsDottxtRouteImport } from './routes/llms[.]txt'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as DotwellKnownApiCatalogRouteImport } from './routes/[.]well-known/api-catalog'
+import { Route as AppConnectRouteImport } from './routes/_app/connect'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as ApiUploadRouteImport } from './routes/api/upload'
@@ -23,7 +24,6 @@ import { Route as InviteTokenRouteImport } from './routes/invite.$token'
 import { Route as SChar123NameChar125RouteImport } from './routes/s.{-$name}'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings.index'
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings.account'
-import { Route as AppSettingsDataRouteImport } from './routes/_app/settings.data'
 import { Route as AppSettingsProfileRouteImport } from './routes/_app/settings.profile'
 import { Route as ApiEventsIdRouteImport } from './routes/api/events.$id'
 import { Route as ApiMediaIdRouteImport } from './routes/api/media.$id'
@@ -61,6 +61,11 @@ const DotwellKnownApiCatalogRoute = DotwellKnownApiCatalogRouteImport.update({
   id: '/.well-known/api-catalog',
   path: '/.well-known/api-catalog',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppConnectRoute = AppConnectRouteImport.update({
+  id: '/connect',
+  path: '/connect',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppHomeRoute = AppHomeRouteImport.update({
   id: '/home',
@@ -100,11 +105,6 @@ const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
 const AppSettingsAccountRoute = AppSettingsAccountRouteImport.update({
   id: '/account',
   path: '/account',
-  getParentRoute: () => AppSettingsRoute,
-} as any)
-const AppSettingsDataRoute = AppSettingsDataRouteImport.update({
-  id: '/data',
-  path: '/data',
   getParentRoute: () => AppSettingsRoute,
 } as any)
 const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
@@ -154,6 +154,7 @@ export interface FileRoutesByFullPath {
   '/llms.txt': typeof LlmsDottxtRoute
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/api-catalog': typeof DotwellKnownApiCatalogRoute
+  '/connect': typeof AppConnectRoute
   '/home': typeof AppHomeRoute
   '/settings': typeof AppSettingsRouteWithChildren
   '/api/upload': typeof ApiUploadRoute
@@ -161,7 +162,6 @@ export interface FileRoutesByFullPath {
   '/s/{-$name}': typeof SChar123NameChar125Route
   '/invite/': typeof InviteIndexRoute
   '/settings/account': typeof AppSettingsAccountRoute
-  '/settings/data': typeof AppSettingsDataRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/api/events/$id': typeof ApiEventsIdRoute
   '/api/media/$id': typeof ApiMediaIdRoute
@@ -178,13 +178,13 @@ export interface FileRoutesByTo {
   '/llms.txt': typeof LlmsDottxtRoute
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/api-catalog': typeof DotwellKnownApiCatalogRoute
+  '/connect': typeof AppConnectRoute
   '/home': typeof AppHomeRoute
   '/api/upload': typeof ApiUploadRoute
   '/invite/$token': typeof InviteTokenRoute
   '/s/{-$name}': typeof SChar123NameChar125Route
   '/invite': typeof InviteIndexRoute
   '/settings/account': typeof AppSettingsAccountRoute
-  '/settings/data': typeof AppSettingsDataRoute
   '/settings/profile': typeof AppSettingsProfileRoute
   '/api/events/$id': typeof ApiEventsIdRoute
   '/api/media/$id': typeof ApiMediaIdRoute
@@ -203,6 +203,7 @@ export interface FileRoutesById {
   '/llms.txt': typeof LlmsDottxtRoute
   '/verify-email': typeof VerifyEmailRoute
   '/.well-known/api-catalog': typeof DotwellKnownApiCatalogRoute
+  '/_app/connect': typeof AppConnectRoute
   '/_app/home': typeof AppHomeRoute
   '/_app/settings': typeof AppSettingsRouteWithChildren
   '/api/upload': typeof ApiUploadRoute
@@ -210,7 +211,6 @@ export interface FileRoutesById {
   '/s/{-$name}': typeof SChar123NameChar125Route
   '/invite/': typeof InviteIndexRoute
   '/_app/settings/account': typeof AppSettingsAccountRoute
-  '/_app/settings/data': typeof AppSettingsDataRoute
   '/_app/settings/profile': typeof AppSettingsProfileRoute
   '/api/events/$id': typeof ApiEventsIdRoute
   '/api/media/$id': typeof ApiMediaIdRoute
@@ -229,6 +229,7 @@ export interface FileRouteTypes {
     | '/llms.txt'
     | '/verify-email'
     | '/.well-known/api-catalog'
+    | '/connect'
     | '/home'
     | '/settings'
     | '/api/upload'
@@ -236,7 +237,6 @@ export interface FileRouteTypes {
     | '/s/{-$name}'
     | '/invite/'
     | '/settings/account'
-    | '/settings/data'
     | '/settings/profile'
     | '/api/events/$id'
     | '/api/media/$id'
@@ -253,13 +253,13 @@ export interface FileRouteTypes {
     | '/llms.txt'
     | '/verify-email'
     | '/.well-known/api-catalog'
+    | '/connect'
     | '/home'
     | '/api/upload'
     | '/invite/$token'
     | '/s/{-$name}'
     | '/invite'
     | '/settings/account'
-    | '/settings/data'
     | '/settings/profile'
     | '/api/events/$id'
     | '/api/media/$id'
@@ -277,6 +277,7 @@ export interface FileRouteTypes {
     | '/llms.txt'
     | '/verify-email'
     | '/.well-known/api-catalog'
+    | '/_app/connect'
     | '/_app/home'
     | '/_app/settings'
     | '/api/upload'
@@ -284,7 +285,6 @@ export interface FileRouteTypes {
     | '/s/{-$name}'
     | '/invite/'
     | '/_app/settings/account'
-    | '/_app/settings/data'
     | '/_app/settings/profile'
     | '/api/events/$id'
     | '/api/media/$id'
@@ -356,6 +356,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotwellKnownApiCatalogRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/connect': {
+      id: '/_app/connect'
+      path: '/connect'
+      fullPath: '/connect'
+      preLoaderRoute: typeof AppConnectRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/home': {
       id: '/_app/home'
       path: '/home'
@@ -410,13 +417,6 @@ declare module '@tanstack/react-router' {
       path: '/account'
       fullPath: '/settings/account'
       preLoaderRoute: typeof AppSettingsAccountRouteImport
-      parentRoute: typeof AppSettingsRoute
-    }
-    '/_app/settings/data': {
-      id: '/_app/settings/data'
-      path: '/data'
-      fullPath: '/settings/data'
-      preLoaderRoute: typeof AppSettingsDataRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/profile': {
@@ -480,14 +480,12 @@ declare module '@tanstack/react-router' {
 
 interface AppSettingsRouteChildren {
   AppSettingsAccountRoute: typeof AppSettingsAccountRoute
-  AppSettingsDataRoute: typeof AppSettingsDataRoute
   AppSettingsProfileRoute: typeof AppSettingsProfileRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
 }
 
 const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsAccountRoute: AppSettingsAccountRoute,
-  AppSettingsDataRoute: AppSettingsDataRoute,
   AppSettingsProfileRoute: AppSettingsProfileRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
 }
@@ -497,6 +495,7 @@ const AppSettingsRouteWithChildren = AppSettingsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppConnectRoute: typeof AppConnectRoute
   AppHomeRoute: typeof AppHomeRoute
   AppSettingsRoute: typeof AppSettingsRouteWithChildren
   AppEIdActivityRoute: typeof AppEIdActivityRoute
@@ -506,6 +505,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppConnectRoute: AppConnectRoute,
   AppHomeRoute: AppHomeRoute,
   AppSettingsRoute: AppSettingsRouteWithChildren,
   AppEIdActivityRoute: AppEIdActivityRoute,
